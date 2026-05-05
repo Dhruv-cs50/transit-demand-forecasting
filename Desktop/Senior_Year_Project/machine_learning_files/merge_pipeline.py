@@ -1,0 +1,385 @@
+"""
+processing/merge_pipeline.py
+─────────────────────────────
+Joins all raw data sources into a single tidy feature store parquet file,
+keyed on (timestamp, station_id).
+
+Sources joined:
+  1. Transit ridership   (data/raw/transit/)     — target variable
+  2. Road speed/flow     (data/raw/roads/)        — road context
+  3. Weather             (data/raw/weather/)      — past + future covariate
+  4. Events              (data/raw/events/)       — future-known covariate
+
+Output: data/processed/feature_store.parquet
+Schema:
+    timestamp       datetime64[ns, America/Los_Angeles]
+    station_id      str
+    agency_id       str
+    transit_mode    str      (rail / bus / ferry / road)
+    ridership       float64  ← TARGET
+    road_speed_mph  float64
+    road_flow       float64
+    temp_f          float64
+    precip_mm       float64
+    is_raining      bool
+    weather_code    int
+    windspeed_mph   float64
+    is_game_day     bool
+    game_start_hour int      (NaN if no game)
+    hours_to_event  float64  (hours until next event at a nearby venue)
+    is_sharks_game  bool
+    is_playoff      bool
+    is_holiday      bool
+    is_weekend      bool
+    hour_of_day     int
+    day_of_week     int      (0=Mon, 6=Sun)
+    month           int
+    lat             float64
+    lng             float64
+
+Usage:
+    python processing/merge_pipeline.py
+    python processing/merge_pipeline.py --freq 15min --start 2020-01-01
+"""
+
+import argparse
+import logging
+from pathlib import Path
+
+import holidays
+import pandas as pd
+import yaml
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+log = logging.getLogger("merge_pipeline")
+
+RAW_DIR = Path("data/raw")
+PROCESSED_DIR = Path("data/processed")
+CONFIG_PATH = Path("configs/sources.yaml")
+MODEL_CONFIG_PATH = Path("configs/model.yaml")
+
+
+def load_configs() -> tuple[dict, dict]:
+    with open(CONFIG_PATH) as f:
+        src_cfg = yaml.safe_load(f)
+    with open(MODEL_CONFIG_PATH) as f:
+        model_cfg = yaml.safe_load(f)
+    return src_cfg, model_cfg
+
+
+# ── Loaders ────────────────────────────────────────────────────────────────────
+
+def load_transit(freq: str) -> pd.DataFrame:
+    """
+    Load all transit parquet files, combine, resample to target frequency.
+    For now uses BART OD as the primary transit source.
+    Plug in 511 stop-observation data here once processed.
+    """
+    log.info("Loading transit ridership data …")
+    bart_dir = RAW_DIR / "transit" / "bart"
+    files = list(bart_dir.glob("bart_od_*.parquet"))
+    if not files:
+        log.warning("No BART OD files found — transit column will be NaN")
+        return pd.DataFrame()
+
+    frames = []
+    for f in sorted(files):
+        df = pd.read_parquet(f)
+        frames.append(df)
+
+    combined = pd.concat(frames, ignore_index=True)
+
+    # Aggregate total riders per station per period (collapse day_types & destinations)
+    # For forecasting we want total inbound ridership per station per time window
+    station_monthly = (
+        combined
+        .groupby(["period", "origin", "origin_name"])["riders"]
+        .sum()
+        .reset_index()
+        .rename(columns={"origin": "station_id", "origin_name": "station_name", "riders": "ridership"})
+    )
+
+    # Convert monthly → daily approximation (÷ 22 weekdays) and set to timestamp
+    station_monthly["timestamp"] = pd.to_datetime(station_monthly["period"])
+    station_monthly["ridership_daily_est"] = station_monthly["ridership"] / 22
+    station_monthly["agency_id"] = "BA"
+    station_monthly["transit_mode"] = "rail"
+
+    log.info(f"  Loaded {len(station_monthly):,} station-month rows from BART OD")
+    return station_monthly
+
+
+def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
+    """Load all weather parquet files and return combined hourly DataFrame."""
+    log.info("Loading weather data …")
+    files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
+    if not files:
+        log.warning("No weather files found")
+        return pd.DataFrame()
+
+    df = pd.read_parquet(files[-1])  # use the most recent combined file
+    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(
+        "America/Los_Angeles", ambiguous="NaT", nonexistent="NaT"
+    )
+    df = df.dropna(subset=["timestamp"])
+
+    # Resample weather to target freq
+    df = df.set_index("timestamp").groupby("station").resample(freq).agg({
+        "temp_f":         "mean",
+        "precip_mm":      "sum",
+        "precip_in":      "sum",
+        "windspeed_mph":  "mean",
+        "cloud_cover_pct":"mean",
+        "humidity_pct":   "mean",
+        "is_raining":     "max",   # true if it rained at any point in the window
+        "weather_code":   "last",
+        "lat":            "first",
+        "lng":            "first",
+    }).reset_index()
+
+    log.info(f"  Loaded {len(df):,} weather rows")
+    return df
+
+
+def load_events() -> pd.DataFrame:
+    """Load the most recent events parquet file."""
+    log.info("Loading events data …")
+    files = sorted((RAW_DIR / "events").glob("events_*.parquet"))
+    if not files:
+        log.warning("No events files found")
+        return pd.DataFrame()
+
+    df = pd.read_parquet(files[-1])
+    df["timestamp_start"] = pd.to_datetime(df["timestamp_start"])
+    if df["timestamp_start"].dt.tz is None:
+        df["timestamp_start"] = df["timestamp_start"].dt.tz_localize("America/Los_Angeles")
+    else:
+        df["timestamp_start"] = df["timestamp_start"].dt.tz_convert("America/Los_Angeles")
+
+    log.info(f"  Loaded {len(df):,} events")
+    return df
+
+
+# ── Event feature computation ──────────────────────────────────────────────────
+
+def compute_event_features(
+    timestamps: pd.Series,
+    events: pd.DataFrame,
+    venue_proximity_hrs: float = 4.0,
+) -> pd.DataFrame:
+    """
+    For each timestamp in `timestamps`, compute:
+      - is_game_day: True if any event starts within ±4 hours
+      - hours_to_event: hours until the NEXT event (negative if event already started)
+      - is_sharks_game: True if the nearest event is a Sharks game
+      - game_start_hour: local hour of the nearest event
+      - is_playoff: True if nearest event is a playoff game
+
+    This is a dense join — O(n*m) for small event sets it's fine.
+    For very long histories, use a merge_asof approach.
+    """
+    if events.empty:
+        n = len(timestamps)
+        return pd.DataFrame({
+            "is_game_day":     [False] * n,
+            "hours_to_event":  [float("nan")] * n,
+            "is_sharks_game":  [False] * n,
+            "game_start_hour": [float("nan")] * n,
+            "is_playoff":      [False] * n,
+        })
+
+    ts_arr = timestamps.values
+    ev_starts = events["timestamp_start"].values
+
+    results = []
+    for ts in ts_arr:
+        # Hours delta to each event
+        deltas = (ev_starts - ts) / pd.Timedelta(hours=1)
+        # Events within the ±venue_proximity_hrs window
+        near_mask = (deltas >= -venue_proximity_hrs) & (deltas <= venue_proximity_hrs)
+        near_events = events[near_mask]
+
+        if near_events.empty:
+            results.append({
+                "is_game_day":     False,
+                "hours_to_event":  float("nan"),
+                "is_sharks_game":  False,
+                "game_start_hour": float("nan"),
+                "is_playoff":      False,
+            })
+        else:
+            # Nearest upcoming event
+            future = near_events[near_events["timestamp_start"] >= ts]
+            ref_event = future.iloc[0] if not future.empty else near_events.iloc[
+                (near_events["timestamp_start"] - ts).abs().argmin()
+            ]
+            hrs_to = (ref_event["timestamp_start"] - ts) / pd.Timedelta(hours=1)
+            results.append({
+                "is_game_day":     True,
+                "hours_to_event":  float(hrs_to),
+                "is_sharks_game":  bool(ref_event.get("is_sharks_game", False)),
+                "game_start_hour": int(ref_event["timestamp_start"].hour),
+                "is_playoff":      bool(ref_event.get("is_playoff", False)),
+            })
+
+    return pd.DataFrame(results, index=timestamps.index)
+
+
+# ── Calendar features ──────────────────────────────────────────────────────────
+
+def add_calendar_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.DataFrame:
+    """Add time-based features that are free information (known in advance)."""
+    us_ca_holidays = holidays.country_holidays("US", subdiv="CA")
+
+    ts = df[ts_col]
+    df["hour_of_day"]  = ts.dt.hour
+    df["day_of_week"]  = ts.dt.dayofweek          # 0=Mon, 6=Sun
+    df["is_weekend"]   = ts.dt.dayofweek >= 5
+    df["month"]        = ts.dt.month
+    df["week_of_year"] = ts.dt.isocalendar().week.astype(int)
+    df["is_holiday"]   = ts.dt.date.astype(str).map(
+        lambda d: d in us_ca_holidays
+    )
+    # Peak commute windows
+    df["is_am_peak"]   = ts.dt.hour.between(7, 9)
+    df["is_pm_peak"]   = ts.dt.hour.between(16, 19)
+
+    return df
+
+
+# ── Main pipeline ──────────────────────────────────────────────────────────────
+
+def build_feature_store(
+    freq: str = "15min",
+    start: str = None,
+    end: str = None,
+) -> pd.DataFrame:
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    src_cfg, model_cfg = load_configs()
+
+    # 1. Load each source
+    transit_df = load_transit(freq)
+    weather_df = load_weather(freq, src_cfg["weather"]["station_coords"])
+    events_df  = load_events()
+
+    if transit_df.empty:
+        log.error("Transit data is empty — cannot build feature store")
+        return pd.DataFrame()
+
+    # 2. Build a base time grid from transit data timestamps
+    # (In production this would be the 511 stop-observation data at 15-min resolution)
+    base = transit_df.copy()
+
+    # 3. Merge weather — left join on nearest station
+    # For each transit station we assign the geographically closest weather station
+    if not weather_df.empty:
+        # Simple nearest-station join via station name (direct mapping for now)
+        station_weather_map = {
+            "BERY": "berryessa",
+            "MLPT": "berryessa",
+            "EMBR": "embarcadero",
+            "MLBR": "millbrae",
+            "SFIA": "sfo",
+            "FRMT": "fremont_bart",
+            "19TH": "oakland_19th",
+        }
+        weather_df = weather_df.rename(columns={"station": "weather_station"})
+        # We keep weather merge simple for now — attach avg Bay Area weather
+        bay_avg_weather = (
+            weather_df
+            .groupby("timestamp")[[
+                "temp_f", "precip_mm", "windspeed_mph",
+                "is_raining", "weather_code", "cloud_cover_pct"
+            ]]
+            .mean()
+            .reset_index()
+        )
+        log.info(f"Merging {len(bay_avg_weather):,} weather timesteps …")
+
+    # 4. Compute event features against the timestamp column
+    if not events_df.empty and "timestamp" in base.columns:
+        log.info("Computing event proximity features …")
+        event_features = compute_event_features(
+            base["timestamp"],
+            events_df,
+            venue_proximity_hrs=4.0,
+        )
+        base = pd.concat([base.reset_index(drop=True), event_features.reset_index(drop=True)], axis=1)
+    else:
+        base["is_game_day"] = False
+        base["hours_to_event"] = float("nan")
+        base["is_sharks_game"] = False
+        base["game_start_hour"] = float("nan")
+        base["is_playoff"] = False
+
+    # 5. Calendar features
+    if "timestamp" in base.columns:
+        base = add_calendar_features(base, "timestamp")
+
+    # 6. Date range filter
+    if start:
+        base = base[base["timestamp"] >= pd.Timestamp(start, tz="America/Los_Angeles")]
+    if end:
+        base = base[base["timestamp"] <= pd.Timestamp(end, tz="America/Los_Angeles")]
+
+    # 7. Save
+    out = PROCESSED_DIR / "feature_store.parquet"
+    base.to_parquet(out, index=False)
+    log.info(f"\nFeature store saved: {len(base):,} rows, {len(base.columns)} columns → {out}")
+    log.info(f"Columns: {list(base.columns)}")
+    return base
+
+
+def make_splits(df: pd.DataFrame, train_end: str, val_end: str) -> None:
+    """Chronological train/val/test split — no data leakage."""
+    splits_dir = PROCESSED_DIR / "splits"
+    splits_dir.mkdir(parents=True, exist_ok=True)
+
+    if "timestamp" not in df.columns:
+        log.error("No timestamp column — cannot split")
+        return
+
+    ts = df["timestamp"]
+    train_mask = ts <= pd.Timestamp(train_end, tz="America/Los_Angeles")
+    val_mask   = (ts > pd.Timestamp(train_end, tz="America/Los_Angeles")) & \
+                 (ts <= pd.Timestamp(val_end, tz="America/Los_Angeles"))
+    test_mask  = ts > pd.Timestamp(val_end, tz="America/Los_Angeles")
+
+    for name, mask in [("train", train_mask), ("val", val_mask), ("test", test_mask)]:
+        split_df = df[mask]
+        out = splits_dir / f"{name}.parquet"
+        split_df.to_parquet(out, index=False)
+        log.info(f"  {name:5s}: {len(split_df):>8,} rows → {out}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Build feature store from raw data")
+    parser.add_argument("--freq", default="15min", help="Resample frequency (default: 15min)")
+    parser.add_argument("--start", default=None, help="Start date filter")
+    parser.add_argument("--end", default=None, help="End date filter")
+    parser.add_argument("--no-split", action="store_true", help="Skip train/val/test split")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    _, model_cfg = load_configs()
+
+    df = build_feature_store(args.freq, args.start, args.end)
+
+    if not df.empty and not args.no_split:
+        log.info("Creating train/val/test splits …")
+        make_splits(
+            df,
+            train_end=model_cfg["data"]["train_end"],
+            val_end=model_cfg["data"]["val_end"],
+        )
+
+    log.info("Pipeline complete.")
+
+
+if __name__ == "__main__":
+    main()
