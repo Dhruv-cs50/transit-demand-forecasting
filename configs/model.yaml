@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Bay Area Transit Forecast — Model Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Data / splits ─────────────────────────────────────────────────────────────
+data:
+  resample_freq: "15min"          # time series frequency (15-min intervals)
+  context_length_hours: 168       # 1 week of history fed as context to Chronos-2
+  forecast_horizon_hours: 24      # predict the next 24 hours
+
+  # Chronological splits — no data leakage
+  # train: everything up to train_end
+  # val  : train_end < ts <= val_end
+  # test : ts > val_end
+  train_end: "2023-12-31"
+  val_end:   "2024-06-30"
+
+# ── Chronos-2 ─────────────────────────────────────────────────────────────────
+chronos2:
+  model_id: "amazon/chronos-t5-large"   # options: tiny / mini / small / base / large
+  device: "cpu"                          # "cuda" if GPU available, "mps" for Apple Silicon
+  batch_size: 32
+  quantile_levels: [0.1, 0.5, 0.9]      # P10 / P50 / P90
+
+# ── Fine-tuning (AutoGluon) ───────────────────────────────────────────────────
+finetune:
+  time_limit_seconds: 3600        # 1 hour budget; increase for best_quality
+  presets: "medium_quality"       # fast_training | medium_quality | best_quality
+  eval_metric: "MASE"             # scale-independent; MASE < 1 beats seasonal naive
+
+# ── Prophet baseline ──────────────────────────────────────────────────────────
+prophet:
+  yearly_seasonality: true
+  weekly_seasonality: true
+  daily_seasonality: true
+  changepoint_prior_scale: 0.05   # flexibility of trend — low = smooth
+
+# ── Serving ───────────────────────────────────────────────────────────────────
+serving:
+  nightly_refresh_cron: "0 2 * * *"   # 2am PT every night
