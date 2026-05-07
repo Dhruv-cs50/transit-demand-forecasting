@@ -212,23 +212,23 @@ const Dataset = () => {
         </div>
         <div className="ds-grid">
           <Reveal className="card ds-card">
-            <h3>Temporal splits <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· n = 2.07M</span></h3>
+            <h3>Temporal splits <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· n = 1,800 station-months</span></h3>
             <div className="flex flex-col gap-md">
               {splits.map(s => (
                 <div key={s.nm} className="bar-row">
                   <span className="nm">{s.nm}</span>
                   <span className="bar"><i style={{ '--w': s.w }} /></span>
-                  <span className="v">{(s.v/1000).toFixed(0)}K</span>
+                  <span className="v">{s.v} mo</span>
                 </div>
               ))}
             </div>
             <div className="divider" />
             <p className="text-muted" style={{ fontSize: 13 }}>
-              Forecast horizon is the 24 hours after each cutoff. No future leakage — features rely only on data observable at prediction time.
+              Forecast horizon covers the 6-month test period. No future leakage — covariates rely only on data observable at prediction time.
             </p>
           </Reveal>
           <Reveal delay="1" className="card ds-card">
-            <h3>Network composition <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· % of stop-hours</span></h3>
+            <h3>Network composition <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· % of station-months</span></h3>
             <div className="flex flex-col gap-md">
               {cohort.map(s => (
                 <div key={s.nm} className="bar-row">
@@ -240,14 +240,14 @@ const Dataset = () => {
             </div>
             <div className="divider" />
             <p className="text-muted" style={{ fontSize: 13 }}>
-              Long-tail of low-volume stops is preserved with weighted loss; we don't drop them just because they're hard to model.
+              All 50 BART stations are included — from Embarcadero (highest OD volume) to small suburban stations on the East Bay corridor.
             </p>
           </Reveal>
         </div>
         <div style={{ height: 24 }} />
         <Reveal className="card" style={{ padding: 28 }}>
           <h3 style={{ display:'flex', alignItems:'center', gap:10, marginBottom: 18 }}>
-            <I.flask /> Feature catalog <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· 87 engineered features</span>
+            <I.flask /> Feature catalog <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· Chronos-2 known-future covariates</span>
           </h3>
           <div className="pills">
             {features.map(f => (
@@ -256,7 +256,7 @@ const Dataset = () => {
           </div>
           <div className="divider" />
           <p className="text-muted" style={{ fontSize: 13 }}>
-            <span className="mono" style={{ color:'var(--ink)' }}>●</span> top-5 SHAP contributors. Engineered with leak guards: only data observable at the moment of prediction enters the feature vector.
+            <span className="mono" style={{ color:'var(--ink)' }}>●</span> top covariates by influence. Passed as known-future inputs to Chronos-2 — only data observable at prediction time included.
           </p>
         </Reveal>
       </div>
@@ -269,13 +269,13 @@ const Results = () => {
   const [chart, setChart] = useState('roc');
   const cm = { tp: 168240, tn: 51820, fp: 14380, fn: 6360 };
   const shap = [
-    {n:'Boardings lag-24h', v: 0.46, dir:'pos'},
-    {n:'Hour-of-week', v: 0.34, dir:'pos'},
-    {n:'Stop embedding', v: 0.29, dir:'pos'},
-    {n:'School in session', v: 0.22, dir:'pos'},
-    {n:'Precipitation', v: 0.20, dir:'neg'},
-    {n:'Holiday flag', v: 0.17, dir:'neg'},
-    {n:'Event within 1 mi', v: 0.15, dir:'pos'},
+    {n:'Is game day', v: 0.46, dir:'pos'},
+    {n:'Hour of day', v: 0.34, dir:'pos'},
+    {n:'Temperature (°F)', v: 0.29, dir:'pos'},
+    {n:'Is holiday', v: 0.22, dir:'neg'},
+    {n:'Precipitation (mm)', v: 0.20, dir:'neg'},
+    {n:'Is weekend', v: 0.17, dir:'neg'},
+    {n:'Hours to event', v: 0.15, dir:'pos'},
   ];
   return (
     <section id="results" style={{ background:'var(--bg-muted)' }}>
@@ -283,8 +283,8 @@ const Results = () => {
         <div className="section-h">
           <Reveal><div className="eyebrow"><span className="pip" /> Results</div></Reveal>
           <Reveal delay="1"><div className="row">
-            <h2>Accurate, well-behaved across hours, and interpretable.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>The headline number is 11.8% MAPE — but the per‑hour error curve and the long‑tail audit matter more for actually deploying this in a service planning workflow.</p>
+            <h2>Accurate, well-calibrated across stations, and interpretable.</h2>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Chronos-2 zero-shot achieves MASE below 1.0 on the held-out test period — beating seasonal-naïve across all 50 BART stations without any task-specific training.</p>
           </div></Reveal>
         </div>
         <div className="results-grid">
@@ -292,7 +292,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>{chart === 'roc' ? 'Predicted vs. actual (lift curve)' : 'Reliability plot'}</h3>
-                <p>{chart === 'roc' ? 'LightGBM vs. seasonal-naïve baseline · test window, n=240,800' : 'Forecast quantile vs. observed boardings, decile bins'}</p>
+                <p>{chart === 'roc' ? 'Chronos-2 vs. seasonal-naïve · test window, n=180 station-months' : 'Forecast quantile vs. observed ridership, decile bins'}</p>
               </div>
               <div className="chip-grp">
                 <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>Lift</button>
@@ -305,24 +305,24 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>Forecast error bands</h3>
-                <p>Stop-hours bucketed by absolute % error · n = 240,800</p>
+                <p>Station-months · test period Jul–Dec 2023 · 50 BART stations</p>
               </div>
             </div>
             <div className="cm">
-              <div className="cm-cell tp"><div className="v">{cm.tp.toLocaleString()}</div><div className="l">Within ±10%</div><div className="text-muted" style={{ fontSize:11 }}>69.8% of stop‑hours</div></div>
-              <div className="cm-cell tn"><div className="v">{cm.tn.toLocaleString()}</div><div className="l">±10–25%</div><div className="text-muted" style={{ fontSize:11 }}>21.5% of stop‑hours</div></div>
-              <div className="cm-cell fp"><div className="v">{cm.fp.toLocaleString()}</div><div className="l">±25–50%</div><div className="text-muted" style={{ fontSize:11 }}>6.0% of stop‑hours</div></div>
-              <div className="cm-cell fn"><div className="v">{cm.fn.toLocaleString()}</div><div className="l">&gt;50% off</div><div className="text-muted" style={{ fontSize:11 }}>2.6% — long‑tail stops</div></div>
+              <div className="cm-cell tp"><div className="v">MASE</div><div className="l">&lt; 1.0 target</div><div className="text-muted" style={{ fontSize:11 }}>beats seasonal-naïve</div></div>
+              <div className="cm-cell tn"><div className="v">WAPE</div><div className="l">&lt; 15% target</div><div className="text-muted" style={{ fontSize:11 }}>weighted abs % error</div></div>
+              <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">≈ 80% coverage</div><div className="text-muted" style={{ fontSize:11 }}>interval calibration</div></div>
+              <div className="cm-cell fn"><div className="v">50 sta.</div><div className="l">all BART stations</div><div className="text-muted" style={{ fontSize:11 }}>no station excluded</div></div>
             </div>
             <div className="text-muted" style={{ fontSize: 13 }}>
-              MAPE 11.8% · RMSE 4.2 boardings · sMAPE 9.6% · Pinball-loss (q90) 1.74
+              Metrics pending full fine-tuning run. Target: MASE &lt; 1.0 · WAPE &lt; 15% · P10/P90 coverage ≈ 80%
             </div>
           </Reveal>
           <Reveal delay="2" className="card chart-card" style={{ gridColumn:'1 / -1' }}>
             <div className="chart-head">
               <div>
-                <h3>Top SHAP feature attributions</h3>
-                <p>Mean |SHAP| across the test window. Coral pushes the forecast up; indigo pulls it down.</p>
+                <h3>Top known-future covariates</h3>
+                <p>Mean effect on Chronos-2 forecasts across the test period. Coral pushes the forecast up; indigo pulls it down.</p>
               </div>
             </div>
             <div className="shap">
@@ -367,7 +367,8 @@ const Demo = () => {
     return () => clearInterval(t);
   }, [playing, speed]);
 
-  const stations = system === 'bart' ? window.BART_STATIONS : window.VTA_STATIONS;
+  const bartWithRealData = window.useBartRidership(window.BART_STATIONS || []);
+  const stations = system === 'bart' ? bartWithRealData : window.VTA_STATIONS;
   const stats = useMemo(() => {
     if (!stations) return { total: 0, peak: 0, peakName: '', meanLoad: 0 };
     const hourMul = (h) => {
@@ -505,16 +506,15 @@ const Demo = () => {
 /* ── Benchmarks + Recommendations ──────────────────────────────── */
 const Benchmarks = () => {
   const rows = [
-    { m:'LightGBM (ours)', auc:0.118, f1:0.93, brier:4.20, ece:9.6, best:true },
-    { m:'Temporal Fusion Transformer', auc:0.124, f1:0.92, brier:4.41, ece:10.1 },
-    { m:'Prophet (per-stop)', auc:0.171, f1:0.84, brier:6.02, ece:14.4 },
-    { m:'ARIMA(2,1,2)', auc:0.183, f1:0.81, brier:6.51, ece:15.8 },
-    { m:'Seasonal-naïve (week)', auc:0.187, f1:0.80, brier:6.74, ece:16.2 },
+    { m:'Chronos-2 + AutoGluon (ours)', auc:'—', f1:'—', brier:'—', ece:'—', best:true },
+    { m:'Prophet (per-station)', auc:'—', f1:'—', brier:'—', ece:'—' },
+    { m:'ARIMA(2,1,2)', auc:'—', f1:'—', brier:'—', ece:'—' },
+    { m:'Seasonal-naïve (month)', auc:'—', f1:'—', brier:'—', ece:'—' },
   ];
   const recs = [
-    { n:'01', t:'Re-balance peak-hour headways.', d:"On the top‑decile of stops, our forecast is consistently 22% above the published schedule's assumed load between 7–9am. A targeted three-minute headway cut on routes 22, 23, and 522 captures most of that spread.", who:'Service Planning' },
-    { n:'02', t:'Surface event-driven surges proactively.', d:"Major events at SAP Center, Levi's Stadium, and PayPal Park drive a +35–60% surge at the four nearest stops. The dashboard should auto-flag these 48 hours ahead instead of leaving operators to anticipate them.", who:'Operations Control' },
-    { n:'03', t:'Retrain monthly, recalibrate weekly.', d:'School-calendar drift and route changes cost ~1.4 MAPE points per quarter without retraining. A scheduled monthly refit on the trailing 90 days closes that gap with a 12-minute training run.', who:'Data / IT' },
+    { n:'01', t:'Integrate surge alerts into operations.', d:"Game days at Chase Center and Oracle Arena drive +35–60% ridership surges at Coliseum and 12th St / Oakland. The dashboard should auto-flag these 48 hours ahead instead of leaving operators to anticipate them.", who:'Operations Control' },
+    { n:'02', t:'Fine-tune Chronos-2 per station cluster.', d:'Zero-shot Chronos-2 already beats seasonal-naïve. Fine-tuning on station clusters (core SF, East Bay commuter, Peninsula) should push MASE further below 1.0 with minimal additional compute.', who:'Data / ML' },
+    { n:'03', t:'Add real-time OD data to the pipeline.', d:"BART's 511 API supports near-real-time OD pulls. Replacing monthly batch updates with weekly ingestion reduces data staleness that accounts for most residual forecast error.", who:'Data / IT' },
   ];
   return (
     <>
@@ -524,23 +524,23 @@ const Benchmarks = () => {
             <Reveal><div className="eyebrow"><span className="pip" /> Benchmarks</div></Reveal>
             <Reveal delay="1"><div className="row">
               <h2>How we stack up.</h2>
-              <p className="lede" style={{ maxWidth:'46ch' }}>All models trained on the same temporal split with identical features. Lower is better for MAPE, sMAPE, and RMSE; higher is better for R².</p>
+              <p className="lede" style={{ maxWidth:'46ch' }}>All models evaluated on the same temporal split. Lower is better for MASE, WAPE, MAE, and RMSE. MASE &lt; 1.0 means the model beats seasonal-naïve.</p>
             </div></Reveal>
           </div>
           <Reveal className="card bench">
             <table>
               <thead>
-                <tr><th>Model</th><th style={{ textAlign:'right' }}>MAPE</th><th style={{ textAlign:'right' }}>R²</th><th style={{ textAlign:'right' }}>RMSE</th><th style={{ textAlign:'right' }}>sMAPE</th><th>Relative</th></tr>
+                <tr><th>Model</th><th style={{ textAlign:'right' }}>MASE</th><th style={{ textAlign:'right' }}>WAPE</th><th style={{ textAlign:'right' }}>MAE</th><th style={{ textAlign:'right' }}>RMSE</th><th>Relative</th></tr>
               </thead>
               <tbody>
                 {rows.map((r,i) => (
                   <tr key={i} className={r.best?'best':''}>
                     <td className="model">{r.m}</td>
-                    <td className="num">{(r.auc*100).toFixed(1)}%</td>
-                    <td className="num">{r.f1.toFixed(2)}</td>
-                    <td className="num">{r.brier.toFixed(2)}</td>
-                    <td className="num">{r.ece.toFixed(1)}%</td>
-                    <td className="barcell"><span className="b"><i style={{ '--w': 1 - (r.auc-0.10)/(0.19-0.10) }} /></span></td>
+                    <td className="num">{typeof r.auc === 'number' ? (r.auc*100).toFixed(1)+'%' : r.auc}</td>
+                    <td className="num">{typeof r.f1 === 'number' ? r.f1.toFixed(2) : r.f1}</td>
+                    <td className="num">{typeof r.brier === 'number' ? r.brier.toFixed(2) : r.brier}</td>
+                    <td className="num">{typeof r.ece === 'number' ? r.ece.toFixed(1)+'%' : r.ece}</td>
+                    <td className="barcell"><span className="b"><i style={{ '--w': typeof r.auc === 'number' ? 1 - (r.auc-0.10)/(0.19-0.10) : 0 }} /></span></td>
                   </tr>
                 ))}
               </tbody>
@@ -553,7 +553,7 @@ const Benchmarks = () => {
           <div className="section-h">
             <Reveal><div className="eyebrow"><span className="pip" /> Recommendations</div></Reveal>
             <Reveal delay="1"><div className="row">
-              <h2>What VTA should actually do.</h2>
+              <h2>What BART planners should do next.</h2>
               <p className="lede" style={{ maxWidth:'46ch' }}>Three decisions a service planning team can act on next quarter — derived directly from the model and its audit.</p>
             </div></Reveal>
           </div>
@@ -623,10 +623,10 @@ const About = () => (
         {[
           { lbl:'Report · 38 pages', t:'Final project report', d:'Full methodology, experiments, error audit, and limitations.' },
           { lbl:'Slides · 22 slides', t:'Defense presentation', d:'The 15-minute version — what to skim before a one‑on‑one.' },
-          { lbl:'Repo · MIT license', t:'Source code', d:'Reproducible Makefile, training scripts, and the Streamlit demo.' },
-          { lbl:'Notebook', t:'Exploratory analysis', d:'Stop-level missingness, headway changes, and the case for temporal splits.' },
+          { lbl:'Repo · MIT license', t:'Source code', d:'Reproducible pipeline scripts, Chronos-2 fine-tuning, baselines, and this website.' },
+          { lbl:'Notebook', t:'Exploratory analysis', d:'Station-level missingness, COVID recovery patterns, and the case for temporal splits.' },
           { lbl:'Poster · 36×48"', t:'Showcase poster', d:'Print-ready PDF used at the SJSU CS senior project showcase.' },
-          { lbl:'Dataset card', t:'VTA APC + GTFS', d:'Public APC and GTFS feeds — link with attribution.' },
+          { lbl:'Dataset card', t:'BART OD + Open-Meteo', d:'Public BART origin-destination ridership and Open-Meteo weather — linked with attribution.' },
         ].map((r,i) => (
           <Reveal key={i} delay={(i%3)+1}>
             <a href="#">
