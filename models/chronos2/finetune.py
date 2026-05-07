@@ -219,19 +219,26 @@ def build_predictor(
     except ImportError:
         raise ImportError("Install AutoGluon: pip install autogluon.timeseries")
 
-    freq        = cfg["data"]["resample_freq"]
-    horizon     = cfg["data"]["forecast_horizon_hours"]
     quantiles   = cfg["chronos2"]["quantile_levels"]
     time_budget = time_limit or cfg["finetune"]["time_limit_seconds"]
     model_preset= preset    or cfg["finetune"]["presets"]
 
-    # Steps per hour at target frequency
-    import pandas as pd
-    steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-    prediction_length = int(horizon * steps_per_hour)
+    # Use step-based config for monthly data; fall back to hour-based
+    prediction_length = cfg["chronos2"].get("prediction_length_steps", None)
+    context_length_steps = cfg["chronos2"].get("context_length_steps", None)
+    freq = "MS"   # monthly BART data
+    if prediction_length is None:
+        import pandas as pd
+        raw_freq = cfg["data"]["resample_freq"]
+        horizon = cfg["data"]["forecast_horizon_hours"]
+        steps_per_hour = pd.tseries.frequencies.to_offset(raw_freq).nanos / (3600 * 1e9)
+        prediction_length = int(horizon * steps_per_hour)
+        freq = raw_freq
+        context_length_steps = int(cfg["data"]["context_length_hours"] * steps_per_hour)
 
     log.info(f"Fine-tuning Chronos-2 via AutoGluon")
-    log.info(f"  Prediction length : {prediction_length} steps ({horizon}h at {freq})")
+    log.info(f"  Prediction length : {prediction_length} steps at {freq}")
+    log.info(f"  Context length    : {context_length_steps} steps")
     log.info(f"  Time budget       : {time_budget}s")
     log.info(f"  Preset            : {model_preset}")
     log.info(f"  Quantiles         : {quantiles}")
@@ -262,9 +269,7 @@ def build_predictor(
             "Chronos": [
                 {
                     "model_path": cfg["chronos2"]["model_id"],
-                    "context_length": int(
-                        cfg["data"]["context_length_hours"] * steps_per_hour
-                    ),
+                    "context_length": context_length_steps,
                     "batch_size": cfg["chronos2"]["batch_size"],
                     "device": cfg["chronos2"]["device"],
                 },
@@ -272,10 +277,9 @@ def build_predictor(
             # Lightweight baselines for ensemble robustness
             "SeasonalNaive": {},
             "AutoETS": {},
-            "TemporalFusionTransformer": {},   # good with covariates
         },
         known_covariates_names=known_cov_cols,
-        num_val_windows=3,          # 3 rolling validation windows
+        num_val_windows=2,
         val_step_size=prediction_length,
     )
 

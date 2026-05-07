@@ -90,10 +90,10 @@ def _get_config() -> dict:
 def get_pipeline():
     global _pipeline
     if _pipeline is None:
-        from chronos import Chronos2Pipeline
+        from chronos import ChronosPipeline
         cfg = _get_config()
         log.info("Loading Chronos-2 pipeline …")
-        _pipeline = Chronos2Pipeline.from_pretrained(
+        _pipeline = ChronosPipeline.from_pretrained(
             cfg["chronos2"]["model_id"],
             device_map=cfg["chronos2"]["device"],
         )
@@ -120,10 +120,34 @@ def _run_forecast(
     horizon_hours: int,
     as_of: pd.Timestamp | None,
 ) -> list[dict]:
-    """Core forecast logic shared between API and batch scheduler."""
-    from models.chronos2.zero_shot import prepare_context, run_zero_shot_forecast
-
+    """Core forecast logic — loads pre-computed parquet first, falls back to live Chronos."""
     cfg = _get_config()
+
+    # Fast path: serve from pre-computed zero-shot forecast parquet
+    cached_dir = Path("models/chronos2/outputs")
+    cached_files = sorted(cached_dir.glob("zero_shot_forecasts_*.parquet")) if cached_dir.exists() else []
+    if cached_files:
+        cached = pd.read_parquet(cached_files[-1])
+        station_cache = cached[cached["station_id"] == station_id]
+        if not station_cache.empty:
+            q10_col = next((c for c in station_cache.columns if "0.1" in str(c)), None)
+            q50_col = next((c for c in station_cache.columns if "0.5" in str(c)), None)
+            q90_col = next((c for c in station_cache.columns if "0.9" in str(c)), None)
+            results = []
+            for _, row in station_cache.head(horizon_hours).iterrows():
+                ts = row.get("timestamp", "")
+                results.append({
+                    "timestamp": str(ts),
+                    "p10": max(0.0, float(row[q10_col])) if q10_col else 0.0,
+                    "p50": max(0.0, float(row[q50_col])) if q50_col else 0.0,
+                    "p90": max(0.0, float(row[q90_col])) if q90_col else 0.0,
+                })
+            if results:
+                return results
+
+    # Slow path: live Chronos inference
+    from machine_learning_files.zero_shot import prepare_context, run_zero_shot_forecast
+
     df = get_feature_store()
     pipeline = get_pipeline()
 
@@ -136,13 +160,13 @@ def _run_forecast(
     else:
         as_of = pd.Timestamp(as_of, tz="America/Los_Angeles")
 
-    context_df, future_df = prepare_context(
-        df, station_id, cfg["data"]["context_length_hours"], as_of
-    )
+    context_steps = cfg["chronos2"].get("context_length_steps", None)
+    prediction_length = cfg["chronos2"].get("prediction_length_steps", 6)
 
-    freq = cfg["data"]["resample_freq"]
-    steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-    prediction_length = int(horizon_hours * steps_per_hour)
+    context_df, future_df = prepare_context(
+        df, station_id, cfg["data"]["context_length_hours"], as_of,
+        context_steps=context_steps,
+    )
 
     pred_df = run_zero_shot_forecast(
         pipeline, context_df, future_df,
@@ -150,7 +174,6 @@ def _run_forecast(
         quantile_levels=[0.1, 0.5, 0.9],
     )
 
-    # Extract quantile columns — Chronos names them by quantile level
     q_cols = {
         "p10": next((c for c in pred_df.columns if "0.1" in str(c)), None),
         "p50": next((c for c in pred_df.columns if "0.5" in str(c) or c == "mean"), None),
