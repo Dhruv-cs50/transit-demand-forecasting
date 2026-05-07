@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Transit Demand Forecasting · CS 163 Senior Project · SJSU</title>
+<meta name="description" content="A machine-learning pipeline for forecasting public transit ridership demand to support smarter service planning. CS 163 senior project at San José State University, 2026." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="progress"></div>
+<div id="root"></div>
+
+<script type="text/babel" src="charts.jsx"></script>
+<script type="text/babel" src="transit-map.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="sections.jsx"></script>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const TWEAK_DEFAULTS = {
+  "primary": "#2a2f8f",
+  "accent": "#ee6c4d",
+  "density": "regular",
+  "displayFont": "Space Grotesk",
+  "dark": false
+};
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [dark, setDark] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('rr-dark');
+    const initial = stored != null ? stored === '1' : (t.dark || window.matchMedia('(prefers-color-scheme: dark)').matches);
+    setDark(initial);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('rr-dark', dark ? '1' : '0');
+  }, [dark]);
+
+  useEffect(() => {
+    const r = document.documentElement;
+    r.style.setProperty('--primary', t.primary);
+    r.style.setProperty('--accent', t.accent);
+    r.style.setProperty('--display', `'${t.displayFont}', ui-sans-serif, system-ui, sans-serif`);
+    const dens = t.density === 'compact' ? .85 : t.density === 'comfy' ? 1.12 : 1;
+    r.style.setProperty('--maxw', `${Math.round(1240 * (t.density==='compact'?0.95:1))}px`);
+    document.body.style.fontSize = `${Math.round(16 * dens)}px`;
+  }, [t.primary, t.accent, t.displayFont, t.density]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const h = document.documentElement;
+      const max = h.scrollHeight - h.clientHeight;
+      const p = max > 0 ? (h.scrollTop / max) * 100 : 0;
+      const bar = document.getElementById('progress');
+      if (bar) bar.style.width = `${p}%`;
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  return (
+    <>
+      <Nav dark={dark} onToggleDark={() => setDark(d => !d)} />
+      <Hero />
+      <AtAGlance />
+      <Method />
+      <Dataset />
+      <Results />
+      <Demo />
+      <Benchmarks />
+      <About />
+      <Footer />
+
+      <TweaksPanel>
+        <TweakSection label="Theme" />
+        <TweakColor label="Primary" value={t.primary} onChange={(v) => setTweak('primary', v)} />
+        <TweakColor label="Accent" value={t.accent} onChange={(v) => setTweak('accent', v)} />
+        <TweakToggle label="Dark mode" value={dark} onChange={setDark} />
+        <TweakSection label="Typography" />
+        <TweakSelect label="Display font" value={t.displayFont}
+          options={['Space Grotesk','Plus Jakarta Sans','Fraunces','Instrument Serif','Inter']}
+          onChange={(v) => setTweak('displayFont', v)} />
+        <TweakSection label="Layout" />
+        <TweakRadio label="Density" value={t.density}
+          options={['compact','regular','comfy']}
+          onChange={(v) => setTweak('density', v)} />
+      </TweaksPanel>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
