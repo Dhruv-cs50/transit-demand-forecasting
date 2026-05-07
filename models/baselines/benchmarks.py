@@ -261,7 +261,7 @@ def run_benchmarks(
         # ── 3. Prophet ─────────────────────────────────────────────────────────
         log.info("\n=== Prophet ===")
         try:
-            from models.baselines.prophet import run_prophet_all_stations
+            from models.baselines.prophet_baseline import run_prophet_all_stations
             prophet_preds = run_prophet_all_stations(df, cfg)
             if not prophet_preds.empty:
                 model_preds["Prophet"] = prophet_preds

@@ -12,15 +12,18 @@ data:
   # train: everything up to train_end
   # val  : train_end < ts <= val_end
   # test : ts > val_end
-  train_end: "2023-12-31"
-  val_end:   "2024-06-30"
+  train_end: "2022-12-31"   # train: 2019 + 2022
+  val_end:   "2023-06-30"   # val: Jan–Jun 2023 | test: Jul–Dec 2023
 
 # ── Chronos-2 ─────────────────────────────────────────────────────────────────
 chronos2:
-  model_id: "amazon/chronos-t5-large"   # options: tiny / mini / small / base / large
-  device: "cpu"                          # "cuda" if GPU available, "mps" for Apple Silicon
+  model_id: "amazon/chronos-t5-small"   # options: tiny / mini / small / base / large
+  device: "mps"                          # "cuda" if GPU available, "mps" for Apple Silicon
   batch_size: 32
   quantile_levels: [0.1, 0.5, 0.9]      # P10 / P50 / P90
+  # Monthly data settings (BART OD is monthly, not 15-min)
+  context_length_steps: 24              # use last 24 months as context (~2 years)
+  prediction_length_steps: 6            # forecast 6 months ahead
 
 # ── Fine-tuning (AutoGluon) ───────────────────────────────────────────────────
 finetune:

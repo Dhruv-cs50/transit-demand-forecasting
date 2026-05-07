@@ -101,6 +101,8 @@ def load_transit(freq: str) -> pd.DataFrame:
         .reset_index()
         .rename(columns={"origin": "station_id", "origin_name": "station_name", "riders": "ridership"})
     )
+    # Drop system-wide aggregate rows (e.g. "Exits") — not real station codes
+    station_monthly = station_monthly[station_monthly["station_id"].str.len() <= 4]
 
     # Convert monthly → daily approximation (÷ 22 weekdays) and set to timestamp
     station_monthly["timestamp"] = pd.to_datetime(station_monthly["period"])
@@ -191,8 +193,18 @@ def compute_event_features(
             "is_playoff":      [False] * n,
         })
 
-    ts_arr = timestamps.values
-    ev_starts = events["timestamp_start"].values
+    # Normalize both sides to tz-naive (UTC) to avoid tz-aware vs tz-naive comparison errors
+    ts_series = pd.to_datetime(timestamps)
+    if ts_series.dt.tz is not None:
+        ts_series = ts_series.dt.tz_localize(None)
+    ts_arr = ts_series.values
+
+    ev_ts = pd.to_datetime(events["timestamp_start"])
+    if ev_ts.dt.tz is not None:
+        ev_ts = ev_ts.dt.tz_localize(None)
+    ev_starts = ev_ts.values
+    events = events.copy()
+    events["timestamp_start"] = ev_ts
 
     results = []
     for ts in ts_arr:
@@ -273,31 +285,33 @@ def build_feature_store(
     # (In production this would be the 511 stop-observation data at 15-min resolution)
     base = transit_df.copy()
 
-    # 3. Merge weather — left join on nearest station
-    # For each transit station we assign the geographically closest weather station
+    # 3. Merge weather — aggregate hourly weather to monthly, join on year/month
     if not weather_df.empty:
-        # Simple nearest-station join via station name (direct mapping for now)
-        station_weather_map = {
-            "BERY": "berryessa",
-            "MLPT": "berryessa",
-            "EMBR": "embarcadero",
-            "MLBR": "millbrae",
-            "SFIA": "sfo",
-            "FRMT": "fremont_bart",
-            "19TH": "oakland_19th",
-        }
         weather_df = weather_df.rename(columns={"station": "weather_station"})
-        # We keep weather merge simple for now — attach avg Bay Area weather
-        bay_avg_weather = (
-            weather_df
-            .groupby("timestamp")[[
+        wdf = weather_df.copy()
+        wdf["timestamp"] = pd.to_datetime(wdf["timestamp"])
+        if wdf["timestamp"].dt.tz is not None:
+            wdf["timestamp"] = wdf["timestamp"].dt.tz_localize(None)
+        wdf["_year"]  = wdf["timestamp"].dt.year
+        wdf["_month"] = wdf["timestamp"].dt.month
+        monthly_weather = (
+            wdf
+            .groupby(["_year", "_month"])[[
                 "temp_f", "precip_mm", "windspeed_mph",
                 "is_raining", "weather_code", "cloud_cover_pct"
             ]]
             .mean()
             .reset_index()
         )
-        log.info(f"Merging {len(bay_avg_weather):,} weather timesteps …")
+        log.info(f"Merging {len(monthly_weather):,} month-average weather rows …")
+
+        base_ts = pd.to_datetime(base["timestamp"])
+        if base_ts.dt.tz is not None:
+            base_ts = base_ts.dt.tz_localize(None)
+        base["_year"]  = base_ts.dt.year
+        base["_month"] = base_ts.dt.month
+        base = base.merge(monthly_weather, on=["_year", "_month"], how="left")
+        base = base.drop(columns=["_year", "_month"])
 
     # 4. Compute event features against the timestamp column
     if not events_df.empty and "timestamp" in base.columns:
@@ -342,11 +356,15 @@ def make_splits(df: pd.DataFrame, train_end: str, val_end: str) -> None:
         log.error("No timestamp column — cannot split")
         return
 
-    ts = df["timestamp"]
-    train_mask = ts <= pd.Timestamp(train_end, tz="America/Los_Angeles")
-    val_mask   = (ts > pd.Timestamp(train_end, tz="America/Los_Angeles")) & \
-                 (ts <= pd.Timestamp(val_end, tz="America/Los_Angeles"))
-    test_mask  = ts > pd.Timestamp(val_end, tz="America/Los_Angeles")
+    ts = pd.to_datetime(df["timestamp"])
+    # Normalize to tz-naive for comparison regardless of source timezone
+    if ts.dt.tz is not None:
+        ts = ts.dt.tz_localize(None)
+    train_ts = pd.Timestamp(train_end).tz_localize(None) if pd.Timestamp(train_end).tzinfo is None else pd.Timestamp(train_end).tz_localize(None)
+    val_ts   = pd.Timestamp(val_end).tz_localize(None)   if pd.Timestamp(val_end).tzinfo is None   else pd.Timestamp(val_end).tz_localize(None)
+    train_mask = ts <= train_ts
+    val_mask   = (ts > train_ts) & (ts <= val_ts)
+    test_mask  = ts > val_ts
 
     for name, mask in [("train", train_mask), ("val", val_mask), ("test", test_mask)]:
         split_df = df[mask]

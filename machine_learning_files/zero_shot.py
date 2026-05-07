@@ -56,7 +56,7 @@ def build_chronos_pipeline(cfg: dict):
         pip install chronos-forecasting
     """
     try:
-        from chronos import Chronos2Pipeline
+        from chronos import ChronosPipeline
     except ImportError:
         raise ImportError(
             "Install Chronos: pip install chronos-forecasting"
@@ -66,7 +66,7 @@ def build_chronos_pipeline(cfg: dict):
     model_id = cfg["chronos2"]["model_id"]
     log.info(f"Loading {model_id} on {device} …")
 
-    pipeline = Chronos2Pipeline.from_pretrained(
+    pipeline = ChronosPipeline.from_pretrained(
         model_id,
         device_map=device,
     )
@@ -78,29 +78,28 @@ def prepare_context(
     station_id: str,
     context_hours: int,
     as_of: pd.Timestamp = None,
+    context_steps: int = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Split station data into:
-      - context_df: the past `context_hours` of history fed to the model
-      - future_df: the next `horizon_hours` with known future covariates
-                   (weather forecast, event schedule)
+    Split station data into context and future DataFrames.
 
-    Returns (context_df, future_df).
+    If context_steps is provided, use the last N rows directly (for monthly data).
+    Otherwise use the hour-based window (for sub-hourly data).
     """
     station_df = df[df["station_id"] == station_id].sort_values("timestamp").copy()
 
     if as_of is None:
         as_of = station_df["timestamp"].max()
 
-    context_start = as_of - pd.Timedelta(hours=context_hours)
-    context_df = station_df[
-        (station_df["timestamp"] >= context_start) &
-        (station_df["timestamp"] <= as_of)
-    ]
+    past = station_df[station_df["timestamp"] <= as_of]
 
-    # Future rows: rows after as_of (these exist if you've pre-loaded forecast data)
+    if context_steps is not None:
+        context_df = past.tail(context_steps)
+    else:
+        context_start = as_of - pd.Timedelta(hours=context_hours)
+        context_df = past[past["timestamp"] >= context_start]
+
     future_df = station_df[station_df["timestamp"] > as_of]
-
     return context_df, future_df
 
 
@@ -233,13 +232,20 @@ def forecast_all_stations(
 ) -> pd.DataFrame:
     """Run zero-shot forecasts for every station in the feature store."""
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    chronos_cfg = cfg["chronos2"]
+    # Prefer step-based config (monthly data); fall back to hour-based
+    context_steps = chronos_cfg.get("context_length_steps", None)
+    prediction_length = chronos_cfg.get("prediction_length_steps", None)
+    if prediction_length is None:
+        freq = cfg["data"]["resample_freq"]
+        horizon = cfg["data"]["forecast_horizon_hours"]
+        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+        prediction_length = int(horizon * steps_per_hour)
+
     context_hours = cfg["data"]["context_length_hours"]
-    horizon = cfg["data"]["forecast_horizon_hours"]
-    freq = cfg["data"]["resample_freq"]
-    # Convert hours → number of steps at target freq
-    steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-    prediction_length = int(horizon * steps_per_hour)
-    quantile_levels = cfg["chronos2"]["quantile_levels"]
+    quantile_levels = chronos_cfg["quantile_levels"]
+    min_context = 3 if context_steps is not None else 24
 
     stations = df["station_id"].unique()
     all_preds = []
@@ -248,9 +254,11 @@ def forecast_all_stations(
     for station_id in stations:
         log.info(f"\n{'─'*50}")
         log.info(f"Forecasting station: {station_id}")
-        context_df, future_df = prepare_context(df, station_id, context_hours, as_of)
+        context_df, future_df = prepare_context(
+            df, station_id, context_hours, as_of, context_steps=context_steps
+        )
 
-        if len(context_df) < 24:
+        if len(context_df) < min_context:
             log.warning(f"  Insufficient context for {station_id} ({len(context_df)} rows) — skipping")
             continue
 
@@ -322,13 +330,20 @@ def main():
     output_dir = Path("models/chronos2/outputs")
 
     if args.station:
+        context_steps = cfg["chronos2"].get("context_length_steps", None)
+        prediction_length = cfg["chronos2"].get("prediction_length_steps", None)
+        if prediction_length is None:
+            freq = cfg["data"]["resample_freq"]
+            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+            prediction_length = int(cfg["data"]["forecast_horizon_hours"] * steps_per_hour)
         context_df, future_df = prepare_context(
-            df, args.station, cfg["data"]["context_length_hours"], as_of
+            df, args.station, cfg["data"]["context_length_hours"], as_of,
+            context_steps=context_steps,
         )
         pred_df = run_zero_shot_forecast(
             pipeline, context_df, future_df,
             args.station,
-            int(cfg["data"]["forecast_horizon_hours"]),
+            prediction_length,
             cfg["chronos2"]["quantile_levels"],
         )
         print(pred_df.to_string())

@@ -179,12 +179,17 @@ def run_prophet_all_stations(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     freq         = cfg["data"]["resample_freq"]
-    horizon_hrs  = cfg["data"]["forecast_horizon_hours"]
     train_end    = pd.Timestamp(cfg["data"]["train_end"], tz="America/Los_Angeles")
     val_end      = pd.Timestamp(cfg["data"]["val_end"],   tz="America/Los_Angeles")
 
-    steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-    horizon_steps  = int(horizon_hrs * steps_per_hour)
+    # Use step-based horizon for monthly data; fall back to hour-based
+    horizon_steps = cfg["chronos2"].get("prediction_length_steps", None)
+    if horizon_steps is None:
+        horizon_hrs  = cfg["data"]["forecast_horizon_hours"]
+        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+        horizon_steps  = int(horizon_hrs * steps_per_hour)
+    # For monthly data, Prophet freq should be monthly
+    freq = "MS"  # month start — matches our monthly BART timestamps
 
     train_df = df[df["timestamp"] <= train_end]
     test_df  = df[df["timestamp"] >  val_end]
@@ -197,7 +202,7 @@ def run_prophet_all_stations(
         station_train = train_df[train_df["station_id"] == station_id]
         station_future = test_df[test_df["station_id"] == station_id]
 
-        if len(station_train) < 168:   # need at least 1 week
+        if len(station_train) < 3:   # need at least 3 data points
             log.warning(f"  Skipping {station_id} — not enough training data")
             continue
 

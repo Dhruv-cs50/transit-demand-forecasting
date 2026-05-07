@@ -46,7 +46,7 @@ MAX_GAP_HOURS = 2.0
 MAX_IMPUTED_ROWS = 8   # 8 × 15min = 2 hours of filled data
 
 # Ridership anomaly thresholds
-RIDERSHIP_MAX_PLAUSIBLE     = 50_000   # no single station does this in 15 min
+RIDERSHIP_MAX_PLAUSIBLE     = 5_000_000  # monthly BART OD totals; major SF stations ~4M+ in 2019
 RIDERSHIP_SPIKE_MULTIPLIER  = 10.0     # flag if > 10× rolling median
 RIDERSHIP_MIN_PLAUSIBLE     = 0        # negative ridership = sensor error
 
