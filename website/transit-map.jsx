@@ -108,10 +108,8 @@ function useBartRidership(rawStations) {
     fetch('data/stations_ridership.json')
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => {
-        const lookup = {};
-        data.forEach(d => { lookup[d.station_id] = d; });
         setEnriched(rawStations.map(s => {
-          const d = lookup[s.id];
+          const d = data[s.id];
           return d ? { ...s, baseAM: d.baseAM, basePM: d.basePM } : s;
         }));
       })
