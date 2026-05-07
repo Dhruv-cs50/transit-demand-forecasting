@@ -61,11 +61,18 @@ SARIMA_ORDERS = {
         "order":          (2, 1, 2),
         "seasonal_order": (1, 1, 1, 96),   # 96 steps = 24hrs at 15min
     },
+    "monthly": {
+        "order":          (1, 1, 1),
+        "seasonal_order": (1, 1, 0, 12),   # annual seasonal period for monthly BART data
+    },
 }
 
 
 def get_sarima_orders(freq: str) -> dict:
-    if "15" in freq.lower() or "min" in freq.lower():
+    fl = freq.lower()
+    if "ms" in fl or "month" in fl or fl == "m":
+        return SARIMA_ORDERS["monthly"]
+    if "15" in fl or "min" in fl:
         return SARIMA_ORDERS["15min"]
     return SARIMA_ORDERS["hourly"]
 
@@ -208,13 +215,17 @@ def run_arima_all_stations(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    freq         = cfg["data"]["resample_freq"]
-    horizon_hrs  = cfg["data"]["forecast_horizon_hours"]
     train_end    = pd.Timestamp(cfg["data"]["train_end"], tz="America/Los_Angeles")
     val_end      = pd.Timestamp(cfg["data"]["val_end"],   tz="America/Los_Angeles")
 
-    steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-    horizon_steps  = int(horizon_hrs * steps_per_hour)
+    # Use step-based horizon for monthly data; fall back to hour-based
+    horizon_steps = cfg["chronos2"].get("prediction_length_steps", None)
+    if horizon_steps is None:
+        freq = cfg["data"]["resample_freq"]
+        horizon_hrs = cfg["data"]["forecast_horizon_hours"]
+        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+        horizon_steps = int(horizon_hrs * steps_per_hour)
+    freq = "MS"  # monthly BART data
 
     train_df = df[df["timestamp"] <= train_end]
     stations = df["station_id"].unique()
@@ -225,7 +236,7 @@ def run_arima_all_stations(
         station_train = train_df[train_df["station_id"] == station_id]
 
         orders = get_sarima_orders(freq)
-        min_obs = orders["seasonal_order"][3] * 3
+        min_obs = orders["seasonal_order"][3] * 2
         if len(station_train) < min_obs:
             log.warning(f"  Skipping {station_id} — need ≥{min_obs} obs")
             continue
