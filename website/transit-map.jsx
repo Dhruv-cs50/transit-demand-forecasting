@@ -2,7 +2,7 @@
    Self-contained SVG (no external map API). Stations are positioned
    to evoke the real network shape but are stylized, not GIS-accurate. */
 
-const { useMemo } = React;
+const { useMemo, useState, useEffect } = React;
 
 const BART_STATIONS = [
   { id:'rich', nm:'Richmond', x: 215, y: 60, type:'commuter', baseAM:1.4, basePM:1.1, eventBoost:0 },
@@ -101,6 +101,25 @@ const VTA_LINES = [
   { c: '#0099d8', ids: ['old','tas','sjc','tam','ctn','cap','brh','orh','ble','snt','stc'] },
 ];
 
+function useBartRidership(rawStations) {
+  const [enriched, setEnriched] = useState(rawStations);
+  useEffect(() => {
+    if (!rawStations || rawStations.length === 0) { setEnriched(rawStations); return; }
+    fetch('data/stations_ridership.json')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        const lookup = {};
+        data.forEach(d => { lookup[d.station_id] = d; });
+        setEnriched(rawStations.map(s => {
+          const d = lookup[s.id];
+          return d ? { ...s, baseAM: d.baseAM, basePM: d.basePM } : s;
+        }));
+      })
+      .catch(() => setEnriched(rawStations));
+  }, []);
+  return enriched;
+}
+
 function TransitMap({ system, hour, day, weather, event }) {
   const hourMul = (h) => {
     if (h>=7 && h<=9) return { am: 1.0, pm: 0.0, level: 0.95 };
@@ -114,7 +133,9 @@ function TransitMap({ system, hour, day, weather, event }) {
   const wxMul = (w) => w==='rain' ? 0.78 : w==='hot' ? 0.88 : 1.0;
   const evMul = (e) => e==='major' ? 1.0 : e==='small' ? 0.4 : 0;
 
-  const stations = system === 'bart' ? BART_STATIONS : VTA_STATIONS;
+  const rawBart = system === 'bart' ? BART_STATIONS : null;
+  const bartWithRealData = useBartRidership(rawBart || []);
+  const stations = system === 'bart' ? bartWithRealData : VTA_STATIONS;
   const lines = system === 'bart' ? BART_LINES : VTA_LINES;
   const stationById = useMemo(() => Object.fromEntries(stations.map(s => [s.id, s])), [stations]);
 
@@ -218,3 +239,4 @@ function TransitMap({ system, hour, day, weather, event }) {
 window.TransitMap = TransitMap;
 window.BART_STATIONS = BART_STATIONS;
 window.VTA_STATIONS = VTA_STATIONS;
+window.useBartRidership = useBartRidership;

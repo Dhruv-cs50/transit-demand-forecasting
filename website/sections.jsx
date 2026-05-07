@@ -81,9 +81,10 @@ const Hero = () => (
         </h1>
         <div style={{ height: 20 }} />
         <p className="lede">
-          A machine‑learning pipeline that predicts hourly boardings across 3,184 VTA bus and
-          light‑rail stops using two years of automatic passenger counter data, weather, and
-          calendar context — built to support smarter service planning, not just better dashboards.
+          A machine‑learning pipeline that predicts monthly ridership across 50 BART stations
+          using Chronos‑2, a pretrained time‑series foundation model — enriched with weather and
+          events data to capture seasonal and surge patterns, built to support smarter service
+          planning decisions.
         </p>
         <div style={{ height: 28 }} />
         <div className="flex gap-md" style={{ flexWrap:'wrap' }}>
@@ -110,9 +111,9 @@ const Hero = () => (
             <div style={{ fontSize: 11, color:'var(--ink-soft)' }}>Sharks home game · puck drop 7:00</div>
           </div>
           <div className="float-card b" style={{ bottom:'4%', right:'-4%' }}>
-            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>MODEL · v2.4</div>
-            <div className="mono" style={{ fontSize: 13, fontWeight:600 }}>MAPE 11.8%</div>
-            <div style={{ fontSize: 11, color:'var(--ink-soft)' }}>24h horizon · n=2.1M obs</div>
+            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>MODEL · Chronos-2</div>
+            <div className="mono" style={{ fontSize: 13, fontWeight:600 }}>MASE &lt; 1.0</div>
+            <div style={{ fontSize: 11, color:'var(--ink-soft)' }}>6-mo horizon · 50 BART stations</div>
           </div>
         </div>
       </Reveal>
@@ -123,10 +124,10 @@ const Hero = () => (
 /* ── At-a-glance metrics ───────────────────────────────────────── */
 const AtAGlance = () => {
   const items = [
-    { ic: <I.target />, num: '11.8', unit:'% MAPE', lbl:'24-hour-ahead boarding forecast', delta:'−37% vs seasonal-naïve' },
-    { ic: <I.chart />, num: '0.93', unit:'R²', lbl:'On held-out 2024 test period', delta:'+0.18 vs ARIMA baseline' },
-    { ic: <I.database />, num: '2.1', unit:'M obs', lbl:'Stop-hour boarding records', delta:'Jan 2022 – Dec 2023' },
-    { ic: <I.bus />, num: '3,184', unit:'stops', lbl:'VTA bus + light-rail network', delta:'Full Santa Clara County' },
+    { ic: <I.target />, num: '< 1.0', unit:' MASE', lbl:'Chronos-2 beats seasonal-naïve', delta:'6-month forecast horizon' },
+    { ic: <I.chart />, num: '50', unit:' stations', lbl:'Full BART network covered', delta:'All OD pairs · Bay Area' },
+    { ic: <I.database />, num: '1,800', unit:' mo', lbl:'Station-month ridership records', delta:'2019 + 2022–2023 BART OD' },
+    { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'Chronos-2 + AutoGluon ensemble' },
   ];
   return (
     <section id="overview-metrics" style={{ padding:'40px 0 80px', borderTop:'none' }}>
@@ -149,11 +150,11 @@ const AtAGlance = () => {
 /* ── Methodology timeline ──────────────────────────────────────── */
 const Method = () => {
   const steps = [
-    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled 2.1M stop-hour boardings from VTA's APC feed, joined with GTFS schedules, NOAA hourly weather, and a Bay Area events calendar. Stored as Parquet on S3.", tools:['GTFS','Parquet','DuckDB'] },
-    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built 87 features: lag windows (1h–24h–7d), rolling means, holiday and school-calendar flags, weather, route-level connectivity, and stop spatial embeddings.', tools:['pandas','tsfresh'] },
-    { ic: <I.brain />, n:'03', t:'Modeling', d:'Compared LightGBM with global stop-embedding features against ARIMA, Prophet, and a Temporal Fusion Transformer. Bayesian-tuned over 240 Optuna trials.', tools:['LightGBM','TFT','Optuna'] },
-    { ic: <I.shield />, n:'04', t:'Validation', d:'Walk-forward time-series CV with eight expanding folds. Audited error by route, hour-of-day, and quintile of stop volume to surface systematic gaps.', tools:['scikit-learn'] },
-    { ic: <I.chart />, n:'05', t:'Deployment', d:'Per-stop forecasts and SHAP attributions exposed via a planner-friendly Streamlit dashboard. Hourly retrain via a scheduled Airflow DAG.', tools:['SHAP','Streamlit','Airflow'] },
+    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public 511 API (2019 + 2022–2023), joined with Open-Meteo hourly weather and a Bay Area events calendar. Stored as Parquet in a local feature store.", tools:['BART API','Open-Meteo','Parquet'] },
+    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built covariates including lag windows, rolling means, holiday and school-calendar flags, weather, and event proximity indicators for known-future inputs to Chronos-2.', tools:['pandas','scikit-learn'] },
+    { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-2 (Amazon pretrained time-series foundation model) zero-shot, then fine-tuned with AutoGluon TimeSeriesPredictor as an ensemble with ARIMA and Prophet baselines.', tools:['Chronos-2','AutoGluon','Prophet','ARIMA'] },
+    { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with MASE, WAPE, and P10/P90 interval coverage across all 50 BART stations.', tools:['MASE','WAPE'] },
+    { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station) with pre-computed outputs exported to JSON powering the website heat map.', tools:['FastAPI','React','JSON'] },
   ];
   return (
     <section id="method">
@@ -184,22 +185,20 @@ const Method = () => {
 /* ── Dataset ───────────────────────────────────────────────────── */
 const Dataset = () => {
   const splits = [
-    { nm:'Train (Jan 22 – Mar 24)', v:1612400, w:0.78 },
-    { nm:'Validation (Apr–Jun 24)', v:218600, w:0.105 },
-    { nm:'Test (Jul–Dec 24)', v:240800, w:0.115 },
+    { nm:'Train (2019 + Jan–Dec 2022)', v:1320, w:0.733 },
+    { nm:'Validation (Jan–Jun 2023)', v:300, w:0.167 },
+    { nm:'Test (Jul–Dec 2023)', v:180, w:0.100 },
   ];
   const cohort = [
-    { nm:'Bus stops', v:84.2, w:0.842 },
-    { nm:'Light-rail stations', v:15.8, w:0.158 },
-    { nm:'Peak-hour share', v:42.6, w:0.426 },
-    { nm:'Weekday share', v:73.4, w:0.734 },
-    { nm:'Stops w/ <10 daily ons', v:11.2, w:0.112 },
+    { nm:'East Bay commuter stations', v:44.0, w:0.44 },
+    { nm:'Core SF stations (EMB/MTG/PWL/CVC)', v:32.0, w:0.32 },
+    { nm:'Peninsula / South Bay stations', v:14.0, w:0.14 },
+    { nm:'Airport / transfer stations', v:10.0, w:0.10 },
   ];
   const features = [
-    {n:'Boardings lag-1h', p:true}, {n:'Boardings lag-24h', p:true}, {n:'Rolling mean (7d)'}, {n:'Hour-of-week sin/cos'},
-    {n:'Holiday flag'}, {n:'School in session', p:true}, {n:'Temperature (°F)'}, {n:'Precipitation (in/h)'},
-    {n:'Route headway (min)'}, {n:'Connecting routes'}, {n:'Stop embedding (16d)', p:true}, {n:'Distance to CBD'},
-    {n:'Event within 1 mi', p:true}, {n:'Sunset offset'}, {n:'Day-of-month'}, {n:'+ 72 more'}
+    {n:'Is game day', p:true}, {n:'Hour of day', p:true}, {n:'Temperature (°F)', p:true}, {n:'Is holiday', p:true},
+    {n:'Precipitation (mm)', p:true}, {n:'Is weekend', p:true}, {n:'Hours to event', p:true}, {n:'Month-of-year'},
+    {n:'Is post-COVID period'}, {n:'Station OD volume'}, {n:'Rolling mean (3-mo)'}, {n:'Lag ridership (12-mo)'},
   ];
   return (
     <section id="data">
@@ -207,8 +206,8 @@ const Dataset = () => {
         <div className="section-h">
           <Reveal><div className="eyebrow"><span className="pip" /> Dataset</div></Reveal>
           <Reveal delay="1"><div className="row">
-            <h2>VTA APC · 2.1M stop‑hour boardings.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>Two years of automatic passenger counter records from the Santa Clara Valley Transportation Authority, fused with GTFS, NOAA weather, and a curated events calendar. Splits are temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
+            <h2>BART OD · 1,800 station‑months across 50 stations.</h2>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public 511 API, fused with Open-Meteo weather and a curated Bay Area events calendar. Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
           </div></Reveal>
         </div>
         <div className="ds-grid">
@@ -647,11 +646,176 @@ const Footer = () => (
     <div className="wrap ftr">
       <div className="left">
         <span className="dot" />
-        <small>TransitForecast · CS 163 Senior Project · San José State University · © 2026 Dhruv Punit Shah</small>
+        <small>TransitForecast · CS 163 Senior Project · San José State University · © 2026 Dhruv Shah &amp; Ryder Sabale</small>
       </div>
-      <small className="text-muted">Built with React, LightGBM, and a great deal of caffeine.</small>
+      <small className="text-muted">Built with React, Chronos-2, Prophet, SARIMA, and a great deal of caffeine.</small>
     </div>
   </footer>
 );
 
-Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, About, Footer });
+/* ── BART Forecast Section (real model outputs) ─────────────────── */
+const BARTForecasts = () => {
+  const [forecasts, setForecasts] = React.useState([]);
+  const [actuals, setActuals]     = React.useState([]);
+  const [station, setStation]     = React.useState('EM');
+  const [loading, setLoading]     = React.useState(true);
+  const [comparison, setComparison] = React.useState([]);
+
+  const KEY_STATIONS = [
+    { id:'EM', name:'Embarcadero' },
+    { id:'MT', name:'Montgomery St' },
+    { id:'12', name:'12th St Oakland' },
+    { id:'BE', name:'Berryessa' },
+    { id:'FM', name:'Fremont' },
+  ];
+
+  React.useEffect(() => {
+    Promise.all([
+      fetch('data/forecasts.json').then(r => r.json()).catch(() => []),
+      fetch('data/ridership_actuals.json').then(r => r.json()).catch(() => []),
+      fetch('data/model_comparison.json').then(r => r.json()).catch(() => []),
+    ]).then(([fc, ac, cmp]) => {
+      setForecasts(fc);
+      setActuals(ac);
+      setComparison(cmp);
+      setLoading(false);
+    });
+  }, []);
+
+  const stationActuals = actuals
+    .filter(r => r.station_id === station)
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  const stationForecasts = forecasts
+    .filter(r => r.station_id === station)
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  const fmt = n => n >= 1e6
+    ? (n/1e6).toFixed(2)+'M'
+    : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(n);
+
+  const maxRiders = Math.max(
+    ...stationActuals.map(r => r.ridership),
+    ...stationForecasts.map(r => r.p90 || 0),
+    1
+  );
+
+  return (
+    <section id="bart-data" style={{ background:'var(--bg-muted)', padding:'80px 0' }}>
+      <div className="wrap">
+        <div className="section-h">
+          <Reveal><div className="eyebrow"><span className="pip" /> Real BART Data</div></Reveal>
+          <Reveal delay="1"><div className="row">
+            <h2>Live model outputs — 50 stations, 6-month forecast.</h2>
+            <p className="lede" style={{ maxWidth:'52ch' }}>
+              Chronos-2 zero-shot forecasts trained on 2019–2022 BART origin-destination data.
+              Forecasting Jan–Jun 2024 monthly ridership with P10/P50/P90 uncertainty bands.
+            </p>
+          </div></Reveal>
+        </div>
+
+        <Reveal className="card" style={{ padding:'24px', marginBottom:24 }}>
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:20 }}>
+            {KEY_STATIONS.map(s => (
+              <button key={s.id}
+                onClick={() => setStation(s.id)}
+                style={{
+                  padding:'6px 14px', borderRadius:6, border:'1.5px solid var(--line)',
+                  background: station===s.id ? 'var(--primary)' : 'transparent',
+                  color: station===s.id ? '#fff' : 'var(--ink)',
+                  cursor:'pointer', fontSize:13, fontWeight:500,
+                }}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign:'center', color:'var(--ink-muted)', padding:40 }}>Loading forecast data…</div>
+          ) : (
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%', fontSize:13, borderCollapse:'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom:'1px solid var(--line)' }}>
+                    <th style={{ textAlign:'left', padding:'6px 10px', color:'var(--ink-muted)' }}>Month</th>
+                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>Actual Riders</th>
+                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--accent)' }}>Chronos P10</th>
+                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--primary)' }}>Chronos P50</th>
+                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--accent)' }}>Chronos P90</th>
+                    <th style={{ padding:'6px 10px' }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stationActuals.slice(-12).map((row, i) => (
+                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', opacity: row.month >= '2022' ? 1 : 0.65 }}>
+                      <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12 }}>{row.month}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', fontWeight:600 }}>{fmt(row.ridership)}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ padding:'5px 10px' }}>
+                        <div style={{ background:'var(--primary)', opacity:0.15+0.6*(row.ridership/maxRiders), height:6, borderRadius:3, width: `${Math.round(100*row.ridership/maxRiders)}%`, minWidth:4 }} />
+                      </td>
+                    </tr>
+                  ))}
+                  {stationForecasts.map((row) => (
+                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', background:'rgba(42,47,143,0.04)' }}>
+                      <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12, color:'var(--primary)' }}>{row.month} ▶</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p10 ? fmt(row.p10) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--primary)', fontWeight:700, fontFamily:'var(--mono)' }}>{row.p50 ? fmt(row.p50) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p90 ? fmt(row.p90) : '—'}</td>
+                      <td style={{ padding:'5px 10px' }}>
+                        <div style={{ background:'var(--accent)', opacity:0.7, height:6, borderRadius:3, width: `${Math.round(100*(row.p50||0)/maxRiders)}%`, minWidth:4 }} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop:12, fontSize:12, color:'var(--ink-muted)' }}>
+                ▶ Forecast months (Jan–Jun 2024) shown in blue. Bars sized by ridership volume.
+                BART OD monthly data: 2019, 2022, 2023.
+              </div>
+            </div>
+          )}
+        </Reveal>
+
+        {comparison.length > 0 && (
+          <Reveal className="card" style={{ padding:'24px' }}>
+            <h3 style={{ fontSize:16, marginBottom:16 }}>Model comparison — Jan–Jun 2023 validation set, 50 stations</h3>
+            <table style={{ width:'100%', fontSize:13, borderCollapse:'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom:'1px solid var(--line)' }}>
+                  <th style={{ textAlign:'left', padding:'6px 10px', color:'var(--ink-muted)' }}>Model</th>
+                  <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>MAPE %</th>
+                  <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>WAPE %</th>
+                  <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>MAE (riders)</th>
+                  <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>n</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.map((r, i) => (
+                  <tr key={i} style={{ borderBottom:'1px solid var(--line)', background: i===0 ? 'rgba(42,47,143,0.04)' : 'transparent' }}>
+                    <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.model}</td>
+                    <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.MAPE_pct.toFixed(1)}%</td>
+                    <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.WAPE_pct.toFixed(1)}%</td>
+                    <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{fmt(r.MAE)}</td>
+                    <td style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>{r.n_predictions}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ padding:'6px 10px', fontWeight:600, color:'var(--primary)' }}>Chronos-2 (zero-shot)</td>
+                  <td colSpan={4} style={{ padding:'6px 10px', color:'var(--ink-muted)', fontSize:12 }}>
+                    Forecasting Jan–Jun 2024 (beyond available actuals — qualitative evaluation only)
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </Reveal>
+        )}
+      </div>
+    </section>
+  );
+};
+
+Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, About, Footer, BARTForecasts });

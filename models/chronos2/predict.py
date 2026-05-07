@@ -332,7 +332,7 @@ class Predictor:
         self,
         context_df, future_df, station_id, horizon_steps, quantile_levels
     ) -> pd.DataFrame:
-        from models.chronos2.zero_shot import run_zero_shot_forecast
+        from machine_learning_files.zero_shot import run_zero_shot_forecast
 
         preds_df = run_zero_shot_forecast(
             self._pipeline, context_df, future_df,

@@ -1,0 +1,330 @@
+{
+  "12th": {
+    "bart_id": "12",
+    "station_name": "12th St. Oakland City Center",
+    "avg_monthly_ridership": 751287.0,
+    "normalized": 1.026,
+    "baseAM": 1.077,
+    "basePM": 0.975
+  },
+  "16th": {
+    "bart_id": "16",
+    "station_name": "16th St. Mission",
+    "avg_monthly_ridership": 846531.0,
+    "normalized": 1.156,
+    "baseAM": 1.214,
+    "basePM": 1.098
+  },
+  "19th": {
+    "bart_id": "19",
+    "station_name": "19th St. Oakland",
+    "avg_monthly_ridership": 721603.0,
+    "normalized": 0.985,
+    "baseAM": 1.034,
+    "basePM": 0.936
+  },
+  "24th": {
+    "bart_id": "24",
+    "station_name": "24th St. Mission",
+    "avg_monthly_ridership": 812764.0,
+    "normalized": 1.11,
+    "baseAM": 1.166,
+    "basePM": 1.054
+  },
+  "ant": {
+    "bart_id": "AN",
+    "station_name": "Antioch",
+    "avg_monthly_ridership": 207180.0,
+    "normalized": 0.283,
+    "baseAM": 0.297,
+    "basePM": 0.269
+  },
+  "brb": {
+    "bart_id": "BE",
+    "station_name": "Berryessa/North San Jos\u00e9",
+    "avg_monthly_ridership": 85383.0,
+    "normalized": 0.117,
+    "baseAM": 0.123,
+    "basePM": 0.111
+  },
+  "bayp": {
+    "bart_id": "BF",
+    "station_name": "BF",
+    "avg_monthly_ridership": 349971.0,
+    "normalized": 0.478,
+    "baseAM": 0.502,
+    "basePM": 0.454
+  },
+  "bky": {
+    "bart_id": "BK",
+    "station_name": "Downtown Berkeley",
+    "avg_monthly_ridership": 731509.0,
+    "normalized": 0.999,
+    "baseAM": 1.049,
+    "basePM": 0.949
+  },
+  "bls": {
+    "bart_id": "BP",
+    "station_name": "Balboa Park",
+    "avg_monthly_ridership": 663494.0,
+    "normalized": 0.906,
+    "baseAM": 0.951,
+    "basePM": 0.861
+  },
+  "cvc": {
+    "bart_id": "CC",
+    "station_name": "Civic Center/UN Plaza",
+    "avg_monthly_ridership": 1451808.0,
+    "normalized": 1.983,
+    "baseAM": 2.082,
+    "basePM": 1.884
+  },
+  "col": {
+    "bart_id": "CL",
+    "station_name": "Coliseum",
+    "avg_monthly_ridership": 412243.0,
+    "normalized": 0.563,
+    "baseAM": 0.591,
+    "basePM": 0.535
+  },
+  "colm": {
+    "bart_id": "CM",
+    "station_name": "Colma",
+    "avg_monthly_ridership": 243831.0,
+    "normalized": 0.333,
+    "baseAM": 0.35,
+    "basePM": 0.316
+  },
+  "ccd": {
+    "bart_id": "CN",
+    "station_name": "Concord",
+    "avg_monthly_ridership": 340612.0,
+    "normalized": 0.465,
+    "baseAM": 0.488,
+    "basePM": 0.442
+  },
+  "cas": {
+    "bart_id": "CV",
+    "station_name": "Castro Valley",
+    "avg_monthly_ridership": 169927.0,
+    "normalized": 0.232,
+    "baseAM": 0.244,
+    "basePM": 0.22
+  },
+  "daly": {
+    "bart_id": "DC",
+    "station_name": "Daly City",
+    "avg_monthly_ridership": 592194.0,
+    "normalized": 0.809,
+    "baseAM": 0.849,
+    "basePM": 0.769
+  },
+  "dub": {
+    "bart_id": "ED",
+    "station_name": "Dublin/Pleasanton",
+    "avg_monthly_ridership": 463169.0,
+    "normalized": 0.633,
+    "baseAM": 0.665,
+    "basePM": 0.601
+  },
+  "emb": {
+    "bart_id": "EM",
+    "station_name": "Embarcadero",
+    "avg_monthly_ridership": 2223678.0,
+    "normalized": 2.4,
+    "baseAM": 2.52,
+    "basePM": 2.28
+  },
+  "elc": {
+    "bart_id": "EN",
+    "station_name": "El Cerrito Del Norte",
+    "avg_monthly_ridership": 491242.0,
+    "normalized": 0.671,
+    "baseAM": 0.705,
+    "basePM": 0.637
+  },
+  "frm": {
+    "bart_id": "FM",
+    "station_name": "Fremont",
+    "avg_monthly_ridership": 309734.0,
+    "normalized": 0.423,
+    "baseAM": 0.444,
+    "basePM": 0.402
+  },
+  "fvw": {
+    "bart_id": "FV",
+    "station_name": "Fruitvale",
+    "avg_monthly_ridership": 530051.0,
+    "normalized": 0.724,
+    "baseAM": 0.76,
+    "basePM": 0.688
+  },
+  "gln": {
+    "bart_id": "GP",
+    "station_name": "Glen Park",
+    "avg_monthly_ridership": 468516.0,
+    "normalized": 0.64,
+    "baseAM": 0.672,
+    "basePM": 0.608
+  },
+  "hyw": {
+    "bart_id": "HY",
+    "station_name": "Hayward",
+    "avg_monthly_ridership": 295835.0,
+    "normalized": 0.404,
+    "baseAM": 0.424,
+    "basePM": 0.384
+  },
+  "lfy": {
+    "bart_id": "LF",
+    "station_name": "Lafayette",
+    "avg_monthly_ridership": 206244.0,
+    "normalized": 0.282,
+    "baseAM": 0.296,
+    "basePM": 0.268
+  },
+  "lkm": {
+    "bart_id": "LM",
+    "station_name": "Lake Merritt",
+    "avg_monthly_ridership": 426229.0,
+    "normalized": 0.582,
+    "baseAM": 0.611,
+    "basePM": 0.553
+  },
+  "mac": {
+    "bart_id": "MA",
+    "station_name": "MacArthur",
+    "avg_monthly_ridership": 541878.0,
+    "normalized": 0.74,
+    "baseAM": 0.777,
+    "basePM": 0.703
+  },
+  "mil": {
+    "bart_id": "MB",
+    "station_name": "Millbrae",
+    "avg_monthly_ridership": 353469.0,
+    "normalized": 0.483,
+    "baseAM": 0.507,
+    "basePM": 0.459
+  },
+  "mtg": {
+    "bart_id": "MT",
+    "station_name": "Montgomery St.",
+    "avg_monthly_ridership": 2050753.0,
+    "normalized": 2.4,
+    "baseAM": 2.52,
+    "basePM": 2.28
+  },
+  "nbk": {
+    "bart_id": "NB",
+    "station_name": "North Berkeley",
+    "avg_monthly_ridership": 263562.0,
+    "normalized": 0.36,
+    "baseAM": 0.378,
+    "basePM": 0.342
+  },
+  "orn": {
+    "bart_id": "OR",
+    "station_name": "Orinda",
+    "avg_monthly_ridership": 174438.0,
+    "normalized": 0.238,
+    "baseAM": 0.25,
+    "basePM": 0.226
+  },
+  "wo": {
+    "bart_id": "OW",
+    "station_name": "West Oakland",
+    "avg_monthly_ridership": 519054.0,
+    "normalized": 0.709,
+    "baseAM": 0.744,
+    "basePM": 0.674
+  },
+  "pit": {
+    "bart_id": "PC",
+    "station_name": "Pittsburg Center",
+    "avg_monthly_ridership": 78784.0,
+    "normalized": 0.108,
+    "baseAM": 0.113,
+    "basePM": 0.103
+  },
+  "plh": {
+    "bart_id": "PH",
+    "station_name": "Pleasant Hill/Contra Costa Centre",
+    "avg_monthly_ridership": 387477.0,
+    "normalized": 0.529,
+    "baseAM": 0.555,
+    "basePM": 0.503
+  },
+  "pwl": {
+    "bart_id": "PL",
+    "station_name": "Powell St.",
+    "avg_monthly_ridership": 2007525.0,
+    "normalized": 2.4,
+    "baseAM": 2.52,
+    "basePM": 2.28
+  },
+  "rich": {
+    "bart_id": "RM",
+    "station_name": "Richmond",
+    "avg_monthly_ridership": 311923.0,
+    "normalized": 0.426,
+    "baseAM": 0.447,
+    "basePM": 0.405
+  },
+  "rkr": {
+    "bart_id": "RR",
+    "station_name": "Rockridge",
+    "avg_monthly_ridership": 332222.0,
+    "normalized": 0.454,
+    "baseAM": 0.477,
+    "basePM": 0.431
+  },
+  "sbr": {
+    "bart_id": "SB",
+    "station_name": "San Bruno",
+    "avg_monthly_ridership": 213318.0,
+    "normalized": 0.291,
+    "baseAM": 0.306,
+    "basePM": 0.276
+  },
+  "sl": {
+    "bart_id": "SL",
+    "station_name": "San Leandro",
+    "avg_monthly_ridership": 405665.0,
+    "normalized": 0.554,
+    "baseAM": 0.582,
+    "basePM": 0.526
+  },
+  "sfo": {
+    "bart_id": "SO",
+    "station_name": "SFO",
+    "avg_monthly_ridership": 561439.0,
+    "normalized": 0.767,
+    "baseAM": 0.805,
+    "basePM": 0.729
+  },
+  "ssf": {
+    "bart_id": "SS",
+    "station_name": "South San Francisco",
+    "avg_monthly_ridership": 196909.0,
+    "normalized": 0.269,
+    "baseAM": 0.282,
+    "basePM": 0.256
+  },
+  "unc": {
+    "bart_id": "UC",
+    "station_name": "Union City",
+    "avg_monthly_ridership": 265217.0,
+    "normalized": 0.362,
+    "baseAM": 0.38,
+    "basePM": 0.344
+  },
+  "wdb": {
+    "bart_id": "WD",
+    "station_name": "West Dublin/Pleasanton",
+    "avg_monthly_ridership": 188723.0,
+    "normalized": 0.258,
+    "baseAM": 0.271,
+    "basePM": 0.245
+  }
+}

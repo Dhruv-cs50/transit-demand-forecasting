@@ -1,0 +1,302 @@
+[
+  {
+    "bart_id": "EM",
+    "website_id": "emb",
+    "station_name": "Embarcadero",
+    "avg_monthly_ridership": 2223678.0
+  },
+  {
+    "bart_id": "MT",
+    "website_id": "mtg",
+    "station_name": "Montgomery St.",
+    "avg_monthly_ridership": 2050753.0
+  },
+  {
+    "bart_id": "PL",
+    "website_id": "pwl",
+    "station_name": "Powell St.",
+    "avg_monthly_ridership": 2007525.0
+  },
+  {
+    "bart_id": "CC",
+    "website_id": "cvc",
+    "station_name": "Civic Center/UN Plaza",
+    "avg_monthly_ridership": 1451808.0
+  },
+  {
+    "bart_id": "16",
+    "website_id": "16th",
+    "station_name": "16th St. Mission",
+    "avg_monthly_ridership": 846531.0
+  },
+  {
+    "bart_id": "24",
+    "website_id": "24th",
+    "station_name": "24th St. Mission",
+    "avg_monthly_ridership": 812764.0
+  },
+  {
+    "bart_id": "12",
+    "website_id": "12th",
+    "station_name": "12th St. Oakland City Center",
+    "avg_monthly_ridership": 751287.0
+  },
+  {
+    "bart_id": "BK",
+    "website_id": "bky",
+    "station_name": "Downtown Berkeley",
+    "avg_monthly_ridership": 731509.0
+  },
+  {
+    "bart_id": "19",
+    "website_id": "19th",
+    "station_name": "19th St. Oakland",
+    "avg_monthly_ridership": 721603.0
+  },
+  {
+    "bart_id": "BP",
+    "website_id": "bls",
+    "station_name": "Balboa Park",
+    "avg_monthly_ridership": 663494.0
+  },
+  {
+    "bart_id": "DC",
+    "website_id": "daly",
+    "station_name": "Daly City",
+    "avg_monthly_ridership": 592194.0
+  },
+  {
+    "bart_id": "SO",
+    "website_id": "sfo",
+    "station_name": "SFO",
+    "avg_monthly_ridership": 561439.0
+  },
+  {
+    "bart_id": "MA",
+    "website_id": "mac",
+    "station_name": "MacArthur",
+    "avg_monthly_ridership": 541878.0
+  },
+  {
+    "bart_id": "FV",
+    "website_id": "fvw",
+    "station_name": "Fruitvale",
+    "avg_monthly_ridership": 530051.0
+  },
+  {
+    "bart_id": "OW",
+    "website_id": "wo",
+    "station_name": "West Oakland",
+    "avg_monthly_ridership": 519054.0
+  },
+  {
+    "bart_id": "EN",
+    "website_id": "elc",
+    "station_name": "El Cerrito Del Norte",
+    "avg_monthly_ridership": 491242.0
+  },
+  {
+    "bart_id": "GP",
+    "website_id": "gln",
+    "station_name": "Glen Park",
+    "avg_monthly_ridership": 468516.0
+  },
+  {
+    "bart_id": "ED",
+    "website_id": "dub",
+    "station_name": "Dublin/Pleasanton",
+    "avg_monthly_ridership": 463169.0
+  },
+  {
+    "bart_id": "LM",
+    "website_id": "lkm",
+    "station_name": "Lake Merritt",
+    "avg_monthly_ridership": 426229.0
+  },
+  {
+    "bart_id": "CL",
+    "website_id": "col",
+    "station_name": "Coliseum",
+    "avg_monthly_ridership": 412243.0
+  },
+  {
+    "bart_id": "SL",
+    "website_id": "sl",
+    "station_name": "San Leandro",
+    "avg_monthly_ridership": 405665.0
+  },
+  {
+    "bart_id": "PH",
+    "website_id": "plh",
+    "station_name": "Pleasant Hill/Contra Costa Centre",
+    "avg_monthly_ridership": 387477.0
+  },
+  {
+    "bart_id": "WC",
+    "website_id": null,
+    "station_name": "Walnut Creek",
+    "avg_monthly_ridership": 374205.0
+  },
+  {
+    "bart_id": "MB",
+    "website_id": "mil",
+    "station_name": "Millbrae",
+    "avg_monthly_ridership": 353469.0
+  },
+  {
+    "bart_id": "BF",
+    "website_id": "bayp",
+    "station_name": "BF",
+    "avg_monthly_ridership": 349971.0
+  },
+  {
+    "bart_id": "CN",
+    "website_id": "ccd",
+    "station_name": "Concord",
+    "avg_monthly_ridership": 340612.0
+  },
+  {
+    "bart_id": "RR",
+    "website_id": "rkr",
+    "station_name": "Rockridge",
+    "avg_monthly_ridership": 332222.0
+  },
+  {
+    "bart_id": "RM",
+    "website_id": "rich",
+    "station_name": "Richmond",
+    "avg_monthly_ridership": 311923.0
+  },
+  {
+    "bart_id": "FM",
+    "website_id": "frm",
+    "station_name": "Fremont",
+    "avg_monthly_ridership": 309734.0
+  },
+  {
+    "bart_id": "AS",
+    "website_id": null,
+    "station_name": "Ashby",
+    "avg_monthly_ridership": 307712.0
+  },
+  {
+    "bart_id": "HY",
+    "website_id": "hyw",
+    "station_name": "Hayward",
+    "avg_monthly_ridership": 295835.0
+  },
+  {
+    "bart_id": "EP",
+    "website_id": null,
+    "station_name": "El Cerrito Plaza",
+    "avg_monthly_ridership": 294220.0
+  },
+  {
+    "bart_id": "UC",
+    "website_id": "unc",
+    "station_name": "Union City",
+    "avg_monthly_ridership": 265217.0
+  },
+  {
+    "bart_id": "NB",
+    "website_id": "nbk",
+    "station_name": "North Berkeley",
+    "avg_monthly_ridership": 263562.0
+  },
+  {
+    "bart_id": "CM",
+    "website_id": "colm",
+    "station_name": "Colma",
+    "avg_monthly_ridership": 243831.0
+  },
+  {
+    "bart_id": "WP",
+    "website_id": null,
+    "station_name": "WP",
+    "avg_monthly_ridership": 240625.0
+  },
+  {
+    "bart_id": "WS",
+    "website_id": null,
+    "station_name": "Warm Springs/South Fremont",
+    "avg_monthly_ridership": 227909.0
+  },
+  {
+    "bart_id": "SB",
+    "website_id": "sbr",
+    "station_name": "San Bruno",
+    "avg_monthly_ridership": 213318.0
+  },
+  {
+    "bart_id": "AN",
+    "website_id": "ant",
+    "station_name": "Antioch",
+    "avg_monthly_ridership": 207180.0
+  },
+  {
+    "bart_id": "LF",
+    "website_id": "lfy",
+    "station_name": "Lafayette",
+    "avg_monthly_ridership": 206244.0
+  },
+  {
+    "bart_id": "SS",
+    "website_id": "ssf",
+    "station_name": "South San Francisco",
+    "avg_monthly_ridership": 196909.0
+  },
+  {
+    "bart_id": "SH",
+    "website_id": null,
+    "station_name": "South Hayward",
+    "avg_monthly_ridership": 193733.0
+  },
+  {
+    "bart_id": "WD",
+    "website_id": "wdb",
+    "station_name": "West Dublin/Pleasanton",
+    "avg_monthly_ridership": 188723.0
+  },
+  {
+    "bart_id": "OR",
+    "website_id": "orn",
+    "station_name": "Orinda",
+    "avg_monthly_ridership": 174438.0
+  },
+  {
+    "bart_id": "CV",
+    "website_id": "cas",
+    "station_name": "Castro Valley",
+    "avg_monthly_ridership": 169927.0
+  },
+  {
+    "bart_id": "OA",
+    "website_id": null,
+    "station_name": "Oakland International Airport",
+    "avg_monthly_ridership": 110617.0
+  },
+  {
+    "bart_id": "NC",
+    "website_id": null,
+    "station_name": "North Concord/Martinez",
+    "avg_monthly_ridership": 106276.0
+  },
+  {
+    "bart_id": "BE",
+    "website_id": "brb",
+    "station_name": "Berryessa/North San Jos\u00e9",
+    "avg_monthly_ridership": 85383.0
+  },
+  {
+    "bart_id": "PC",
+    "website_id": "pit",
+    "station_name": "Pittsburg Center",
+    "avg_monthly_ridership": 78784.0
+  },
+  {
+    "bart_id": "ML",
+    "website_id": null,
+    "station_name": "ML",
+    "avg_monthly_ridership": 72438.0
+  }
+]
