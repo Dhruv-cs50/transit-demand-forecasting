@@ -1,9 +1,9 @@
 [
   {
-    "model": "Prophet",
-    "MAE": 580181.0,
-    "MAPE_pct": 212.0,
-    "WAPE_pct": 176.3,
+    "model": "AutoETS (AutoGluon)",
+    "MAE": 46783.0,
+    "MAPE_pct": null,
+    "WAPE_pct": 14.2,
     "n_predictions": 300
   },
   {
@@ -11,6 +11,13 @@
     "MAE": 73955.0,
     "MAPE_pct": 17.8,
     "WAPE_pct": 22.5,
+    "n_predictions": 300
+  },
+  {
+    "model": "Prophet",
+    "MAE": 580181.0,
+    "MAPE_pct": 212.0,
+    "WAPE_pct": 176.3,
     "n_predictions": 300
   }
 ]

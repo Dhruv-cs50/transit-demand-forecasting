@@ -797,7 +797,7 @@ const BARTForecasts = () => {
                 {comparison.map((r, i) => (
                   <tr key={i} style={{ borderBottom:'1px solid var(--line)', background: i===0 ? 'rgba(42,47,143,0.04)' : 'transparent' }}>
                     <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.model}</td>
-                    <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.MAPE_pct.toFixed(1)}%</td>
+                    <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.MAPE_pct != null ? r.MAPE_pct.toFixed(1)+'%' : '—'}</td>
                     <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.WAPE_pct.toFixed(1)}%</td>
                     <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{fmt(r.MAE)}</td>
                     <td style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>{r.n_predictions}</td>

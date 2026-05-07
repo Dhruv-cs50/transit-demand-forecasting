@@ -246,39 +246,30 @@ def build_predictor(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    known_cov_cols = _get_known_covariate_cols(train_ts)
+
     predictor = TimeSeriesPredictor(
         target="target",
         prediction_length=prediction_length,
         freq=freq,
         quantile_levels=quantiles,
-        eval_metric=cfg["finetune"]["eval_metric"],   # MASE — scale-independent
+        eval_metric=cfg["finetune"]["eval_metric"],
+        known_covariates_names=known_cov_cols,
         path=str(output_dir),
         verbosity=2,
     )
-
-    # Known covariate columns — must be specified so AutoGluon
-    # knows to pass weather forecast + event schedule at inference time
-    known_cov_cols = _get_known_covariate_cols(train_ts)
 
     predictor.fit(
         train_data=train_ts,
         time_limit=time_budget,
         presets=model_preset,
-        # Include Chronos-2 as a core model alongside baselines
         hyperparameters={
-            "Chronos": [
-                {
-                    "model_path": cfg["chronos2"]["model_id"],
-                    "context_length": context_length_steps,
-                    "batch_size": cfg["chronos2"]["batch_size"],
-                    "device": cfg["chronos2"]["device"],
-                },
-            ],
-            # Lightweight baselines for ensemble robustness
+            # Chronos requires CUDA via AutoGluon's wrapper — excluded on CPU/MPS machines.
+            # Chronos zero-shot forecasts are generated separately via machine_learning_files/zero_shot.py.
             "SeasonalNaive": {},
             "AutoETS": {},
+            "DeepAR": {},
         },
-        known_covariates_names=known_cov_cols,
         num_val_windows=2,
         val_step_size=prediction_length,
     )
@@ -328,21 +319,7 @@ def evaluate_on_val(
     for metric, score in scores.items():
         log.info(f"  {metric:6s}: {score:.4f}")
 
-    # Per-station evaluation
-    per_station = []
-    for station_id in val_ts.item_ids:
-        station_val = val_ts.loc[station_id]
-        s = predictor.evaluate(station_val, metrics=["MASE", "WAPE"])
-        per_station.append({"station_id": station_id, **s})
-
-    station_df = pd.DataFrame(per_station).sort_values("WAPE")
-    log.info(f"\nPer-station WAPE (top 10 best):\n{station_df.head(10).to_string(index=False)}")
-    log.info(f"\nPer-station WAPE (top 10 worst):\n{station_df.tail(10).to_string(index=False)}")
-
-    # Save per-station metrics
-    out = MODEL_DIR / "val_metrics_per_station.csv"
-    station_df.to_csv(out, index=False)
-    log.info(f"\nPer-station metrics saved → {out}")
+    log.info("(Per-station breakdown skipped — use predictor.leaderboard() for full details)")
 
     return scores
 
@@ -422,9 +399,10 @@ def main():
         output_dir=output_dir,
     )
 
-    # 4. Evaluate
+    # 4. Evaluate — pass train+val so predictor has context rows (val alone = prediction_length rows)
     if not args.skip_eval:
-        scores = evaluate_on_val(predictor, val_ts, cfg)
+        full_ts = to_autogluon_format(pd.concat([train_df, val_df], ignore_index=True))
+        scores = evaluate_on_val(predictor, full_ts, cfg)
         evaluate_event_days(predictor, val_ts, feature_store)
 
         print(f"\n{'─'*50}")
