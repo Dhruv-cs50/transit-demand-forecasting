@@ -151,9 +151,94 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 | `models/baselines/outputs/prophet/prophet_forecasts.parquet` | Prophet forecast artifact |
 | `website/data/*.json` | static frontend data generated from model and feature artifacts |
 
+## Live Deployment
+
+| Service | URL |
+| --- | --- |
+| Website | https://cs-163-final-project-tra-f1136.web.app |
+| API | https://transit-api-308878596074.us-west2.run.app |
+| API Playground | https://cs-163-final-project-tra-f1136.web.app/api-demo.html |
+| API Docs (Swagger) | https://transit-api-308878596074.us-west2.run.app/docs |
+
+## Cloud Deployment
+
+### Infrastructure Overview
+
+| Component | GCP Service | Details |
+| --- | --- | --- |
+| Website | Firebase Hosting | CDN-served static site, `website/` directory |
+| API | Cloud Run | Serverless container, us-west2, auto-scales 0→N |
+| Container image | Artifact Registry | `us-west2-docker.pkg.dev/<PROJECT_ID>/transit-repo/transit-api:tag1` |
+| Build pipeline | Cloud Build | `cloudbuild.yaml` — builds `Dockerfile.api` for `linux/amd64` |
+
+### Docker Containers
+
+Two Dockerfiles are provided:
+
+**`Dockerfile.api`** (inference service — used in production):
+- Base: `python:3.11-slim`
+- Copies pre-computed parquet forecasts from `models/chronos2/outputs/` into the image (fast path, no inference at startup)
+- Exposes FastAPI on port `$PORT` (Cloud Run injects this env var)
+- Build: `docker build -f Dockerfile.api -t transit-api .`
+
+**`Dockerfile`** (full pipeline):
+- Runs the complete ingestion → feature engineering → training → export pipeline
+- Used for reproducing results locally or in batch compute environments
+
+### Cloud Run Deployment
+
+The API image is built and pushed via Cloud Build, then deployed to Cloud Run:
+
+```bash
+# Build and push via Cloud Build
+gcloud builds submit --config=cloudbuild.yaml .
+
+# Deploy to Cloud Run (manual after build)
+gcloud run deploy transit-api \
+  --image us-west2-docker.pkg.dev/<PROJECT_ID>/transit-repo/transit-api:tag1 \
+  --platform managed \
+  --region us-west2 \
+  --allow-unauthenticated \
+  --port 8080
+```
+
+### Cloud Data Storage
+
+| Data | Location | Notes |
+| --- | --- | --- |
+| Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API |
+| Website assets | Firebase Hosting (global CDN) | HTML/CSS/JSX/JSON, edge-cached |
+| Pre-computed forecasts | Baked into Docker image | `models/chronos2/outputs/*.parquet` copied at build time |
+| Feature store | `data/processed/` | Parquet files for training and website export |
+
+### System Design and Scalability
+
+```
+[Client Browser]
+      |
+      v
+[Firebase Hosting CDN] ──── static HTML/JSX/JSON ────> rendered website
+      |
+      | POST /forecast, GET /stations
+      v
+[Cloud Run: transit-api] ──── reads ────> [baked-in parquet cache]
+      |
+      | cache miss (rare)
+      v
+[Chronos-2 live inference]
+```
+
+**Scalability properties:**
+- **Cloud Run** scales to zero when idle and auto-scales horizontally under load; each instance is stateless
+- **Firebase Hosting** serves assets from Google's global CDN with no origin servers for the website itself
+- **Pre-computed parquet cache** means most API requests are parquet lookups with sub-100ms latency and no model load
+- **Live inference path** (cache miss) runs Chronos-T5-Small on CPU; for higher throughput, swap Cloud Run CPU for GPU-backed instances or Vertex AI Prediction
+
 ## Website
 
-The frontend is a static site in `website/`. It uses CDN-loaded React and Babel, so there is no Node build step for normal local viewing or Firebase deployment. The site reads generated JSON files from `website/data/`.
+The frontend is a static site in `website/`. It uses CDN-loaded React and Babel — no Node build step needed. The site reads generated JSON files from `website/data/`.
+
+Live URL: **https://cs-163-final-project-tra-f1136.web.app**
 
 Refresh website data:
 
@@ -167,32 +252,45 @@ Deploy with Firebase Hosting:
 firebase deploy --only hosting
 ```
 
-`firebase.json` serves `website/` and ignores local metadata, `node_modules`, and zip archives.
-
 ## Forecast API
 
-After building a feature store, start the API locally:
+Live URL: **https://transit-api-308878596074.us-west2.run.app**
+
+Model code: `machine_learning_files/api.py` (FastAPI service), `models/chronos2/finetune.py` (AutoGluon/Chronos training).
+
+Start locally after building the feature store:
 
 ```bash
 uvicorn machine_learning_files.api:app --reload --port 8000
 ```
 
-Useful endpoints:
+Endpoints:
 
-- `GET /health`
-- `GET /stations`
-- `POST /forecast`
-- `GET /docs`
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/health` | Service health, model/store load status |
+| `GET` | `/stations` | List of forecastable station IDs and names |
+| `POST` | `/forecast` | Request P10/P50/P90 quantile forecasts |
+| `GET` | `/docs` | Swagger UI (interactive API explorer) |
 
-Example request:
-
-```bash
-curl -X POST http://localhost:8000/forecast \
-  -H "Content-Type: application/json" \
-  -d '{"station_id": "EM", "horizon_hours": 6}'
+**Input** (`POST /forecast`):
+```json
+{ "station_id": "EM", "horizon_hours": 6 }
 ```
 
-The API first checks cached forecast parquet files in `models/chronos2/outputs/`. If a station is missing from cached output, it attempts live model inference.
+**Output** (`POST /forecast`):
+```json
+{
+  "station_id": "EM",
+  "station_name": "Embarcadero",
+  "forecasts": [
+    { "date": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
+  ],
+  "source": "cache"
+}
+```
+
+The API serves from cached parquet in `models/chronos2/outputs/`. Cache miss triggers live Chronos-2 inference.
 
 ## Documentation
 
