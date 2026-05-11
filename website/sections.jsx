@@ -634,7 +634,7 @@ const About = () => (
           </p>
           <div className="links">
             <a className="btn btn-secondary" href="https://github.com/Dhruv-cs50/transit-demand-forecasting" target="_blank" rel="noopener noreferrer"><I.github /> github.com/Dhruv-cs50</a>
-            <a className="btn btn-secondary" href="#">LinkedIn <I.arrowOut /></a>
+            <a className="btn btn-secondary" href="https://www.linkedin.com/in/dhruv-shah911/" target="_blank" rel="noopener noreferrer">LinkedIn <I.arrowOut /></a>
             <a className="btn btn-ghost" href="mailto:dhruv.shah@sjsu.edu">dhruv.shah@sjsu.edu</a>
           </div>
         </Reveal>
