@@ -1,99 +1,186 @@
-/* SVG chart primitives — ROC, Calibration, Confusion mini, Distribution. */
+/* SVG chart primitives — WAPE comparison, Forecast bands, HeroOrbit, Gauge. */
 
-const ROCCurve = ({ width = 460, height = 300, animate = true }) => {
-  const ours = [
-    [0,0],[0.02,0.18],[0.05,0.36],[0.08,0.5],[0.12,0.62],[0.18,0.73],
-    [0.25,0.81],[0.34,0.86],[0.45,0.9],[0.58,0.93],[0.72,0.96],[0.86,0.98],[1,1]
-  ];
-  const baseline = [
-    [0,0],[0.05,0.12],[0.12,0.25],[0.22,0.4],[0.34,0.55],[0.46,0.66],
-    [0.58,0.74],[0.7,0.82],[0.82,0.9],[0.92,0.96],[1,1]
-  ];
-  const pad = { l: 44, r: 16, t: 14, b: 36 };
+/* ── WAPE comparison bar chart (real data from model_comparison.json) ── */
+const ROCCurve = ({ width = 460, height = 280 }) => {
+  const [data, setData] = React.useState(null);
+  React.useEffect(() => {
+    fetch('data/model_comparison.json').then(r => r.json()).catch(() => []).then(setData);
+  }, []);
+
+  if (!data) return (
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
+      <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">Loading…</text>
+    </svg>
+  );
+
+  const DISPLAY_CAP = 30; // cap x-axis at 30% — Prophet 176% shown as overflow
+  const pad = { l: 170, r: 70, t: 20, b: 38 };
   const W = width - pad.l - pad.r;
   const H = height - pad.t - pad.b;
-  const sx = (x) => pad.l + x * W;
-  const sy = (y) => pad.t + (1 - y) * H;
-  const path = (pts) => pts.map(([x,y], i) => `${i?'L':'M'}${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(' ');
-  const areaPath = path(ours) + ` L${sx(1)},${sy(0)} L${sx(0)},${sy(0)} Z`;
-  const oursLen = React.useRef(0);
-  const oursRef = React.useRef(null);
-  React.useEffect(() => {
-    if (!animate || !oursRef.current) return;
-    const len = oursRef.current.getTotalLength();
-    oursLen.current = len;
-    oursRef.current.style.strokeDasharray = len;
-    oursRef.current.style.strokeDashoffset = len;
-    requestAnimationFrame(() => {
-      oursRef.current.style.transition = 'stroke-dashoffset 1.4s cubic-bezier(.2,.7,.2,1)';
-      oursRef.current.style.strokeDashoffset = 0;
-    });
-  }, [animate]);
+  const rowH = H / data.length;
+
+  const gridLines = [0, 10, 20, 30];
+
+  const labelFor = m => ({
+    'AutoETS (AutoGluon)': 'AutoETS / AutoGluon',
+    'SARIMA': 'SARIMA(2,1,2)',
+    'Prophet': 'Prophet',
+  }[m] || m);
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
-      <defs>
-        <linearGradient id="rocFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[0,0.25,0.5,0.75,1].map(t => (
-        <g key={t}>
-          <line x1={sx(0)} x2={sx(1)} y1={sy(t)} y2={sy(t)} stroke="var(--line)" strokeDasharray={t===0||t===1?'':'2 4'} />
-          <text x={pad.l - 8} y={sy(t) + 4} textAnchor="end" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{t.toFixed(2)}</text>
+      {/* grid */}
+      {gridLines.map(v => (
+        <g key={v}>
+          <line
+            x1={pad.l + (v / DISPLAY_CAP) * W} y1={pad.t}
+            x2={pad.l + (v / DISPLAY_CAP) * W} y2={pad.t + H}
+            stroke="var(--line)" strokeDasharray={v === 0 ? '' : '2 4'}
+          />
+          <text
+            x={pad.l + (v / DISPLAY_CAP) * W} y={pad.t + H + 16}
+            textAnchor="middle" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)"
+          >{v}%</text>
         </g>
       ))}
-      {[0,0.25,0.5,0.75,1].map(t => (
-        <text key={t} x={sx(t)} y={height - pad.b + 18} textAnchor="middle" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{t.toFixed(2)}</text>
-      ))}
-      <text x={pad.l + W/2} y={height - 4} textAnchor="middle" fontSize="11" fill="var(--ink-muted)">False Positive Rate</text>
-      <text transform={`translate(12 ${pad.t + H/2}) rotate(-90)`} textAnchor="middle" fontSize="11" fill="var(--ink-muted)">True Positive Rate</text>
-      <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="var(--line-strong)" strokeDasharray="3 4" />
-      <path d={path(baseline)} fill="none" stroke="var(--ink-soft)" strokeWidth="1.6" strokeDasharray="5 4" />
-      <path d={areaPath} fill="url(#rocFill)" />
-      <path ref={oursRef} d={path(ours)} fill="none" stroke="var(--accent)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-      <g>
-        <circle cx={sx(0.18)} cy={sy(0.73)} r="5" fill="var(--bg-elev)" stroke="var(--accent)" strokeWidth="2" />
-        <circle cx={sx(0.18)} cy={sy(0.73)} r="2" fill="var(--accent)" />
-      </g>
-      <g transform={`translate(${pad.l + W - 178}, ${pad.t + 8})`}>
-        <rect x="0" y="0" width="170" height="46" rx="8" fill="var(--bg-elev)" stroke="var(--line)" />
-        <line x1="10" y1="16" x2="28" y2="16" stroke="var(--accent)" strokeWidth="2.4" />
-        <text x="34" y="19" fontSize="11" fill="var(--ink)" fontFamily="var(--body)">XGBoost · AUC 0.912</text>
-        <line x1="10" y1="34" x2="28" y2="34" stroke="var(--ink-soft)" strokeWidth="1.6" strokeDasharray="5 4" />
-        <text x="34" y="37" fontSize="11" fill="var(--ink-muted)" fontFamily="var(--body)">LogReg · AUC 0.823</text>
-      </g>
+      <line x1={pad.l} y1={pad.t + H} x2={pad.l + W} y2={pad.t + H} stroke="var(--line)" />
+
+      {/* bars */}
+      {data.map((r, i) => {
+        const isBest = r.model === 'AutoETS (AutoGluon)';
+        const disp = Math.min(r.WAPE_pct, DISPLAY_CAP);
+        const barW = (disp / DISPLAY_CAP) * W;
+        const overflow = r.WAPE_pct > DISPLAY_CAP;
+        const y = pad.t + i * rowH + rowH * 0.18;
+        const bH = rowH * 0.56;
+        return (
+          <g key={i}>
+            <text
+              x={pad.l - 10} y={y + bH / 2 + 4}
+              textAnchor="end" fontSize="11.5" fontFamily="var(--body)"
+              fontWeight={isBest ? 600 : 400}
+              fill={isBest ? 'var(--accent)' : 'var(--ink)'}
+            >{labelFor(r.model)}</text>
+            <rect
+              x={pad.l} y={y} width={barW} height={bH} rx="3"
+              fill={isBest ? 'var(--accent)' : 'var(--primary)'}
+              opacity={isBest ? 0.88 : 0.45}
+            />
+            <text
+              x={pad.l + barW + (overflow ? 6 : 8)} y={y + bH / 2 + 4}
+              fontSize="11" fontFamily="var(--mono)"
+              fontWeight={isBest ? 700 : 400}
+              fill={isBest ? 'var(--accent)' : 'var(--ink)'}
+            >{r.WAPE_pct.toFixed(1)}%{overflow ? ' ▶' : ''}</text>
+          </g>
+        );
+      })}
+
+      <text
+        x={pad.l + W / 2} y={height - 4}
+        textAnchor="middle" fontSize="11" fill="var(--ink-muted)"
+      >WAPE % on Jan–Jun 2023 validation set · lower is better</text>
     </svg>
   );
 };
 
+/* ── Forecast interval chart — P10/P50/P90 for Embarcadero (real data) ── */
 const Calibration = ({ width = 460, height = 260 }) => {
-  const pts = [
-    [0.05,0.06],[0.15,0.14],[0.25,0.27],[0.35,0.33],[0.45,0.46],
-    [0.55,0.58],[0.65,0.66],[0.75,0.72],[0.85,0.83],[0.95,0.94]
-  ];
-  const pad = { l: 40, r: 14, t: 14, b: 32 };
+  const [pts, setPts] = React.useState(null);
+  React.useEffect(() => {
+    fetch('data/forecasts.json')
+      .then(r => r.json()).catch(() => [])
+      .then(d => {
+        const em = d.filter(r => r.station_id === 'EM')
+                    .sort((a, b) => a.month.localeCompare(b.month));
+        setPts(em);
+      });
+  }, []);
+
+  if (!pts) return (
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
+      <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">Loading…</text>
+    </svg>
+  );
+  if (pts.length === 0) return (
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
+      <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">No forecast data</text>
+    </svg>
+  );
+
+  const pad = { l: 58, r: 20, t: 24, b: 38 };
   const W = width - pad.l - pad.r;
   const H = height - pad.t - pad.b;
-  const sx = (x) => pad.l + x * W;
-  const sy = (y) => pad.t + (1 - y) * H;
+  const n = pts.length;
+
+  const allVals = pts.flatMap(r => [r.p10, r.p50, r.p90]).filter(v => v != null);
+  const minV = Math.min(...allVals) * 0.92;
+  const maxV = Math.max(...allVals) * 1.05;
+
+  const sx = i => pad.l + (n === 1 ? W / 2 : (i / (n - 1)) * W);
+  const sy = v => pad.t + (1 - (v - minV) / (maxV - minV)) * H;
+  const fmtK = v => v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : (v / 1e3).toFixed(0) + 'k';
+  const monthLabel = s => { const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return mo[parseInt(s.slice(5,7),10)-1]; };
+
+  const bandPath = [
+    ...pts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p90).toFixed(1)}`),
+    ...pts.slice().reverse().map((r, i) => `L${sx(n - 1 - i).toFixed(1)},${sy(r.p10).toFixed(1)}`),
+    'Z',
+  ].join(' ');
+  const p50Path = pts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p50).toFixed(1)}`).join(' ');
+  const p10Path = pts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p10).toFixed(1)}`).join(' ');
+  const p90Path = pts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p90).toFixed(1)}`).join(' ');
+
+  const gridVals = [0.25, 0.5, 0.75, 1].map(t => minV + (maxV - minV) * t);
+
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
-      {[0,0.25,0.5,0.75,1].map(t => (
-        <line key={t} x1={sx(0)} x2={sx(1)} y1={sy(t)} y2={sy(t)} stroke="var(--line)" strokeDasharray={t===0?'':'2 4'} />
+      <defs>
+        <linearGradient id="bandFill2" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.16" />
+          <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.03" />
+        </linearGradient>
+      </defs>
+
+      {/* grid */}
+      {gridVals.map((v, i) => (
+        <g key={i}>
+          <line x1={pad.l} x2={pad.l + W} y1={sy(v)} y2={sy(v)} stroke="var(--line)" strokeDasharray="2 4" />
+          <text x={pad.l - 6} y={sy(v) + 4} textAnchor="end" fontSize="9.5" fill="var(--ink-soft)" fontFamily="var(--mono)">{fmtK(v)}</text>
+        </g>
       ))}
-      <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="var(--line-strong)" strokeDasharray="3 4" />
-      <path
-        d={pts.map(([x,y],i)=>`${i?'L':'M'}${sx(x)},${sy(y)}`).join(' ')}
-        fill="none" stroke="var(--primary)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
-      />
-      {pts.map(([x,y],i)=>(
-        <circle key={i} cx={sx(x)} cy={sy(y)} r="3" fill="var(--bg-elev)" stroke="var(--primary)" strokeWidth="1.6" />
+
+      {/* P10/P90 band */}
+      <path d={bandPath} fill="url(#bandFill2)" />
+      {/* P10 / P90 dashed edges */}
+      <path d={p90Path} fill="none" stroke="var(--primary)" strokeWidth="1.2" strokeDasharray="4 3" opacity="0.5" />
+      <path d={p10Path} fill="none" stroke="var(--primary)" strokeWidth="1.2" strokeDasharray="4 3" opacity="0.5" />
+      {/* P50 median */}
+      <path d={p50Path} fill="none" stroke="var(--primary)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      {pts.map((r, i) => (
+        <circle key={i} cx={sx(i)} cy={sy(r.p50)} r="3.5" fill="var(--bg-elev)" stroke="var(--primary)" strokeWidth="1.8" />
       ))}
-      <text x={pad.l + W/2} y={height - 4} textAnchor="middle" fontSize="11" fill="var(--ink-muted)">Predicted probability</text>
-      <text transform={`translate(10 ${pad.t + H/2}) rotate(-90)`} textAnchor="middle" fontSize="11" fill="var(--ink-muted)">Observed frequency</text>
-      <text x={pad.l + 8} y={pad.t + 14} fontSize="10.5" fill="var(--ink-soft)" fontFamily="var(--mono)">Brier 0.078 · ECE 0.024</text>
+
+      {/* x labels */}
+      {pts.map((r, i) => (
+        <text key={i} x={sx(i)} y={pad.t + H + 16} textAnchor="middle" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{monthLabel(r.month)}</text>
+      ))}
+
+      {/* annotations */}
+      <text x={pad.l + 8} y={pad.t + 13} fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">Embarcadero · Chronos-2 zero-shot forecast</text>
+      <text x={pad.l + W} y={pad.t + H + 30} textAnchor="end" fontSize="10" fill="var(--ink-muted)">2024</text>
+
+      {/* legend */}
+      <g transform={`translate(${pad.l + W - 160}, ${pad.t + 22})`}>
+        <rect x="0" y="-14" width="155" height="46" rx="6" fill="var(--bg-elev)" stroke="var(--line)" />
+        <line x1="8" y1="0" x2="26" y2="0" stroke="var(--primary)" strokeWidth="2.4" />
+        <circle cx="17" cy="0" r="3" fill="var(--bg-elev)" stroke="var(--primary)" strokeWidth="1.8" />
+        <text x="32" y="4" fontSize="10.5" fill="var(--ink)" fontFamily="var(--body)">P50 median</text>
+        <rect x="8" y="14" width="18" height="8" rx="2" fill="var(--primary)" opacity="0.16" />
+        <line x1="8" y1="14" x2="26" y2="14" stroke="var(--primary)" strokeWidth="1" strokeDasharray="3 2" opacity="0.5" />
+        <line x1="8" y1="22" x2="26" y2="22" stroke="var(--primary)" strokeWidth="1" strokeDasharray="3 2" opacity="0.5" />
+        <text x="32" y="22" fontSize="10.5" fill="var(--ink)" fontFamily="var(--body)">P10–P90 band</text>
+      </g>
     </svg>
   );
 };
@@ -152,8 +239,8 @@ const HeroOrbit = () => {
       <g transform="translate(260,260)">
         <circle r="56" fill="var(--bg-elev)" stroke="var(--line-strong)" />
         <circle r="56" fill="url(#core)" opacity=".6" />
-        <text textAnchor="middle" y="-6" fontFamily="var(--mono)" fontSize="11" fill="var(--ink-muted)">PROB · 30D</text>
-        <text textAnchor="middle" y="22" fontFamily="var(--display)" fontWeight="600" fontSize="34" fill="var(--ink)" letterSpacing="-1">0.74</text>
+        <text textAnchor="middle" y="-6" fontFamily="var(--mono)" fontSize="11" fill="var(--ink-muted)">WAPE · val</text>
+        <text textAnchor="middle" y="22" fontFamily="var(--display)" fontWeight="600" fontSize="30" fill="var(--ink)" letterSpacing="-1">14.2%</text>
       </g>
     </svg>
   );

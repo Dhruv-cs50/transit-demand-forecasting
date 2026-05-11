@@ -22,7 +22,6 @@ uvicorn[standard]>=0.27.0
 pydantic>=2.6.0
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-holidays>=0.46               # US/CA public holiday calendar
 openpyxl>=3.1.2              # BART OD XLS parsing
 xlrd>=2.0.1                  # Legacy .xls support
 python-dotenv>=1.0.0

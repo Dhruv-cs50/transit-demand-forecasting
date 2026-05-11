@@ -291,12 +291,12 @@ const Results = () => {
           <Reveal className="card chart-card">
             <div className="chart-head">
               <div>
-                <h3>{chart === 'roc' ? 'Predicted vs. actual (lift curve)' : 'Reliability plot'}</h3>
-                <p>{chart === 'roc' ? 'Chronos-2 vs. seasonal-naïve · test window, n=180 station-months' : 'Forecast quantile vs. observed ridership, decile bins'}</p>
+                <h3>{chart === 'roc' ? 'WAPE by model — validation set' : 'Chronos-2 forecast intervals — Embarcadero'}</h3>
+                <p>{chart === 'roc' ? 'Jan–Jun 2023 · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 zero-shot forecast · Jan–Jun 2024 · Embarcadero (highest-volume BART station)'}</p>
               </div>
               <div className="chip-grp">
-                <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>Lift</button>
-                <button className={chart==='cal'?'on':''} onClick={()=>setChart('cal')}>Reliability</button>
+                <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>WAPE</button>
+                <button className={chart==='cal'?'on':''} onClick={()=>setChart('cal')}>Intervals</button>
               </div>
             </div>
             <div>{chart === 'roc' ? <ROCCurve /> : <Calibration />}</div>
@@ -322,7 +322,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>Top known-future covariates</h3>
-                <p>Mean effect on Chronos-2 forecasts across the test period. Coral pushes the forecast up; indigo pulls it down.</p>
+                <p>Relative influence on monthly ridership forecasts. Coral = positive effect; indigo = negative. Magnitudes are illustrative from ablation study — not SHAP.</p>
               </div>
             </div>
             <div className="shap">
@@ -633,7 +633,7 @@ const About = () => (
             on AWS.
           </p>
           <div className="links">
-            <a className="btn btn-secondary" href="#"><I.github /> github.com/dhruv-shah</a>
+            <a className="btn btn-secondary" href="https://github.com/Dhruv-cs50/transit-demand-forecasting" target="_blank" rel="noopener noreferrer"><I.github /> github.com/Dhruv-cs50</a>
             <a className="btn btn-secondary" href="#">LinkedIn <I.arrowOut /></a>
             <a className="btn btn-ghost" href="mailto:dhruv.shah@sjsu.edu">dhruv.shah@sjsu.edu</a>
           </div>
