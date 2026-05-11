@@ -1,0 +1,51 @@
+# ── FastAPI serving image ────────────────────────────────────────────────────
+# Serves pre-computed Chronos-2 forecasts via REST API.
+# Does NOT include Chronos/AutoGluon — uses cached parquet files only.
+# Target: Google Cloud Run (linux/amd64)
+#
+# Build & push (Apple Silicon — MUST use Cloud Build, not local docker build):
+#   gcloud builds submit --region=us-west2 \
+#     --tag us-west2-docker.pkg.dev/<PROJECT_ID>/transit-repo/transit-api:tag1
+#
+# Run locally (for testing only):
+#   docker build -t transit-api -f Dockerfile.api .
+#   docker run -it -p 8080:8080 transit-api
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+  && rm -rf /var/lib/apt/lists/*
+
+# Python deps — only what the serving layer needs (no Chronos/AutoGluon)
+RUN pip install --no-cache-dir \
+    fastapi==0.115.0 \
+    "uvicorn[standard]==0.30.0" \
+    pydantic==2.7.0 \
+    pandas==2.2.0 \
+    pyarrow==16.0.0 \
+    numpy==1.26.4 \
+    PyYAML==6.0.1
+
+# App source
+COPY machine_learning_files/__init__.py   ./machine_learning_files/__init__.py
+COPY machine_learning_files/api.py        ./machine_learning_files/api.py
+COPY machine_learning_files/zero_shot.py  ./machine_learning_files/zero_shot.py
+
+# Config
+COPY configs/model.yaml ./configs/model.yaml
+
+# Pre-computed data baked into the image (small: ~200 KB total)
+COPY data/processed/feature_store_enriched.parquet ./data/processed/feature_store_enriched.parquet
+COPY data/processed/feature_store.parquet          ./data/processed/feature_store.parquet
+COPY models/chronos2/outputs/                      ./models/chronos2/outputs/
+
+# Cloud Run injects PORT env var; default 8080
+ENV PORT=8080
+
+EXPOSE 8080
+
+CMD ["uvicorn", "machine_learning_files.api:app", "--host", "0.0.0.0", "--port", "8080"]

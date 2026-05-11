@@ -1,0 +1,14 @@
+.git/
+.venv/
+.venv311/
+__pycache__/
+*.pyc
+*.pyo
+*.zip
+node_modules/
+website/
+Final_eda/
+transit_eda/notebooks/__pycache__/
+.firebase/
+.claude/
+*.log
