@@ -646,15 +646,15 @@ const About = () => (
       </div>
       <div className="res">
         {[
-          { lbl:'Report · 38 pages', t:'Final project report', d:'Full methodology, experiments, error audit, and limitations.' },
-          { lbl:'Slides · 22 slides', t:'Defense presentation', d:'The 15-minute version — what to skim before a one‑on‑one.' },
-          { lbl:'Repo · MIT license', t:'Source code', d:'Reproducible pipeline scripts, Chronos-2 fine-tuning, baselines, and this website.' },
-          { lbl:'Notebook', t:'Exploratory analysis', d:'Station-level missingness, COVID recovery patterns, and the case for temporal splits.' },
-          { lbl:'Poster · 36×48"', t:'Showcase poster', d:'Print-ready PDF used at the SJSU CS senior project showcase.' },
-          { lbl:'Dataset card', t:'BART OD + Open-Meteo', d:'Public BART origin-destination ridership and Open-Meteo weather — linked with attribution.' },
+          { lbl:'Report · 38 pages', t:'Final project report', d:'Full methodology, experiments, error audit, and limitations.', href:'#' },
+          { lbl:'Slides · 22 slides', t:'Defense presentation', d:'The 15-minute version — what to skim before a one‑on‑one.', href:'#' },
+          { lbl:'Repo · MIT license', t:'Source code', d:'Reproducible pipeline scripts, Chronos-2 fine-tuning, baselines, and this website.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting' },
+          { lbl:'Notebook', t:'Exploratory analysis', d:'Station-level missingness, COVID recovery patterns, and the case for temporal splits.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting/blob/main/transit_eda/notebooks/eda_complete.ipynb' },
+          { lbl:'BART OD ridership', t:'Dataset · BART OD', d:'Public BART origin-destination monthly ridership data from BART.gov.', href:'https://www.bart.gov/about/reports/ridership' },
+          { lbl:'Open-Meteo weather', t:'Dataset · Open-Meteo', d:'Free historical weather API used for weather covariates — hourly granularity, Bay Area stations.', href:'https://open-meteo.com' },
         ].map((r,i) => (
           <Reveal key={i} delay={(i%3)+1}>
-            <a href="#">
+            <a href={r.href} target={r.href !== '#' ? '_blank' : undefined} rel="noopener noreferrer">
               <span className="lbl">{r.lbl}</span>
               <h4>{r.t} <span className="arr"><I.arrowOut /></span></h4>
               <p>{r.d}</p>
