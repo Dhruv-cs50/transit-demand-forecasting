@@ -1,11 +1,11 @@
 steps:
-  # Build the serving image (linux/amd64 — required for Cloud Run)
+  # Build the serving image using Dockerfile.api (linux/amd64 for Cloud Run)
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - build
       - --platform=linux/amd64
       - -t
-      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:$SHORT_SHA
+      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:tag1
       - -f
       - Dockerfile.api
       - .
@@ -14,25 +14,10 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - push
-      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:$SHORT_SHA
-
-  # Deploy to Cloud Run
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
-    args:
-      - run
-      - deploy
-      - transit-api
-      - --image=us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:$SHORT_SHA
-      - --region=us-west2
-      - --platform=managed
-      - --allow-unauthenticated
-      - --memory=1Gi
-      - --cpu=1
-      - --timeout=60
+      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:tag1
 
 images:
-  - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:$SHORT_SHA
+  - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:tag1
 
 options:
   logging: CLOUD_LOGGING_ONLY
