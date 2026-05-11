@@ -38,6 +38,7 @@ const Nav = ({ dark, onToggleDark }) => {
     ['overview','Overview'], ['method','Method'], ['data','Data'],
     ['results','Results'], ['demo','Live demo'], ['recs','Recommendations'], ['eda','EDA'], ['about','About']
   ];
+  const extLinks = [{ href:'api-demo.html', label:'API Playground ↗' }];
   const [active, setActive] = useState('overview');
   useEffect(() => {
     const ids = links.map(([id])=>id);
@@ -61,6 +62,9 @@ const Nav = ({ dark, onToggleDark }) => {
       </div>
       {links.map(([id,label]) => (
         <a key={id} className={`lnk ${active===id?'active':''}`} href={`#${id}`}>{label}</a>
+      ))}
+      {extLinks.map(l => (
+        <a key={l.href} className="lnk" href={l.href} target="_blank" rel="noopener noreferrer">{l.label}</a>
       ))}
       <button className="toggle" onClick={onToggleDark} aria-label="Toggle dark mode">
         {dark ? <I.sun /> : <I.moon />} {dark ? 'Light' : 'Dark'}

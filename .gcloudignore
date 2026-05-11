@@ -1,0 +1,18 @@
+# Controls what gets uploaded to Cloud Build (gcloud builds submit).
+# IMPORTANT: data/processed/ and models/chronos2/outputs/ are intentionally
+# NOT listed here — those parquet files must be baked into Dockerfile.api.
+.git
+.venv
+.venv311
+__pycache__
+*.pyc
+*.pyo
+node_modules
+website
+Final_eda
+transit_eda
+.firebase
+.claude
+.agents
+skills-lock.json
+*.log

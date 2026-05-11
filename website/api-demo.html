@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>API Playground · Transit Demand Forecast</title>
+<meta name="description" content="Interactive demo for the Bay Area Transit Demand Forecasting FastAPI service — try live Chronos-2 ridership forecasts per station." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+:root {
+  --bg:#f7f5f0; --bg-elev:#ffffff; --bg-muted:#efece4;
+  --ink:#14151a; --ink-muted:#5a5d68; --ink-soft:#8a8d97;
+  --line:#e4e1d7; --line-strong:#d2cfc3;
+  --primary:#2a2f8f; --primary-2:#3b41b8; --primary-soft:#ecedff;
+  --accent:#ee6c4d; --accent-soft:#fde4dc;
+  --good:#2f8f5b; --warn:#c2873b; --danger:#b53a3a;
+  --radius:14px; --radius-sm:10px;
+  --body:'Inter',ui-sans-serif,system-ui,sans-serif;
+  --display:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --shadow-md:0 8px 24px -8px rgba(20,21,26,.12),0 2px 6px rgba(20,21,26,.06);
+}
+html.dark {
+  --bg:#0c0d12; --bg-elev:#14161d; --bg-muted:#1a1d26;
+  --ink:#f4f3ee; --ink-muted:#b1b4be; --ink-soft:#777b87;
+  --line:#242732; --line-strong:#353948;
+  --primary:#8b91ff; --primary-2:#aab0ff; --primary-soft:#1d1f44;
+  --accent:#ff8160; --accent-soft:#3b1a13;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;transition:background .3s,color .3s}
+a{color:inherit;text-decoration:none}
+h1,h2,h3,h4{font-family:var(--display);font-weight:600;letter-spacing:-.015em;margin:0}
+.mono{font-family:var(--mono)}
+
+/* ── Nav ── */
+.nav{position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:20px;padding:0 28px;height:56px;background:color-mix(in srgb,var(--bg-elev) 88%,transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.brand{font-family:var(--display);font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px;margin-right:auto}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.nav a,.nav button{font-size:13px;color:var(--ink-muted);background:none;border:none;cursor:pointer;padding:6px 10px;border-radius:8px;transition:all .15s}
+.nav a:hover,.nav button:hover{color:var(--ink);background:var(--bg-muted)}
+
+/* ── Layout ── */
+.wrap{max-width:1100px;margin:0 auto;padding:0 28px}
+.page{padding:48px 0 80px}
+.hero{margin-bottom:40px}
+.hero h1{font-size:clamp(24px,4vw,36px);margin-bottom:10px}
+.hero p{color:var(--ink-muted);max-width:60ch;font-size:15px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:24px;align-items:start}
+@media(max-width:820px){.grid{grid-template-columns:1fr}}
+
+/* ── Card ── */
+.card{background:var(--bg-elev);border:1px solid var(--line);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow-md)}
+
+/* ── Form fields ── */
+.field-group{display:flex;flex-direction:column;gap:16px}
+label{display:block;font-size:13px;font-weight:500;color:var(--ink-muted);margin-bottom:6px;letter-spacing:.02em;text-transform:uppercase}
+input[type=text],select{width:100%;padding:9px 12px;border-radius:8px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px;outline:none;transition:border-color .15s}
+input[type=text]:focus,select:focus{border-color:var(--primary)}
+input[type=range]{width:100%;accent-color:var(--primary);cursor:pointer;margin-top:4px}
+.range-row{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-muted);margin-top:4px;font-family:var(--mono)}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:9px;font-family:var(--body);font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-2)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-ghost{background:transparent;color:var(--ink-muted);border:1.5px solid var(--line)}
+.btn-ghost:hover{color:var(--ink);border-color:var(--line-strong)}
+
+/* ── Status badge ── */
+.status{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;font-family:var(--mono)}
+.status.ok{background:color-mix(in srgb,var(--good) 12%,transparent);color:var(--good)}
+.status.err{background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
+.status.loading{background:var(--bg-muted);color:var(--ink-muted)}
+.status-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+/* ── Result panel ── */
+.result-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:340px;color:var(--ink-soft);font-size:14px;text-align:center}
+.spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.chart-wrap{position:relative;height:280px;margin-bottom:16px}
+
+/* ── Forecast table ── */
+.ftable{width:100%;border-collapse:collapse;font-size:13px}
+.ftable th{text-align:right;padding:6px 10px;color:var(--ink-muted);border-bottom:1px solid var(--line);font-weight:500;font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+.ftable th:first-child{text-align:left}
+.ftable td{padding:5px 10px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px}
+.ftable td:not(:first-child){text-align:right}
+.ftable tr:last-child td{border-bottom:none}
+.p50{font-weight:700;color:var(--primary)}
+.p10,.p90{color:var(--ink-muted)}
+
+/* ── Endpoint pills ── */
+.endpoints{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.ep{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;background:var(--bg-muted);border:1px solid var(--line);font-family:var(--mono);font-size:12px}
+.ep .method{font-weight:600;color:var(--accent)}
+.ep .method.get{color:var(--good)}
+.ep .path{color:var(--ink-muted)}
+
+/* ── Error box ── */
+.errbox{background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:14px 16px;font-size:13px;color:var(--accent)}
+
+/* ── Section divider ── */
+.divider{height:1px;background:var(--line);margin:20px 0}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="brand"><span class="dot"></span><b>Transit Forecast</b> <span style="color:var(--ink-muted);font-weight:400">· API Playground</span></div>
+  <a href="index.html">← Back to project</a>
+  <button id="darkBtn" onclick="toggleDark()">Dark</button>
+</nav>
+
+<main class="wrap page">
+  <div class="hero">
+    <h1>Forecast API — Interactive Demo</h1>
+    <p>
+      Live interface for the <b>Bay Area Transit Demand Forecast</b> FastAPI service.
+      Powered by Chronos-2 zero-shot forecasting — returns P10/P50/P90 monthly ridership
+      for any BART station.
+    </p>
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span id="healthBadge" class="status loading"><span class="status-dot"></span>Checking…</span>
+      <span id="healthModel" class="mono" style="font-size:12px;color:var(--ink-muted)"></span>
+    </div>
+    <div class="endpoints" style="margin-top:12px">
+      <span class="ep"><span class="method get">GET</span><span class="path">/health</span></span>
+      <span class="ep"><span class="method get">GET</span><span class="path">/stations</span></span>
+      <span class="ep"><span class="method">POST</span><span class="path">/forecast</span></span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- Controls -->
+    <div class="card">
+      <h3 style="margin-bottom:20px;font-size:16px">Request builder</h3>
+      <div class="field-group">
+
+        <div>
+          <label>API base URL</label>
+          <input type="text" id="apiUrl"
+            placeholder="https://transit-api-XXXX.run.app"
+            value="" />
+          <div style="font-size:11px;color:var(--ink-soft);margin-top:4px">
+            Paste your Cloud Run URL here. Leave empty to test locally on :8080.
+          </div>
+        </div>
+
+        <div>
+          <label>Station</label>
+          <select id="stationSel">
+            <option value="">— load stations —</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Forecast horizon <span id="horizonLbl" class="mono" style="color:var(--primary)">6 months</span></label>
+          <input type="range" id="horizonRange" min="1" max="6" value="6"
+            oninput="document.getElementById('horizonLbl').textContent=this.value+' month'+(this.value>1?'s':'')" />
+          <div class="range-row"><span>1 mo</span><span>6 mo</span></div>
+          <div style="font-size:11px;color:var(--ink-soft);margin-top:6px">
+            Data is monthly — each step = 1 calendar month ahead.
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="forecastBtn" onclick="runForecast()">
+            ▶ Run forecast
+          </button>
+          <button class="btn btn-ghost" onclick="pingHealth()">↺ Ping /health</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Raw request preview -->
+        <div>
+          <div style="font-size:12px;color:var(--ink-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Request preview</div>
+          <pre id="reqPreview" class="mono" style="background:var(--bg-muted);border-radius:8px;padding:12px;font-size:12px;overflow-x:auto;margin:0;color:var(--ink)">POST /forecast
+Content-Type: application/json
+
+{
+  "station_id": "—",
+  "horizon_hours": 6
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="card" id="resultCard">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <h3 style="font-size:16px">Forecast output</h3>
+        <span id="genAt" class="mono" style="font-size:11px;color:var(--ink-muted)"></span>
+      </div>
+
+      <div id="resultContent">
+        <div class="result-placeholder">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 3 5-7"/></svg>
+          <p>Select a station and run a forecast to see P10 / P50 / P90 ridership predictions.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer: curl example -->
+  <div class="card" style="margin-top:24px">
+    <h3 style="font-size:15px;margin-bottom:14px">Try with curl</h3>
+    <pre id="curlExample" class="mono" style="background:var(--bg-muted);border-radius:8px;padding:14px;font-size:12px;overflow-x:auto;margin:0;color:var(--ink);white-space:pre-wrap">curl -X POST https://&lt;your-url&gt;/forecast \
+  -H "Content-Type: application/json" \
+  -d '{"station_id":"EM","horizon_hours":6}'</pre>
+  </div>
+</main>
+
+<script>
+/* ── Dark mode ── */
+(function(){
+  const stored = localStorage.getItem('tf-dark');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if (stored === '1' || (!stored && prefersDark)) {
+    document.documentElement.classList.add('dark');
+    document.getElementById('darkBtn').textContent = 'Light';
+  }
+})();
+function toggleDark() {
+  const isDark = document.documentElement.classList.toggle('dark');
+  document.getElementById('darkBtn').textContent = isDark ? 'Light' : 'Dark';
+  localStorage.setItem('tf-dark', isDark ? '1' : '0');
+}
+
+/* ── Helpers ── */
+function getBase() {
+  const v = document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
+  return v || 'http://localhost:8080';
+}
+
+function fmtRiders(n) {
+  if (!n && n !== 0) return '—';
+  if (n >= 1e6) return (n/1e6).toFixed(2)+'M';
+  if (n >= 1e3) return (n/1e3).toFixed(0)+'k';
+  return String(Math.round(n));
+}
+
+/* ── Health check ── */
+async function pingHealth() {
+  const badge = document.getElementById('healthBadge');
+  const modelEl = document.getElementById('healthModel');
+  badge.className = 'status loading';
+  badge.innerHTML = '<span class="status-dot"></span>Checking…';
+  modelEl.textContent = '';
+  try {
+    const res = await fetch(getBase() + '/health', { signal: AbortSignal.timeout(8000) });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      badge.className = 'status ok';
+      badge.innerHTML = '<span class="status-dot"></span>Online';
+      modelEl.textContent = data.model || '';
+    } else {
+      throw new Error('non-ok status');
+    }
+  } catch(e) {
+    badge.className = 'status err';
+    badge.innerHTML = '<span class="status-dot"></span>Offline / unreachable';
+  }
+}
+
+/* ── Load stations ── */
+async function loadStations() {
+  const sel = document.getElementById('stationSel');
+  try {
+    const res = await fetch(getBase() + '/stations', { signal: AbortSignal.timeout(8000) });
+    const data = await res.json();
+    sel.innerHTML = '<option value="">— select station —</option>';
+    (data.stations || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      sel.appendChild(opt);
+    });
+    /* default to Embarcadero */
+    if (data.stations && data.stations.includes('EM')) sel.value = 'EM';
+  } catch(e) {
+    /* fallback: common BART station IDs */
+    const fallback = ['EM','MT','PL','CC','12','24','BK','19','BP','DC','SO','MA','FV','OW'];
+    sel.innerHTML = '<option value="">— select station —</option>';
+    fallback.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      sel.appendChild(opt);
+    });
+    sel.value = 'EM';
+  }
+}
+
+/* ── Update request preview ── */
+function updatePreview() {
+  const station = document.getElementById('stationSel').value || '—';
+  const horizon = document.getElementById('horizonRange').value;
+  const base = getBase();
+  document.getElementById('reqPreview').textContent =
+    `POST ${base}/forecast\nContent-Type: application/json\n\n{\n  "station_id": "${station}",\n  "horizon_hours": ${horizon}\n}`;
+  document.getElementById('curlExample').textContent =
+    `curl -X POST ${base}/forecast \\\n  -H "Content-Type: application/json" \\\n  -d '{"station_id":"${station}","horizon_hours":${horizon}}'`;
+}
+
+document.getElementById('stationSel').addEventListener('change', updatePreview);
+document.getElementById('horizonRange').addEventListener('input', updatePreview);
+document.getElementById('apiUrl').addEventListener('input', updatePreview);
+
+/* ── Chart instance ── */
+let chartInstance = null;
+
+function renderChart(forecasts) {
+  const labels = forecasts.map(f => {
+    const d = new Date(f.timestamp);
+    return isNaN(d) ? f.timestamp : d.toLocaleDateString('en-US', {month:'short', year:'2-digit'});
+  });
+  const p10 = forecasts.map(f => f.p10);
+  const p50 = forecasts.map(f => f.p50);
+  const p90 = forecasts.map(f => f.p90);
+
+  const ctx = document.getElementById('forecastChart').getContext('2d');
+  if (chartInstance) chartInstance.destroy();
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#b1b4be' : '#5a5d68';
+
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'P90 (upper bound)',
+          data: p90,
+          borderColor: '#ee6c4d',
+          backgroundColor: 'rgba(238,108,77,0.10)',
+          borderWidth: 1.5,
+          borderDash: [4,3],
+          pointRadius: 3,
+          fill: false,
+          tension: 0.3,
+        },
+        {
+          label: 'P50 (median)',
+          data: p50,
+          borderColor: '#2a2f8f',
+          backgroundColor: 'rgba(42,47,143,0.10)',
+          borderWidth: 2.5,
+          pointRadius: 4,
+          fill: '+1',
+          tension: 0.3,
+        },
+        {
+          label: 'P10 (lower bound)',
+          data: p10,
+          borderColor: '#2a2f8f',
+          backgroundColor: 'rgba(42,47,143,0.08)',
+          borderWidth: 1.5,
+          borderDash: [4,3],
+          pointRadius: 3,
+          fill: false,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { color: textColor, font: { size: 11 }, boxWidth: 20, padding: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${fmtRiders(ctx.parsed.y)} riders`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: textColor, font: { size: 11 } },
+          grid: { color: gridColor },
+        },
+        y: {
+          ticks: {
+            color: textColor,
+            font: { size: 11 },
+            callback: v => fmtRiders(v),
+          },
+          grid: { color: gridColor },
+          title: { display: true, text: 'Monthly Riders', color: textColor, font: { size: 11 } },
+        },
+      },
+    },
+  });
+}
+
+function renderTable(station, forecasts) {
+  const rows = forecasts.map(f => {
+    const d = new Date(f.timestamp);
+    const mo = isNaN(d) ? f.timestamp : d.toLocaleDateString('en-US', {month:'short', year:'numeric'});
+    return `<tr>
+      <td>${mo}</td>
+      <td class="p10">${fmtRiders(f.p10)}</td>
+      <td class="p50">${fmtRiders(f.p50)}</td>
+      <td class="p90">${fmtRiders(f.p90)}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <table class="ftable">
+      <thead>
+        <tr>
+          <th style="text-align:left">Month</th>
+          <th>P10</th>
+          <th>P50 (median)</th>
+          <th>P90</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:10px;font-size:11px;color:var(--ink-soft)">
+      Station: <b class="mono">${station}</b> · P10/P90 = 80% prediction interval
+    </div>`;
+}
+
+/* ── Run forecast ── */
+async function runForecast() {
+  const station = document.getElementById('stationSel').value;
+  const horizon = parseInt(document.getElementById('horizonRange').value);
+  const btn = document.getElementById('forecastBtn');
+
+  if (!station) { alert('Select a station first.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Fetching…';
+  document.getElementById('genAt').textContent = '';
+
+  document.getElementById('resultContent').innerHTML = `
+    <div class="result-placeholder"><div class="spinner"></div><p>Calling /forecast…</p></div>`;
+
+  try {
+    const res = await fetch(getBase() + '/forecast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ station_id: station, horizon_hours: horizon }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    const forecasts = data.forecasts || [];
+
+    document.getElementById('genAt').textContent =
+      data.generated_at ? new Date(data.generated_at).toLocaleTimeString() : '';
+
+    document.getElementById('resultContent').innerHTML = `
+      <div class="chart-wrap"><canvas id="forecastChart"></canvas></div>
+      <div class="divider"></div>
+      ${renderTable(station, forecasts)}`;
+
+    renderChart(forecasts);
+    updateHealthOk();
+
+  } catch(e) {
+    document.getElementById('resultContent').innerHTML = `
+      <div class="errbox">
+        <b>Request failed</b><br>${e.message}<br>
+        <span style="font-size:12px;opacity:.8">Check the API URL above and make sure the service is running.</span>
+      </div>
+      <div class="result-placeholder" style="min-height:200px">
+        <p>No data to display.</p>
+      </div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Run forecast';
+  }
+}
+
+function updateHealthOk() {
+  const badge = document.getElementById('healthBadge');
+  if (!badge.classList.contains('ok')) {
+    badge.className = 'status ok';
+    badge.innerHTML = '<span class="status-dot"></span>Online';
+  }
+}
+
+/* ── Init ── */
+window.addEventListener('DOMContentLoaded', () => {
+  pingHealth();
+  loadStations();
+  updatePreview();
+});
+</script>
+</body>
+</html>
