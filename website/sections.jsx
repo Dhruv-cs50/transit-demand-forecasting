@@ -36,7 +36,7 @@ const Reveal = ({ as: Tag = 'div', className = '', children, delay, ...rest }) =
 const Nav = ({ dark, onToggleDark }) => {
   const links = [
     ['overview','Overview'], ['method','Method'], ['data','Data'],
-    ['results','Results'], ['demo','Live demo'], ['recs','Recommendations'], ['about','About']
+    ['results','Results'], ['demo','Live demo'], ['recs','Recommendations'], ['eda','EDA'], ['about','About']
   ];
   const [active, setActive] = useState('overview');
   useEffect(() => {
@@ -605,6 +605,68 @@ const Benchmarks = () => {
   );
 };
 
+/* ── EDA Visualizations ────────────────────────────────────────── */
+const EDA_PLOTS = [
+  { file:'01_ridership_overview.png', title:'Ridership Overview', desc:'Total BART ridership over time. COVID crash (2020) and recovery visible clearly.' },
+  { file:'02_monthly_heatmap.png',    title:'Monthly Seasonality Heatmap', desc:'Top 15 stations × month-of-year. Summer peaks and Jan/Feb troughs.' },
+  { file:'03_dow_distribution.png',  title:'Day-of-Week Distribution', desc:'Weekday vs weekend ridership spread by station.' },
+  { file:'04_sharks_game_spike.png', title:'Sharks Game Night Spike', desc:'Diridon-area stations spike ~40% on game nights — a key event covariate.' },
+  { file:'05_rain_vs_ridership.png', title:'Rain vs Ridership', desc:'Precipitation shows a weak negative signal — heavy rain correlates with slight ridership dip.' },
+  { file:'06_station_ranking.png',   title:'Station Ranking', desc:'Embarcadero, Montgomery, and Powell dominate — SF core drives the aggregate signal.' },
+  { file:'10_correlation_heatmap.png', title:'Feature Correlation Heatmap', desc:'Pearson correlations between all covariates and ridership. Lag features dominate.' },
+];
+
+const EDAViz = () => {
+  const [active, setActive] = React.useState(0);
+  const plot = EDA_PLOTS[active];
+  return (
+    <section id="eda" style={{ background:'var(--bg)' }}>
+      <div className="wrap">
+        <div className="section-h">
+          <Reveal><div className="eyebrow"><span className="pip" /> Exploratory Analysis</div></Reveal>
+          <Reveal delay="1"><div className="row">
+            <h2>Patterns in the data.</h2>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Seven visualizations from the full EDA notebook — station seasonality, event spikes, weather effects, and feature correlations.</p>
+          </div></Reveal>
+        </div>
+        <div style={{ display:'flex', gap:24, marginTop:32, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:8, minWidth:200 }}>
+            {EDA_PLOTS.map((p,i) => (
+              <button
+                key={i}
+                onClick={() => setActive(i)}
+                style={{
+                  textAlign:'left', padding:'8px 14px', borderRadius:8,
+                  border: i===active ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
+                  background: i===active ? 'var(--accent)' : 'transparent',
+                  color: i===active ? '#fff' : 'var(--ink)',
+                  cursor:'pointer', fontSize:13, fontWeight: i===active ? 600 : 400,
+                  transition:'all .15s',
+                }}
+              >{p.title}</button>
+            ))}
+          </div>
+          <div style={{ flex:1, minWidth:280 }}>
+            <Reveal key={active}>
+              <div className="card" style={{ padding:0, overflow:'hidden' }}>
+                <img
+                  src={`data/eda_plots/${plot.file}`}
+                  alt={plot.title}
+                  style={{ width:'100%', display:'block', borderRadius:'var(--r) var(--r) 0 0' }}
+                />
+                <div style={{ padding:'16px 20px' }}>
+                  <h4 style={{ margin:0 }}>{plot.title}</h4>
+                  <p style={{ margin:'6px 0 0', color:'var(--ink-muted)', fontSize:14 }}>{plot.desc}</p>
+                </div>
+              </div>
+            </Reveal>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 /* ── About + Resources ─────────────────────────────────────────── */
 const About = () => (
   <section id="about" style={{ background:'var(--bg-muted)' }}>
@@ -843,4 +905,4 @@ const BARTForecasts = () => {
   );
 };
 
-Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, About, Footer, BARTForecasts });
+Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, EDAViz, About, Footer, BARTForecasts });
