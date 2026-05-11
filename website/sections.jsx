@@ -185,9 +185,9 @@ const Method = () => {
 /* ── Dataset ───────────────────────────────────────────────────── */
 const Dataset = () => {
   const splits = [
-    { nm:'Train (2019 + Jan–Dec 2022)', v:1320, w:0.733 },
+    { nm:'Train (2019 + Jan–Dec 2022)', v:1200, w:0.667 },
     { nm:'Validation (Jan–Jun 2023)', v:300, w:0.167 },
-    { nm:'Test (Jul–Dec 2023)', v:180, w:0.100 },
+    { nm:'Test (Jul–Dec 2023)', v:300, w:0.167 },
   ];
   const cohort = [
     { nm:'East Bay commuter stations', v:44.0, w:0.44 },
