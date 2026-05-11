@@ -745,12 +745,17 @@ const Footer = () => (
 );
 
 /* ── BART Forecast Section (real model outputs) ─────────────────── */
+const API_BASE = 'https://transit-api-308878596074.us-west2.run.app';
+
 const BARTForecasts = () => {
   const [forecasts, setForecasts] = React.useState([]);
   const [actuals, setActuals]     = React.useState([]);
   const [station, setStation]     = React.useState('EM');
   const [loading, setLoading]     = React.useState(true);
   const [comparison, setComparison] = React.useState([]);
+  const [liveData, setLiveData]   = React.useState(null);
+  const [liveFetching, setLiveFetching] = React.useState(false);
+  const [liveError, setLiveError] = React.useState(null);
 
   const KEY_STATIONS = [
     { id:'EM', name:'Embarcadero' },
@@ -772,6 +777,22 @@ const BARTForecasts = () => {
       setLoading(false);
     });
   }, []);
+
+  const fetchLive = () => {
+    setLiveFetching(true);
+    setLiveError(null);
+    fetch(`${API_BASE}/forecast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ station_id: station, horizon_hours: 6 }),
+      signal: AbortSignal.timeout(15000),
+    })
+      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail || 'API error')))
+      .then(data => { setLiveData(data); setLiveFetching(false); })
+      .catch(err => { setLiveError(String(err)); setLiveFetching(false); });
+  };
+
+  React.useEffect(() => { setLiveData(null); setLiveError(null); }, [station]);
 
   const stationActuals = actuals
     .filter(r => r.station_id === station)
@@ -806,7 +827,7 @@ const BARTForecasts = () => {
         </div>
 
         <Reveal className="card" style={{ padding:'24px', marginBottom:24 }}>
-          <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:20 }}>
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:20, alignItems:'center' }}>
             {KEY_STATIONS.map(s => (
               <button key={s.id}
                 onClick={() => setStation(s.id)}
@@ -819,7 +840,41 @@ const BARTForecasts = () => {
                 {s.name}
               </button>
             ))}
+            <button
+              onClick={fetchLive}
+              disabled={liveFetching}
+              style={{
+                marginLeft:'auto', padding:'6px 16px', borderRadius:6,
+                border:'1.5px solid var(--accent)', background: liveFetching ? 'var(--bg-muted)' : 'var(--accent)',
+                color:'#fff', cursor: liveFetching ? 'default' : 'pointer', fontSize:13, fontWeight:600,
+                opacity: liveFetching ? 0.7 : 1,
+              }}>
+              {liveFetching ? 'Calling API…' : '⚡ Fetch Live from API'}
+            </button>
           </div>
+
+          {liveError && (
+            <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8, background:'rgba(238,108,77,0.12)', color:'var(--accent)', fontSize:13 }}>
+              API error: {liveError}
+            </div>
+          )}
+          {liveData && (
+            <div style={{ marginBottom:20, padding:'14px 16px', borderRadius:8, background:'rgba(42,47,143,0.07)', border:'1px solid rgba(42,47,143,0.2)' }}>
+              <div style={{ fontSize:12, color:'var(--primary)', fontWeight:700, marginBottom:8, letterSpacing:'.04em', textTransform:'uppercase' }}>
+                ⚡ Live Cloud Run Response — {KEY_STATIONS.find(s=>s.id===station)?.name || station}
+              </div>
+              <div style={{ display:'flex', gap:24, flexWrap:'wrap' }}>
+                {(liveData.forecasts || []).map(f => (
+                  <div key={f.timestamp || f.date} style={{ fontSize:13 }}>
+                    <div style={{ color:'var(--ink-muted)', fontSize:11, marginBottom:2 }}>{(f.timestamp || f.date || '').slice(0,7)}</div>
+                    <div><span style={{ color:'var(--accent)' }}>P10 </span><b style={{ fontFamily:'var(--mono)' }}>{fmt(f.p10)}</b></div>
+                    <div><span style={{ color:'var(--primary)' }}>P50 </span><b style={{ fontFamily:'var(--mono)', fontWeight:700 }}>{fmt(f.p50)}</b></div>
+                    <div><span style={{ color:'var(--accent)' }}>P90 </span><b style={{ fontFamily:'var(--mono)' }}>{fmt(f.p90)}</b></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {loading ? (
             <div style={{ textAlign:'center', color:'var(--ink-muted)', padding:40 }}>Loading forecast data…</div>
