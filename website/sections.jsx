@@ -124,10 +124,10 @@ const Hero = () => (
 /* ── At-a-glance metrics ───────────────────────────────────────── */
 const AtAGlance = () => {
   const items = [
-    { ic: <I.target />, num: '< 1.0', unit:' MASE', lbl:'Chronos-2 beats seasonal-naïve', delta:'6-month forecast horizon' },
+    { ic: <I.target />, num: '14.2', unit:'% WAPE', lbl:'AutoETS best model — vs 22.5% SARIMA', delta:'Jan–Jun 2023 validation · 300 station-months' },
     { ic: <I.chart />, num: '50', unit:' stations', lbl:'Full BART network covered', delta:'All OD pairs · Bay Area' },
     { ic: <I.database />, num: '1,800', unit:' mo', lbl:'Station-month ridership records', delta:'2019 + 2022–2023 BART OD' },
-    { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'Chronos-2 + AutoGluon ensemble' },
+    { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'AutoETS + Chronos-2 ensemble' },
   ];
   return (
     <section id="overview-metrics" style={{ padding:'40px 0 80px', borderTop:'none' }}>
@@ -309,13 +309,13 @@ const Results = () => {
               </div>
             </div>
             <div className="cm">
-              <div className="cm-cell tp"><div className="v">MASE</div><div className="l">&lt; 1.0 target</div><div className="text-muted" style={{ fontSize:11 }}>beats seasonal-naïve</div></div>
-              <div className="cm-cell tn"><div className="v">WAPE</div><div className="l">&lt; 15% target</div><div className="text-muted" style={{ fontSize:11 }}>weighted abs % error</div></div>
+              <div className="cm-cell tp"><div className="v">14.2%</div><div className="l">WAPE · AutoETS</div><div className="text-muted" style={{ fontSize:11 }}>below 15% target ✓</div></div>
+              <div className="cm-cell tn"><div className="v">46.8k</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>vs 74k SARIMA</div></div>
               <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">≈ 80% coverage</div><div className="text-muted" style={{ fontSize:11 }}>interval calibration</div></div>
               <div className="cm-cell fn"><div className="v">50 sta.</div><div className="l">all BART stations</div><div className="text-muted" style={{ fontSize:11 }}>no station excluded</div></div>
             </div>
             <div className="text-muted" style={{ fontSize: 13 }}>
-              Metrics pending full fine-tuning run. Target: MASE &lt; 1.0 · WAPE &lt; 15% · P10/P90 coverage ≈ 80%
+              AutoETS (AutoGluon ensemble): WAPE 14.2% · MAE 46,783 riders/month · validated Jan–Jun 2023 · 300 station-months
             </div>
           </Reveal>
           <Reveal delay="2" className="card chart-card" style={{ gridColumn:'1 / -1' }}>
@@ -505,12 +505,33 @@ const Demo = () => {
 
 /* ── Benchmarks + Recommendations ──────────────────────────────── */
 const Benchmarks = () => {
-  const rows = [
-    { m:'Chronos-2 + AutoGluon (ours)', auc:'—', f1:'—', brier:'—', ece:'—', best:true },
-    { m:'Prophet (per-station)', auc:'—', f1:'—', brier:'—', ece:'—' },
-    { m:'ARIMA(2,1,2)', auc:'—', f1:'—', brier:'—', ece:'—' },
-    { m:'Seasonal-naïve (month)', auc:'—', f1:'—', brier:'—', ece:'—' },
-  ];
+  const [cmpData, setCmpData] = React.useState(null);
+  React.useEffect(() => {
+    fetch('data/model_comparison.json').then(r => r.json()).catch(() => []).then(setCmpData);
+  }, []);
+
+  const fmtN = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n));
+
+  const MODEL_LABELS = {
+    'AutoETS (AutoGluon)': 'AutoETS / AutoGluon (best baseline)',
+    'SARIMA': 'SARIMA(2,1,2)',
+    'Prophet': 'Prophet (per-station)',
+  };
+
+  const dataRows = cmpData ? [
+    ...cmpData.map(r => ({
+      m: MODEL_LABELS[r.model] || r.model,
+      wape: r.WAPE_pct != null ? r.WAPE_pct.toFixed(1)+'%' : '—',
+      mape: r.MAPE_pct != null ? r.MAPE_pct.toFixed(1)+'%' : '—',
+      mae:  r.MAE  != null ? fmtN(r.MAE) : '—',
+      relW: r.WAPE_pct,
+      best: r.model === 'AutoETS (AutoGluon)',
+    })),
+    { m:'Chronos-2 zero-shot', wape:'—', mape:'—', mae:'—', relW:null, note:'Forecasting Jan–Jun 2024 — beyond available actuals' },
+  ] : [];
+
+  const bestWAPE = cmpData ? Math.min(...cmpData.map(r => r.WAPE_pct).filter(v => v != null)) : 14.2;
+
   const recs = [
     { n:'01', t:'Integrate surge alerts into operations.', d:"Game days at Chase Center and Oracle Arena drive +35–60% ridership surges at Coliseum and 12th St / Oakland. The dashboard should auto-flag these 48 hours ahead instead of leaving operators to anticipate them.", who:'Operations Control' },
     { n:'02', t:'Fine-tune Chronos-2 per station cluster.', d:'Zero-shot Chronos-2 already beats seasonal-naïve. Fine-tuning on station clusters (core SF, East Bay commuter, Peninsula) should push MASE further below 1.0 with minimal additional compute.', who:'Data / ML' },
@@ -524,23 +545,27 @@ const Benchmarks = () => {
             <Reveal><div className="eyebrow"><span className="pip" /> Benchmarks</div></Reveal>
             <Reveal delay="1"><div className="row">
               <h2>How we stack up.</h2>
-              <p className="lede" style={{ maxWidth:'46ch' }}>All models evaluated on the same temporal split. Lower is better for MASE, WAPE, MAE, and RMSE. MASE &lt; 1.0 means the model beats seasonal-naïve.</p>
+              <p className="lede" style={{ maxWidth:'46ch' }}>All models evaluated on the same temporal split (Jan–Jun 2023, 300 station-months). Lower WAPE and MAE is better. AutoETS reaches 14.2% WAPE — 8 pp below SARIMA.</p>
             </div></Reveal>
           </div>
           <Reveal className="card bench">
             <table>
               <thead>
-                <tr><th>Model</th><th style={{ textAlign:'right' }}>MASE</th><th style={{ textAlign:'right' }}>WAPE</th><th style={{ textAlign:'right' }}>MAE</th><th style={{ textAlign:'right' }}>RMSE</th><th>Relative</th></tr>
+                <tr><th>Model</th><th style={{ textAlign:'right' }}>WAPE %</th><th style={{ textAlign:'right' }}>MAPE %</th><th style={{ textAlign:'right' }}>MAE (riders/mo)</th><th>Relative</th></tr>
               </thead>
               <tbody>
-                {rows.map((r,i) => (
+                {cmpData === null ? (
+                  <tr><td colSpan={5} style={{ textAlign:'center', color:'var(--ink-muted)', padding:'20px 10px' }}>Loading…</td></tr>
+                ) : dataRows.map((r,i) => (
                   <tr key={i} className={r.best?'best':''}>
-                    <td className="model">{r.m}</td>
-                    <td className="num">{typeof r.auc === 'number' ? (r.auc*100).toFixed(1)+'%' : r.auc}</td>
-                    <td className="num">{typeof r.f1 === 'number' ? r.f1.toFixed(2) : r.f1}</td>
-                    <td className="num">{typeof r.brier === 'number' ? r.brier.toFixed(2) : r.brier}</td>
-                    <td className="num">{typeof r.ece === 'number' ? r.ece.toFixed(1)+'%' : r.ece}</td>
-                    <td className="barcell"><span className="b"><i style={{ '--w': typeof r.auc === 'number' ? 1 - (r.auc-0.10)/(0.19-0.10) : 0 }} /></span></td>
+                    <td className="model">
+                      {r.m}
+                      {r.note && <span style={{ display:'block', fontSize:11, color:'var(--ink-muted)', fontWeight:400, marginTop:2 }}>{r.note}</span>}
+                    </td>
+                    <td className="num">{r.wape}</td>
+                    <td className="num">{r.mape}</td>
+                    <td className="num">{r.mae}</td>
+                    <td className="barcell"><span className="b"><i style={{ '--w': r.relW != null ? Math.min(1, bestWAPE / r.relW) : 0 }} /></span></td>
                   </tr>
                 ))}
               </tbody>
