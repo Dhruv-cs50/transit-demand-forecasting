@@ -147,7 +147,8 @@ class Predictor:
         self,
         station_id: str,
         as_of: pd.Timestamp,
-        context_hours: int,
+        context_hours: int = None,
+        context_steps: int = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Slice the feature store into context (past) and future windows.
@@ -163,11 +164,12 @@ class Predictor:
         if station_df.empty:
             raise ValueError(f"Unknown station: {station_id}")
 
-        context_start = as_of - pd.Timedelta(hours=context_hours)
-        context_df = station_df[
-            (station_df["timestamp"] >= context_start) &
-            (station_df["timestamp"] <= as_of)
-        ].copy()
+        history_df = station_df[station_df["timestamp"] <= as_of].copy()
+        if context_steps:
+            context_df = history_df.tail(context_steps).copy()
+        else:
+            context_start = as_of - pd.Timedelta(hours=context_hours)
+            context_df = history_df[history_df["timestamp"] >= context_start].copy()
 
         future_df = station_df[station_df["timestamp"] > as_of].copy()
 
@@ -195,8 +197,11 @@ class Predictor:
         if context_df.empty or "ridership" not in context_df.columns:
             return pd.DataFrame()
 
-        # 168 hours = 1 week at hourly; at 15min → 672 steps
-        period = int(pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)) * 168
+        if freq.upper() in {"MS", "M", "ME"} or "month" in freq.lower():
+            period = min(12, len(context_df))
+        else:
+            # 168 hours = 1 week at hourly; at 15min → 672 steps
+            period = int(pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)) * 168
         series = context_df.set_index("timestamp")["ridership"]
 
         last_ts  = series.index.max()
@@ -245,13 +250,18 @@ class Predictor:
         self._ensure_loaded()
 
         cfg             = self.cfg
-        freq            = cfg["data"]["resample_freq"]
-        context_hours   = cfg["data"]["context_length_hours"]
-        horizon_hours   = horizon_hours or cfg["data"]["forecast_horizon_hours"]
+        freq            = cfg["data"].get("resample_freq", "MS")
+        context_hours   = cfg["data"].get("context_length_hours")
+        context_steps   = cfg["data"].get("context_length_steps") \
+            or cfg["chronos2"].get("context_length_steps")
         quantile_levels = quantile_levels or cfg["chronos2"]["quantile_levels"]
 
-        steps_per_hour  = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-        horizon_steps   = int(horizon_hours * steps_per_hour)
+        horizon_steps = cfg["data"].get("forecast_horizon_steps") \
+            or cfg["chronos2"].get("prediction_length_steps")
+        if horizon_steps is None:
+            horizon_hours = horizon_hours or cfg["data"]["forecast_horizon_hours"]
+            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+            horizon_steps = int(horizon_hours * steps_per_hour)
 
         # Resolve as_of
         df = self.get_feature_store()
@@ -261,11 +271,15 @@ class Predictor:
         elif as_of.tzinfo is None:
             as_of = as_of.tz_localize("America/Los_Angeles")
 
-        context_df, future_df = self._build_context(station_id, as_of, context_hours)
+        context_df, future_df = self._build_context(
+            station_id, as_of,
+            context_hours=context_hours,
+            context_steps=context_steps,
+        )
 
         log.info(
             f"Forecasting {station_id} | mode={self._mode} | "
-            f"horizon={horizon_hours}h | context={len(context_df)} rows"
+            f"horizon={horizon_steps} steps at {freq} | context={len(context_df)} rows"
         )
 
         # ── Fine-tuned AutoGluon ───────────────────────────────────────────────

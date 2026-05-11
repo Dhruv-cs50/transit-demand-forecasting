@@ -46,9 +46,9 @@ import argparse
 import logging
 from pathlib import Path
 
-import holidays
 import pandas as pd
 import yaml
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 logging.basicConfig(
     level=logging.INFO,
@@ -123,24 +123,13 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.read_parquet(files[-1])  # use the most recent combined file
-    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(
-        "America/Los_Angeles", ambiguous="NaT", nonexistent="NaT"
-    )
-    df = df.dropna(subset=["timestamp"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    if df["timestamp"].dt.tz is not None:
+        df["timestamp"] = df["timestamp"].dt.tz_convert(None)
 
-    # Resample weather to target freq
-    df = df.set_index("timestamp").groupby("station").resample(freq).agg({
-        "temp_f":         "mean",
-        "precip_mm":      "sum",
-        "precip_in":      "sum",
-        "windspeed_mph":  "mean",
-        "cloud_cover_pct":"mean",
-        "humidity_pct":   "mean",
-        "is_raining":     "max",   # true if it rained at any point in the window
-        "weather_code":   "last",
-        "lat":            "first",
-        "lng":            "first",
-    }).reset_index()
+    # Skip resample — resampling 5 years of hourly data to 15min creates millions
+    # of intermediate rows. Monthly aggregation is done downstream in build_feature_store.
+    df = df.dropna(subset=["timestamp"])
 
     log.info(f"  Loaded {len(df):,} weather rows")
     return df
@@ -173,68 +162,53 @@ def compute_event_features(
     venue_proximity_hrs: float = 4.0,
 ) -> pd.DataFrame:
     """
-    For each timestamp in `timestamps`, compute:
-      - is_game_day: True if any event starts within ±4 hours
-      - hours_to_event: hours until the NEXT event (negative if event already started)
-      - is_sharks_game: True if the nearest event is a Sharks game
-      - game_start_hour: local hour of the nearest event
-      - is_playoff: True if nearest event is a playoff game
-
-    This is a dense join — O(n*m) for small event sets it's fine.
-    For very long histories, use a merge_asof approach.
+    Monthly aggregation: for each timestamp (month-start), count events in that month.
+    - is_game_day    : True if ≥1 home game in that month
+    - hours_to_event : number of home games in that month (repurposed as game count)
+    - is_sharks_game : True if any Sharks game in that month
+    - game_start_hour: modal game start hour in that month
+    - is_playoff     : True if any playoff game in that month
     """
+    n = len(timestamps)
     if events.empty:
-        n = len(timestamps)
         return pd.DataFrame({
             "is_game_day":     [False] * n,
-            "hours_to_event":  [float("nan")] * n,
+            "hours_to_event":  [0.0] * n,
             "is_sharks_game":  [False] * n,
             "game_start_hour": [float("nan")] * n,
             "is_playoff":      [False] * n,
-        })
+        }, index=timestamps.index)
 
-    # Normalize both sides to tz-naive (UTC) to avoid tz-aware vs tz-naive comparison errors
+    ev = events.copy()
+    ev_ts = pd.to_datetime(ev["timestamp_start"])
+    if ev_ts.dt.tz is not None:
+        ev_ts = ev_ts.dt.tz_localize(None)
+    ev["_year"]  = ev_ts.dt.year
+    ev["_month"] = ev_ts.dt.month
+
     ts_series = pd.to_datetime(timestamps)
     if ts_series.dt.tz is not None:
         ts_series = ts_series.dt.tz_localize(None)
-    ts_arr = ts_series.values
-
-    ev_ts = pd.to_datetime(events["timestamp_start"])
-    if ev_ts.dt.tz is not None:
-        ev_ts = ev_ts.dt.tz_localize(None)
-    ev_starts = ev_ts.values
-    events = events.copy()
-    events["timestamp_start"] = ev_ts
 
     results = []
-    for ts in ts_arr:
-        # Hours delta to each event
-        deltas = (ev_starts - ts) / pd.Timedelta(hours=1)
-        # Events within the ±venue_proximity_hrs window
-        near_mask = (deltas >= -venue_proximity_hrs) & (deltas <= venue_proximity_hrs)
-        near_events = events[near_mask]
-
-        if near_events.empty:
+    for ts in ts_series:
+        month_ev = ev[(ev["_year"] == ts.year) & (ev["_month"] == ts.month)]
+        if month_ev.empty:
             results.append({
                 "is_game_day":     False,
-                "hours_to_event":  float("nan"),
+                "hours_to_event":  0.0,
                 "is_sharks_game":  False,
                 "game_start_hour": float("nan"),
                 "is_playoff":      False,
             })
         else:
-            # Nearest upcoming event
-            future = near_events[near_events["timestamp_start"] >= ts]
-            ref_event = future.iloc[0] if not future.empty else near_events.iloc[
-                (near_events["timestamp_start"] - ts).abs().argmin()
-            ]
-            hrs_to = (ref_event["timestamp_start"] - ts) / pd.Timedelta(hours=1)
+            mode_hour = month_ev["game_start_hour"].mode()
             results.append({
                 "is_game_day":     True,
-                "hours_to_event":  float(hrs_to),
-                "is_sharks_game":  bool(ref_event.get("is_sharks_game", False)),
-                "game_start_hour": int(ref_event["timestamp_start"].hour),
-                "is_playoff":      bool(ref_event.get("is_playoff", False)),
+                "hours_to_event":  float(len(month_ev)),
+                "is_sharks_game":  bool(month_ev["is_sharks_game"].any()) if "is_sharks_game" in month_ev.columns else False,
+                "game_start_hour": float(mode_hour.iloc[0]) if not mode_hour.empty else float("nan"),
+                "is_playoff":      bool(month_ev["is_playoff"].any()) if "is_playoff" in month_ev.columns else False,
             })
 
     return pd.DataFrame(results, index=timestamps.index)
@@ -244,7 +218,11 @@ def compute_event_features(
 
 def add_calendar_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.DataFrame:
     """Add time-based features that are free information (known in advance)."""
-    us_ca_holidays = holidays.country_holidays("US", subdiv="CA")
+    us_holidays = set(
+        USFederalHolidayCalendar()
+        .holidays(start="2019-01-01", end="2030-12-31")
+        .date
+    )
 
     ts = df[ts_col]
     df["hour_of_day"]  = ts.dt.hour
@@ -252,9 +230,7 @@ def add_calendar_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.Dat
     df["is_weekend"]   = ts.dt.dayofweek >= 5
     df["month"]        = ts.dt.month
     df["week_of_year"] = ts.dt.isocalendar().week.astype(int)
-    df["is_holiday"]   = ts.dt.date.astype(str).map(
-        lambda d: d in us_ca_holidays
-    )
+    df["is_holiday"]   = ts.dt.date.map(lambda d: d in us_holidays)
     # Peak commute windows
     df["is_am_peak"]   = ts.dt.hour.between(7, 9)
     df["is_pm_peak"]   = ts.dt.hour.between(16, 19)
@@ -347,8 +323,11 @@ def build_feature_store(
     return base
 
 
-def make_splits(df: pd.DataFrame, train_end: str, val_end: str) -> None:
-    """Chronological train/val/test split — no data leakage."""
+def make_splits(df: pd.DataFrame, train_end: str, val_end: str, train_start: str = None) -> None:
+    """Chronological train/val/test split — no data leakage.
+
+    train_start: optional lower bound for train set (excludes earlier years with data gaps).
+    """
     splits_dir = PROCESSED_DIR / "splits"
     splits_dir.mkdir(parents=True, exist_ok=True)
 
@@ -357,14 +336,23 @@ def make_splits(df: pd.DataFrame, train_end: str, val_end: str) -> None:
         return
 
     ts = pd.to_datetime(df["timestamp"])
-    # Normalize to tz-naive for comparison regardless of source timezone
     if ts.dt.tz is not None:
         ts = ts.dt.tz_localize(None)
-    train_ts = pd.Timestamp(train_end).tz_localize(None) if pd.Timestamp(train_end).tzinfo is None else pd.Timestamp(train_end).tz_localize(None)
-    val_ts   = pd.Timestamp(val_end).tz_localize(None)   if pd.Timestamp(val_end).tzinfo is None   else pd.Timestamp(val_end).tz_localize(None)
-    train_mask = ts <= train_ts
-    val_mask   = (ts > train_ts) & (ts <= val_ts)
-    test_mask  = ts > val_ts
+
+    def _ts(s): return pd.Timestamp(s).tz_localize(None) if pd.Timestamp(s).tzinfo is None else pd.Timestamp(s).tz_convert(None)
+
+    train_ts = _ts(train_end)
+    val_ts   = _ts(val_end)
+
+    if train_start:
+        start_ts = _ts(train_start)
+        train_mask = (ts >= start_ts) & (ts <= train_ts)
+        log.info(f"  train_start filter: {train_start} — excluding data before this date")
+    else:
+        train_mask = ts <= train_ts
+
+    val_mask  = (ts > train_ts) & (ts <= val_ts)
+    test_mask = ts > val_ts
 
     for name, mask in [("train", train_mask), ("val", val_mask), ("test", test_mask)]:
         split_df = df[mask]
@@ -394,6 +382,7 @@ def main():
             df,
             train_end=model_cfg["data"]["train_end"],
             val_end=model_cfg["data"]["val_end"],
+            train_start=model_cfg["data"].get("train_start"),
         )
 
     log.info("Pipeline complete.")

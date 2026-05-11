@@ -194,6 +194,24 @@ def export_forecasts(out_dir: Path) -> None:
 
 
 def export_model_comparison(out_dir: Path) -> None:
+    leaderboard_path = Path("evaluation/outputs/benchmark_leaderboard.csv")
+    if leaderboard_path.exists():
+        leaderboard = pd.read_csv(leaderboard_path)
+        comparison = []
+        for _, row in leaderboard.iterrows():
+            comparison.append({
+                "model": row["model"],
+                "MAE": round(float(row["MAE"]), 0),
+                "MAPE_pct": round(float(row["MAPE_%"]), 1),
+                "WAPE_pct": round(float(row["WAPE_%"]), 1),
+                "Coverage_pct": round(float(row["Coverage_%"]), 1) if "Coverage_%" in row and pd.notna(row["Coverage_%"]) else None,
+                "n_predictions": int(row["n"]) if "n" in row and pd.notna(row["n"]) else None,
+            })
+        with open(out_dir / "model_comparison.json", "w") as f:
+            json.dump(comparison, f, indent=2)
+        log.info(f"model_comparison.json → {out_dir / 'model_comparison.json'}  ({len(comparison)} models from benchmark leaderboard)")
+        return
+
     actuals_path = Path("data/processed/splits/val.parquet")
     if not actuals_path.exists():
         log.warning("No val split — skipping model_comparison.json")

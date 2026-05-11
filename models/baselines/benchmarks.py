@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from evaluation.metrics import wape, mae, rmse, mape, smape
+from evaluation.metrics import wape, mae, rmse, mape, smape, coverage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,8 +64,11 @@ def seasonal_naive_forecast(
     `seasonality_hours` ago in the training data.
     This is the absolute minimum any model must beat.
     """
-    steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-    lag = int(seasonality_hours * steps_per_hour)
+    if freq.upper() in {"MS", "M", "ME"} or "month" in freq.lower():
+        lag = 12
+    else:
+        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+        lag = int(seasonality_hours * steps_per_hour)
     all_preds = []
 
     for station_id, grp in test_df.groupby("station_id"):
@@ -127,6 +130,7 @@ def compute_metrics(
             "RMSE":    round(rmse(y_true, y_pred),  2),
             "MAPE_%":  round(mape(y_true, y_pred),  2),
             "sMAPE_%": round(smape(y_true, y_pred), 2),
+            "Coverage_%": round(coverage(y_true, subset["p10"].values.astype(float), subset["p90"].values.astype(float)), 2),
         }
 
     # Overall
@@ -219,11 +223,17 @@ def run_benchmarks(
     """
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
 
-    freq       = cfg["data"]["resample_freq"]
+    freq       = cfg["data"].get("resample_freq", "MS")
     train_end  = pd.Timestamp(cfg["data"]["train_end"], tz="America/Los_Angeles")
     val_end    = pd.Timestamp(cfg["data"]["val_end"],   tz="America/Los_Angeles")
+    train_start = cfg["data"].get("train_start")
+    horizon_steps = cfg["data"].get("forecast_horizon_steps") \
+        or cfg["chronos2"].get("prediction_length_steps")
 
-    train_df = df[df["timestamp"] <= train_end]
+    train_df = df[df["timestamp"] <= val_end]
+    if train_start:
+        start_ts = pd.Timestamp(train_start, tz="America/Los_Angeles")
+        train_df = train_df[train_df["timestamp"] >= start_ts]
     test_df  = df[df["timestamp"] >  val_end]
 
     if test_df.empty:
@@ -234,6 +244,7 @@ def run_benchmarks(
 
     all_rows = []
     model_preds = {}
+    predictor = None
 
     # ── 1. Seasonal Naive ──────────────────────────────────────────────────────
     log.info("\n=== Seasonal Naive ===")
@@ -249,7 +260,9 @@ def run_benchmarks(
         log.info("\n=== SARIMA ===")
         try:
             from models.baselines.arima import run_arima_all_stations
-            arima_preds = run_arima_all_stations(df, cfg)
+            arima_preds = run_arima_all_stations(
+                df, cfg, train_cutoff=val_end, horizon_steps=horizon_steps, freq=freq
+            )
             if not arima_preds.empty:
                 model_preds["SARIMA"] = arima_preds
                 rows = compute_metrics(test_df, arima_preds, "SARIMA")
@@ -262,7 +275,9 @@ def run_benchmarks(
         log.info("\n=== Prophet ===")
         try:
             from models.baselines.prophet_baseline import run_prophet_all_stations
-            prophet_preds = run_prophet_all_stations(df, cfg)
+            prophet_preds = run_prophet_all_stations(
+                df, cfg, train_cutoff=val_end, horizon_steps=horizon_steps, freq=freq
+            )
             if not prophet_preds.empty:
                 model_preds["Prophet"] = prophet_preds
                 rows = compute_metrics(test_df, prophet_preds, "Prophet")
@@ -277,7 +292,7 @@ def run_benchmarks(
         from models.chronos2.predict import Predictor
         predictor = Predictor()
         zs_preds = predictor.forecast_all_stations(
-            as_of=train_end,
+            as_of=val_end,
             output_path=EVAL_DIR / "chronos2_zeroshot_preds.parquet",
         )
         if not zs_preds.empty:
@@ -288,17 +303,20 @@ def run_benchmarks(
     except Exception as e:
         log.error(f"  Chronos-2 zero-shot failed: {e}")
 
-    # ── 5. Chronos-2 fine-tuned ────────────────────────────────────────────────
+    # ── 5. AutoGluon fine-tuned ensemble ───────────────────────────────────────
     if Path("models/chronos2/weights").exists():
-        log.info("\n=== Chronos-2 (fine-tuned) ===")
+        log.info("\n=== AutoGluon ensemble (fine-tuned) ===")
         try:
+            if predictor is None:
+                from models.chronos2.predict import Predictor
+                predictor = Predictor()
             ft_preds = predictor.forecast_all_stations(
-                as_of=train_end,
+                as_of=val_end,
                 output_path=EVAL_DIR / "chronos2_finetuned_preds.parquet",
             )
             if not ft_preds.empty:
-                model_preds["Chronos2_FineTuned"] = ft_preds
-                rows = compute_metrics(test_df, ft_preds, "Chronos2_FineTuned")
+                model_preds["AutoGluon_Ensemble"] = ft_preds
+                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -320,15 +338,15 @@ def run_benchmarks(
 
     # ── Statistical significance ───────────────────────────────────────────────
     dm_results = []
-    if "Chronos2_FineTuned" in model_preds:
+    if "AutoGluon_Ensemble" in model_preds:
         for baseline in ["SeasonalNaive", "SARIMA", "Prophet", "Chronos2_ZeroShot"]:
             if baseline in model_preds:
                 dm = diebold_mariano_test(
                     test_df,
                     model_preds[baseline],
-                    model_preds["Chronos2_FineTuned"],
+                    model_preds["AutoGluon_Ensemble"],
                     model_a=baseline,
-                    model_b="Chronos2_FineTuned",
+                    model_b="AutoGluon_Ensemble",
                 )
                 if dm:
                     dm_results.append(dm)
@@ -337,24 +355,24 @@ def run_benchmarks(
     print(f"\n{'═'*70}")
     print("  MODEL BENCHMARK LEADERBOARD")
     print(f"{'═'*70}")
-    print(f"\n{'Rank':<6}{'Model':<25}{'WAPE%':>8}{'MAE':>10}{'RMSE':>10}{'MAPE%':>9}")
-    print(f"{'─'*68}")
+    print(f"\n{'Rank':<6}{'Model':<25}{'WAPE%':>8}{'MAE':>10}{'RMSE':>10}{'MAPE%':>9}{'Cov%':>8}")
+    print(f"{'─'*76}")
     for rank, row in leaderboard.iterrows():
         marker = " ← best" if rank == 1 else ""
         print(f"  {rank:<4}{row['model']:<25}{row['WAPE_%']:>7.1f}%"
               f"{row['MAE']:>10.0f}{row['RMSE']:>10.0f}"
-              f"{row['MAPE_%']:>8.1f}%{marker}")
+              f"{row['MAPE_%']:>8.1f}%{row['Coverage_%']:>7.1f}%{marker}")
 
     if dm_results:
         print(f"\n{'─'*70}")
-        print("  Diebold-Mariano Tests (Chronos-2 Fine-tuned vs baselines)")
+        print("  Diebold-Mariano Tests (AutoGluon ensemble vs baselines)")
         print(f"{'─'*70}")
         for dm in dm_results:
             sig = "✅ significant" if dm.get("significant_at_5pct") else "— not significant"
             print(f"  vs {dm['model_a']:<20} p={dm['p_value']:.4f}  {sig}")
 
     # ── Latex table ────────────────────────────────────────────────────────────
-    latex = leaderboard[["model","WAPE_%","MAE","RMSE","MAPE_%"]].to_latex(
+    latex = leaderboard[["model","WAPE_%","MAE","RMSE","MAPE_%","Coverage_%"]].to_latex(
         index=True,
         float_format="%.2f",
         caption="Model comparison on Bay Area transit test set (2025)",

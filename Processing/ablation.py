@@ -80,7 +80,11 @@ COVARIATE_GROUPS = {
         "dist_from_diridon_km", "transit_mode",
     ],
     "lags": [
-        "ridership_lag_4", "ridership_lag_8", "ridership_lag_12",
+        "ridership_lag_1", "ridership_lag_2", "ridership_lag_3",
+        "ridership_lag_6", "ridership_lag_12",
+        "ridership_rolling_mean_3mo", "ridership_rolling_std_3mo",
+        "ridership_rolling_mean_12mo",
+        "ridership_lag_4", "ridership_lag_8",
         "ridership_lag_96", "ridership_lag_192", "ridership_lag_672",
         "ridership_rolling_mean_24h", "ridership_rolling_std_24h",
         "ridership_rolling_mean_7d",
@@ -170,7 +174,13 @@ def run_inference_with_config(
     )
 
     predictor = TimeSeriesPredictor.load(str(model_dir))
-    prediction_length = cfg["data"]["forecast_horizon_hours"] * 4  # 15-min steps
+    prediction_length = cfg["data"].get("forecast_horizon_steps") \
+        or cfg["chronos2"].get("prediction_length_steps")
+    if prediction_length is None:
+        freq = cfg["data"]["resample_freq"]
+        horizon_hours = cfg["data"]["forecast_horizon_hours"]
+        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+        prediction_length = int(horizon_hours * steps_per_hour)
 
     preds = predictor.predict(ts_df, prediction_length=prediction_length)
 

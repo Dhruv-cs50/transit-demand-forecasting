@@ -235,15 +235,17 @@ def forecast_all_stations(
 
     chronos_cfg = cfg["chronos2"]
     # Prefer step-based config (monthly data); fall back to hour-based
-    context_steps = chronos_cfg.get("context_length_steps", None)
-    prediction_length = chronos_cfg.get("prediction_length_steps", None)
+    context_steps = cfg["data"].get("context_length_steps") \
+        or chronos_cfg.get("context_length_steps", None)
+    prediction_length = cfg["data"].get("forecast_horizon_steps") \
+        or chronos_cfg.get("prediction_length_steps", None)
     if prediction_length is None:
         freq = cfg["data"]["resample_freq"]
         horizon = cfg["data"]["forecast_horizon_hours"]
         steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
         prediction_length = int(horizon * steps_per_hour)
 
-    context_hours = cfg["data"]["context_length_hours"]
+    context_hours = cfg["data"].get("context_length_hours")
     quantile_levels = chronos_cfg["quantile_levels"]
     min_context = 3 if context_steps is not None else 24
 
@@ -321,7 +323,7 @@ def main():
     cfg = load_model_config()
 
     if args.horizon:
-        cfg["data"]["forecast_horizon_hours"] = args.horizon
+        cfg["data"]["forecast_horizon_steps"] = args.horizon
 
     df = load_feature_store(station_id=args.station)
     pipeline = build_chronos_pipeline(cfg)
@@ -330,14 +332,16 @@ def main():
     output_dir = Path("models/chronos2/outputs")
 
     if args.station:
-        context_steps = cfg["chronos2"].get("context_length_steps", None)
-        prediction_length = cfg["chronos2"].get("prediction_length_steps", None)
+        context_steps = cfg["data"].get("context_length_steps") \
+            or cfg["chronos2"].get("context_length_steps", None)
+        prediction_length = cfg["data"].get("forecast_horizon_steps") \
+            or cfg["chronos2"].get("prediction_length_steps", None)
         if prediction_length is None:
             freq = cfg["data"]["resample_freq"]
             steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
             prediction_length = int(cfg["data"]["forecast_horizon_hours"] * steps_per_hour)
         context_df, future_df = prepare_context(
-            df, args.station, cfg["data"]["context_length_hours"], as_of,
+            df, args.station, cfg["data"].get("context_length_hours"), as_of,
             context_steps=context_steps,
         )
         pred_df = run_zero_shot_forecast(

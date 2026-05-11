@@ -4,15 +4,17 @@
 
 # ── Data / splits ─────────────────────────────────────────────────────────────
 data:
-  resample_freq: "15min"          # time series frequency (15-min intervals)
-  context_length_hours: 168       # 1 week of history fed as context to Chronos-2
-  forecast_horizon_hours: 24      # predict the next 24 hours
+  granularity: "monthly"          # actual modeled data: BART OD station-month ridership
+  resample_freq: "MS"             # month-start frequency
+  context_length_steps: 24        # 24 months of history fed as context
+  forecast_horizon_steps: 6       # predict the next 6 months
 
   # Chronological splits — no data leakage
   # train: everything up to train_end
   # val  : train_end < ts <= val_end
   # test : ts > val_end
-  train_end: "2022-12-31"   # train: 2019 + 2022
+  train_start: "2021-01-01"  # first continuous BART OD month available in current feature store
+  train_end: "2022-12-31"   # train: Jan 2021-Dec 2022
   val_end:   "2023-06-30"   # val: Jan–Jun 2023 | test: Jul–Dec 2023
 
 # ── Chronos-2 ─────────────────────────────────────────────────────────────────
@@ -34,8 +36,8 @@ finetune:
 # ── Prophet baseline ──────────────────────────────────────────────────────────
 prophet:
   yearly_seasonality: true
-  weekly_seasonality: true
-  daily_seasonality: true
+  weekly_seasonality: false
+  daily_seasonality: false
   changepoint_prior_scale: 0.05   # flexibility of trend — low = smooth
 
 # ── Serving ───────────────────────────────────────────────────────────────────

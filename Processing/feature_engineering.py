@@ -27,9 +27,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import holidays
 import numpy as np
 import pandas as pd
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 log = logging.getLogger(__name__)
 
@@ -49,8 +49,12 @@ EVENT_DEPARTURE_HOURS  = 1.5   # ridership spikes for ~1.5 hrs after event ends
 # San Jose Diridon station coords — used for proximity-weighted event features
 DIRIDON_LAT, DIRIDON_LNG = 37.3294, -121.9022
 
-# California + Federal holidays
-CA_HOLIDAYS = holidays.country_holidays("US", subdiv="CA")
+# Federal holidays; avoids an extra runtime dependency for the pipeline.
+CA_HOLIDAYS = set(
+    USFederalHolidayCalendar()
+    .holidays(start="2019-01-01", end="2030-12-31")
+    .date
+)
 
 
 # ── Time features ──────────────────────────────────────────────────────────────
@@ -343,22 +347,26 @@ def add_lag_features(
     """
     Add autoregressive lag features — the model's memory of what happened recently.
 
-    Lags chosen to capture:
-      - 1hr, 2hr, 3hr: short-term momentum
-      - 24hr, 48hr: same-time-yesterday, day-before-yesterday
-      - 168hr (7 days): same-time-last-week (strongest seasonal signal)
+    Lags are chosen from the observed cadence. For current BART OD data this
+    means monthly lags (1, 2, 3, 6, 12 months); for future 15-minute data this
+    falls back to the original hourly/day/week lags.
 
     These help the baseline models (Prophet, ARIMA) and can also be
     used as additional context features alongside Chronos-2.
     """
-    if lags is None:
-        # At 15-min frequency: multiply hours by 4
-        lags = [4, 8, 12, 96, 192, 672]  # 1hr, 2hr, 3hr, 24hr, 48hr, 7d
-
     if target_col not in df.columns or "station_id" not in df.columns:
         return df
 
     df = df.sort_values(["station_id", "timestamp"]).copy()
+    diffs = (
+        df.groupby("station_id")["timestamp"]
+        .diff()
+        .dropna()
+    )
+    is_monthly = not diffs.empty and diffs.median() >= pd.Timedelta(days=25)
+
+    if lags is None:
+        lags = [1, 2, 3, 6, 12] if is_monthly else [4, 8, 12, 96, 192, 672]
 
     for lag in lags:
         col_name = f"{target_col}_lag_{lag}"
@@ -366,16 +374,26 @@ def add_lag_features(
             lambda x: x.shift(lag)
         )
 
-    # Rolling statistics (7-day window at 15-min → 672 steps)
-    df[f"{target_col}_rolling_mean_24h"] = df.groupby("station_id")[target_col].transform(
-        lambda x: x.shift(1).rolling(96, min_periods=24).mean()   # 24hr window
-    )
-    df[f"{target_col}_rolling_std_24h"] = df.groupby("station_id")[target_col].transform(
-        lambda x: x.shift(1).rolling(96, min_periods=24).std()
-    )
-    df[f"{target_col}_rolling_mean_7d"] = df.groupby("station_id")[target_col].transform(
-        lambda x: x.shift(1).rolling(672, min_periods=96).mean()   # 7-day window
-    )
+    if is_monthly:
+        df[f"{target_col}_rolling_mean_3mo"] = df.groupby("station_id")[target_col].transform(
+            lambda x: x.shift(1).rolling(3, min_periods=2).mean()
+        )
+        df[f"{target_col}_rolling_std_3mo"] = df.groupby("station_id")[target_col].transform(
+            lambda x: x.shift(1).rolling(3, min_periods=2).std()
+        )
+        df[f"{target_col}_rolling_mean_12mo"] = df.groupby("station_id")[target_col].transform(
+            lambda x: x.shift(1).rolling(12, min_periods=6).mean()
+        )
+    else:
+        df[f"{target_col}_rolling_mean_24h"] = df.groupby("station_id")[target_col].transform(
+            lambda x: x.shift(1).rolling(96, min_periods=24).mean()
+        )
+        df[f"{target_col}_rolling_std_24h"] = df.groupby("station_id")[target_col].transform(
+            lambda x: x.shift(1).rolling(96, min_periods=24).std()
+        )
+        df[f"{target_col}_rolling_mean_7d"] = df.groupby("station_id")[target_col].transform(
+            lambda x: x.shift(1).rolling(672, min_periods=96).mean()
+        )
 
     return df
 

@@ -161,10 +161,12 @@ def _run_forecast(
         as_of = pd.Timestamp(as_of, tz="America/Los_Angeles")
 
     context_steps = cfg["chronos2"].get("context_length_steps", None)
-    prediction_length = cfg["chronos2"].get("prediction_length_steps", 6)
+    context_steps = cfg["data"].get("context_length_steps") or context_steps
+    prediction_length = cfg["data"].get("forecast_horizon_steps") \
+        or cfg["chronos2"].get("prediction_length_steps", 6)
 
     context_df, future_df = prepare_context(
-        df, station_id, cfg["data"]["context_length_hours"], as_of,
+        df, station_id, cfg["data"].get("context_length_hours"), as_of,
         context_steps=context_steps,
     )
 

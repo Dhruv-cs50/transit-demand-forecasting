@@ -22,6 +22,7 @@ import matplotlib.ticker as mticker
 import seaborn as sns
 from scipy import stats
 import os, glob, warnings
+from pathlib import Path
 warnings.filterwarnings('ignore')
 
 # ── Styling ───────────────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ VTA_RED   = '#CC0000'
 GOLD      = '#F5A800'
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-BASE   = "/home/claude/transit_eda"
+BASE   = str(Path(__file__).resolve().parents[1])
 BART19 = os.path.join(BASE, "data/bart/2019/ridership_2019")
 BART22 = os.path.join(BASE, "data/bart/2022/Ridership_2022")
 BART23 = os.path.join(BASE, "data/bart/2023")

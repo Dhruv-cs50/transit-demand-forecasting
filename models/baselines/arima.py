@@ -208,6 +208,9 @@ def run_arima_all_stations(
     cfg: dict,
     output_dir: Path = OUTPUT_DIR,
     use_auto: bool = False,
+    train_cutoff: str | pd.Timestamp = None,
+    horizon_steps: int = None,
+    freq: str = "MS",
 ) -> pd.DataFrame:
     """
     Fit SARIMA for every station and generate forecasts.
@@ -215,19 +218,23 @@ def run_arima_all_stations(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    train_end    = pd.Timestamp(cfg["data"]["train_end"], tz="America/Los_Angeles")
-    val_end      = pd.Timestamp(cfg["data"]["val_end"],   tz="America/Los_Angeles")
+    def _as_local_ts(value) -> pd.Timestamp:
+        ts = pd.Timestamp(value)
+        return ts.tz_localize("America/Los_Angeles") if ts.tzinfo is None else ts.tz_convert("America/Los_Angeles")
+
+    train_end    = _as_local_ts(cfg["data"]["train_end"])
+    cutoff       = _as_local_ts(train_cutoff) if train_cutoff is not None else train_end
 
     # Use step-based horizon for monthly data; fall back to hour-based
-    horizon_steps = cfg["chronos2"].get("prediction_length_steps", None)
+    horizon_steps = horizon_steps or cfg["data"].get("forecast_horizon_steps") \
+        or cfg["chronos2"].get("prediction_length_steps", None)
     if horizon_steps is None:
-        freq = cfg["data"]["resample_freq"]
+        raw_freq = cfg["data"]["resample_freq"]
         horizon_hrs = cfg["data"]["forecast_horizon_hours"]
-        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+        steps_per_hour = pd.tseries.frequencies.to_offset(raw_freq).nanos / (3600 * 1e9)
         horizon_steps = int(horizon_hrs * steps_per_hour)
-    freq = "MS"  # monthly BART data
 
-    train_df = df[df["timestamp"] <= train_end]
+    train_df = df[df["timestamp"] <= cutoff]
     stations = df["station_id"].unique()
     all_preds = []
 
@@ -286,7 +293,7 @@ def main():
         df = df[df["station_id"] == args.station]
 
     if args.horizon:
-        cfg["data"]["forecast_horizon_hours"] = args.horizon
+        cfg["data"]["forecast_horizon_steps"] = args.horizon
 
     run_arima_all_stations(df, cfg, use_auto=args.auto)
 

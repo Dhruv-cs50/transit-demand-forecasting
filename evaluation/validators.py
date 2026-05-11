@@ -145,7 +145,7 @@ def check_timestamp_monotonic(df: pd.DataFrame) -> List[ValidationResult]:
 
 def check_missing_windows(
     df: pd.DataFrame,
-    freq: str = "15min",
+    freq: str = "MS",
     max_gap_hours: float = MAX_GAP_HOURS,
 ) -> List[ValidationResult]:
     """
@@ -156,8 +156,14 @@ def check_missing_windows(
     if "station_id" not in df.columns:
         return results
 
-    max_gap = pd.Timedelta(hours=max_gap_hours)
     expected_step = pd.tseries.frequencies.to_offset(freq)
+    try:
+        step_td = pd.Timedelta(expected_step.nanos, unit="ns")
+        max_gap = max(pd.Timedelta(hours=max_gap_hours), step_td * 2)
+    except ValueError:
+        # Month-start/month-end offsets are calendar based, not fixed-width.
+        # Two months plus a little slack catches missing station-month rows.
+        max_gap = pd.Timedelta(days=62)
     large_gaps = []
 
     for station, grp in df.groupby("station_id"):
@@ -172,18 +178,19 @@ def check_missing_windows(
                 "gap_hours": round(gap.total_seconds() / 3600, 2),
             })
 
+    max_gap_label = round(max_gap.total_seconds() / 3600, 2)
     if large_gaps:
         results.append(ValidationResult(
             check="missing_windows",
             severity=Severity.WARNING,
-            message=f"{len(large_gaps)} time gaps > {max_gap_hours}h detected across stations",
+            message=f"{len(large_gaps)} time gaps > expected {freq} cadence detected across stations",
             details={"gaps": large_gaps[:20]},
         ))
     else:
         results.append(ValidationResult(
             check="missing_windows",
             severity=Severity.INFO,
-            message=f"No gaps > {max_gap_hours}h found",
+            message=f"No gaps > {max_gap_label}h found for {freq} cadence",
         ))
     return results
 
@@ -444,7 +451,7 @@ def check_target_null_rate(df: pd.DataFrame, target_col: str = "ridership") -> L
 def validate_feature_store(
     df: pd.DataFrame,
     mode: ValidationMode = ValidationMode.STRICT,
-    freq: str = "15min",
+    freq: str = "MS",
     target_col: str = "ridership",
 ) -> List[ValidationResult]:
     """
@@ -471,7 +478,7 @@ def validate_feature_store(
         check_ridership_anomalies(df),
         check_weather_coverage(df),
         check_event_coverage(df),
-        check_station_coverage(df),
+        check_station_coverage(df, freq=freq),
         check_duplicate_rows(df),
         check_target_null_rate(df, target_col),
     ]
@@ -528,7 +535,7 @@ def main():
     parser = argparse.ArgumentParser(description="Validate the feature store")
     parser.add_argument("--input", default=str(PROCESSED_DIR / "feature_store_enriched.parquet"))
     parser.add_argument("--mode", choices=["strict", "lenient"], default="lenient")
-    parser.add_argument("--freq", default="15min")
+    parser.add_argument("--freq", default="MS")
     args = parser.parse_args()
 
     path = Path(args.input)

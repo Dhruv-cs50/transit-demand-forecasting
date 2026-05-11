@@ -174,9 +174,13 @@ def _default_covariate_cols(df: pd.DataFrame) -> list[str]:
 
     past_only = [
         # Lag features — only known up to present
-        "ridership_lag_4", "ridership_lag_8", "ridership_lag_12",
+        "ridership_lag_1", "ridership_lag_2", "ridership_lag_3",
+        "ridership_lag_6", "ridership_lag_12",
+        "ridership_lag_4", "ridership_lag_8",
         "ridership_lag_96", "ridership_lag_192", "ridership_lag_672",
         # Rolling stats
+        "ridership_rolling_mean_3mo", "ridership_rolling_std_3mo",
+        "ridership_rolling_mean_12mo",
         "ridership_rolling_mean_24h", "ridership_rolling_std_24h",
         "ridership_rolling_mean_7d",
         # Rolling weather — cumulative rain over past N hours
@@ -264,11 +268,23 @@ def build_predictor(
         time_limit=time_budget,
         presets=model_preset,
         hyperparameters={
-            # Chronos requires CUDA via AutoGluon's wrapper — excluded on CPU/MPS machines.
-            # Chronos zero-shot forecasts are generated separately via machine_learning_files/zero_shot.py.
+            # Chronos requires CUDA — excluded. Zero-shot handled by zero_shot.py.
             "SeasonalNaive": {},
             "AutoETS": {},
-            "DeepAR": {},
+            "DeepAR": {
+                "epochs": 50,
+                "num_layers": 2,
+                "hidden_size": 40,
+                "dropout_rate": 0.1,
+                "batch_size": 32,
+            },
+            "TemporalFusionTransformer": {
+                "epochs": 50,
+                "hidden_size": 32,
+                "num_heads": 2,
+                "dropout_rate": 0.1,
+                "batch_size": 32,
+            },
         },
         num_val_windows=2,
         val_step_size=prediction_length,

@@ -22,10 +22,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import holidays
 import numpy as np
 import pandas as pd
 import yaml
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,11 +46,10 @@ def load_config() -> dict:
 # ── Holiday calendar ───────────────────────────────────────────────────────────
 
 def make_holiday_df(start: str, end: str) -> pd.DataFrame:
-    """Build a Prophet-compatible holiday DataFrame for US/CA."""
-    ca_holidays = holidays.country_holidays("US", subdiv="CA",
-                                            years=range(2019, 2027))
-    rows = [{"holiday": name, "ds": pd.Timestamp(date)}
-            for date, name in ca_holidays.items()]
+    """Build a Prophet-compatible holiday DataFrame."""
+    holiday_dates = USFederalHolidayCalendar().holidays(start=start, end=end)
+    rows = [{"holiday": "US Federal Holiday", "ds": pd.Timestamp(date)}
+            for date in holiday_dates]
     df = pd.DataFrame(rows)
     df["lower_window"] = 0
     df["upper_window"] = 1    # day-after effect (e.g. day after Thanksgiving)
@@ -88,9 +87,17 @@ def fit_station(
     train["y"]  = train["ridership"].clip(lower=0)
     train = train.dropna(subset=["y"])
 
-    # Build regressor list from available columns
+    # Build regressor list from available columns. BART OD is monthly, so the
+    # event signal is a month-level count/flag rather than an hourly window.
     regressors = []
-    for col in ["precip_intensity", "is_game_day", "is_sharks_game_window", "is_holiday"]:
+    for col in [
+        "precip_intensity",
+        "precip_mm",
+        "is_game_day",
+        "is_sharks_game",
+        "is_sharks_game_window",
+        "is_holiday",
+    ]:
         if col in train.columns:
             train[col] = train[col].astype(float).fillna(0)
             regressors.append(col)
@@ -99,10 +106,21 @@ def fit_station(
 
     holidays_df = make_holiday_df("2019-01-01", "2027-01-01")
 
+    # Prophet's daily/weekly seasonalities are actively misleading on monthly
+    # station-month data. Keep yearly seasonality only when enough history exists.
+    monthly = train["ds"].dt.to_period("M").nunique() == len(train)
+    yearly = cfg_prophet.get("yearly_seasonality", True)
+    weekly = cfg_prophet.get("weekly_seasonality", True)
+    daily = cfg_prophet.get("daily_seasonality", True)
+    if monthly:
+        weekly = False
+        daily = False
+        yearly = yearly and len(train) >= 18
+
     model = Prophet(
-        yearly_seasonality  = cfg_prophet.get("yearly_seasonality", True),
-        weekly_seasonality  = cfg_prophet.get("weekly_seasonality", True),
-        daily_seasonality   = cfg_prophet.get("daily_seasonality", True),
+        yearly_seasonality  = yearly,
+        weekly_seasonality  = weekly,
+        daily_seasonality   = daily,
         changepoint_prior_scale = cfg_prophet.get("changepoint_prior_scale", 0.05),
         holidays            = holidays_df,
         uncertainty_samples = 200,
@@ -171,6 +189,9 @@ def run_prophet_all_stations(
     df: pd.DataFrame,
     cfg: dict,
     output_dir: Path = OUTPUT_DIR,
+    train_cutoff: str | pd.Timestamp = None,
+    horizon_steps: int = None,
+    freq: str = "MS",
 ) -> pd.DataFrame:
     """
     Fit Prophet for every station and generate forecasts.
@@ -178,21 +199,24 @@ def run_prophet_all_stations(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    freq         = cfg["data"]["resample_freq"]
-    train_end    = pd.Timestamp(cfg["data"]["train_end"], tz="America/Los_Angeles")
-    val_end      = pd.Timestamp(cfg["data"]["val_end"],   tz="America/Los_Angeles")
+    def _as_local_ts(value) -> pd.Timestamp:
+        ts = pd.Timestamp(value)
+        return ts.tz_localize("America/Los_Angeles") if ts.tzinfo is None else ts.tz_convert("America/Los_Angeles")
+
+    train_end    = _as_local_ts(cfg["data"]["train_end"])
+    cutoff       = _as_local_ts(train_cutoff) if train_cutoff is not None else train_end
 
     # Use step-based horizon for monthly data; fall back to hour-based
-    horizon_steps = cfg["chronos2"].get("prediction_length_steps", None)
+    horizon_steps = horizon_steps or cfg["data"].get("forecast_horizon_steps") \
+        or cfg["chronos2"].get("prediction_length_steps", None)
     if horizon_steps is None:
+        raw_freq = cfg["data"]["resample_freq"]
         horizon_hrs  = cfg["data"]["forecast_horizon_hours"]
-        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+        steps_per_hour = pd.tseries.frequencies.to_offset(raw_freq).nanos / (3600 * 1e9)
         horizon_steps  = int(horizon_hrs * steps_per_hour)
-    # For monthly data, Prophet freq should be monthly
-    freq = "MS"  # month start — matches our monthly BART timestamps
 
-    train_df = df[df["timestamp"] <= train_end]
-    test_df  = df[df["timestamp"] >  val_end]
+    train_df = df[df["timestamp"] <= cutoff]
+    future_df = df[df["timestamp"] > cutoff]
 
     stations = df["station_id"].unique()
     all_preds = []
@@ -200,7 +224,7 @@ def run_prophet_all_stations(
     for station_id in stations:
         log.info(f"\nFitting Prophet for station: {station_id}")
         station_train = train_df[train_df["station_id"] == station_id]
-        station_future = test_df[test_df["station_id"] == station_id]
+        station_future = future_df[future_df["station_id"] == station_id]
 
         if len(station_train) < 3:   # need at least 3 data points
             log.warning(f"  Skipping {station_id} — not enough training data")
@@ -254,7 +278,7 @@ def main():
         df = df[df["station_id"] == args.station]
 
     if args.horizon:
-        cfg["data"]["forecast_horizon_hours"] = args.horizon
+        cfg["data"]["forecast_horizon_steps"] = args.horizon
 
     run_prophet_all_stations(df, cfg)
 
