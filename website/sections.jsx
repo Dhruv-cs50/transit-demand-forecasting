@@ -38,7 +38,10 @@ const Nav = ({ dark, onToggleDark }) => {
     ['overview','Overview'], ['method','Method'], ['data','Data'],
     ['results','Results'], ['demo','Live demo'], ['recs','Recommendations'], ['eda','EDA'], ['about','About']
   ];
-  const extLinks = [{ href:'api-demo.html', label:'API Playground ↗' }];
+  const extLinks = [
+    { href:'transit-demo.html', label:'Map Demo ↗' },
+    { href:'api-demo.html',     label:'API Playground ↗' },
+  ];
   const [active, setActive] = useState('overview');
   useEffect(() => {
     const ids = links.map(([id])=>id);
@@ -348,62 +351,14 @@ const Results = () => {
   );
 };
 
-/* ── Live demo: rush-heat map ─────────────────────────────────── */
+/* ── Live demo: teaser card linking to standalone map page ─────── */
 const Demo = () => {
-  const [system, setSystem] = useState('bart');
-  const [hour, setHour] = useState(8);
-  const [dow, setDow] = useState(2);
-  const [weather, setWeather] = useState('clear');
-  const [event, setEvent] = useState('none');
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(2);
-
-  React.useEffect(() => {
-    if (!playing) return;
-    const interval = 700 / speed;
-    const t = setInterval(() => {
-      setHour(h => {
-        const next = (h + 1) % 24;
-        if (next === 0) setDow(d => (d + 1) % 7);
-        return next;
-      });
-    }, interval);
-    return () => clearInterval(t);
-  }, [playing, speed]);
-
-  const bartWithRealData = window.useBartRidership(window.BART_STATIONS || []);
-  const stations = system === 'bart' ? bartWithRealData : window.VTA_STATIONS;
-  const stats = useMemo(() => {
-    if (!stations) return { total: 0, peak: 0, peakName: '', meanLoad: 0 };
-    const hourMul = (h) => {
-      if (h>=7 && h<=9) return { am: 1.0, pm: 0.0, level: 0.95 };
-      if (h>=16 && h<=18) return { am: 0.0, pm: 1.0, level: 1.0 };
-      if (h>=10 && h<=15) return { am: 0.3, pm: 0.4, level: 0.55 };
-      if (h>=19 && h<=21) return { am: 0.0, pm: 0.55, level: 0.6 };
-      if (h>=22 || h<=4) return { am: 0.0, pm: 0.05, level: 0.18 };
-      return { am: 0.7, pm: 0.0, level: 0.45 };
-    };
-    const hM = hourMul(hour);
-    const dM = (dow===0||dow===6) ? 0.55 : 1.0;
-    const wM = weather==='rain'?0.78:weather==='hot'?0.88:1.0;
-    const eM = event==='major'?1.0:event==='small'?0.4:0;
-    const loads = stations.map(s => {
-      let v = (s.baseAM*hM.am + s.basePM*hM.pm + 0.45*hM.level) * dM * wM + s.eventBoost*eM;
-      if (s.type==='core') v = Math.max(v, 0.55);
-      if (s.type==='commuter' && (dow===0||dow===6)) v *= 0.6;
-      return { s, v: Math.max(0.05, Math.min(2.4, v)) };
-    });
-    loads.sort((a,b)=>b.v-a.v);
-    const total = loads.reduce((acc,r)=>acc + r.v*22, 0);
-    const meanLoad = loads.reduce((acc,r)=>acc + r.v, 0) / loads.length;
-    return { total, peak: loads[0].v*22, peakName: loads[0].s.nm, meanLoad, top3: loads.slice(0,3) };
-  }, [stations, hour, dow, weather, event]);
-
-  const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow];
-  const hLabel = `${String(hour).padStart(2,'0')}:00`;
-  const tier = stats.meanLoad < 0.45 ? 'low' : stats.meanLoad < 0.95 ? 'med' : 'high';
-  const tierLabel = tier==='low' ? 'Off-peak' : tier==='med' ? 'Building' : 'Peak crush';
-
+  const features = [
+    { icon: '🗺', title: 'Real Leaflet map', desc: 'CartoDB Voyager tiles — all 50 BART and 39 VTA stations plotted at true lat/lng.' },
+    { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded ridership load: green → amber → coral as demand rises.' },
+    { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to animate demand through a full 24-hour day.' },
+    { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to see how the model adjusts boardings.' },
+  ];
   return (
     <section id="demo">
       <div className="wrap">
@@ -411,95 +366,42 @@ const Demo = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Live demo</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>Where is the rush, right now?</h2>
-            <p className="lede" style={{ maxWidth:'52ch' }}>Toggle between BART and VTA, then scrub the hour and weekday to see the model's expected boardings light up across the network. Add weather and an event to test how the system reacts.</p>
+            <p className="lede" style={{ maxWidth:'52ch' }}>
+              An interactive Leaflet map shows expected boardings across BART and VTA.
+              Scrub through the hour, change the day, add weather or a major event — the
+              heat overlay updates in real time.
+            </p>
           </div></Reveal>
         </div>
 
-        <Reveal className="card map-card">
-          <div className="map-toolbar">
-            <div className="seg seg-system">
-              <button className={system==='bart'?'on':''} onClick={()=>setSystem('bart')}>BART · 50 stations</button>
-              <button className={system==='vta'?'on':''} onClick={()=>setSystem('vta')}>VTA · 39 stations</button>
-            </div>
-            <div className="map-stat">
-              <div className="map-stat-num">{stats.total.toFixed(0)}</div>
-              <div className="map-stat-lbl">network ons/hr</div>
-            </div>
-            <div className="map-stat">
-              <div className="map-stat-num">{stats.peak.toFixed(0)}</div>
-              <div className="map-stat-lbl">peak · {stats.peakName}</div>
-            </div>
-            <div className={`tier ${tier} map-tier`}>{tierLabel}</div>
+        <Reveal className="card" style={{ padding:'32px' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:20, marginBottom:32 }}>
+            {features.map(f => (
+              <div key={f.title} style={{ display:'flex', gap:14, alignItems:'flex-start' }}>
+                <div style={{ fontSize:28, lineHeight:1, flexShrink:0 }}>{f.icon}</div>
+                <div>
+                  <div style={{ fontWeight:600, fontSize:14, marginBottom:4 }}>{f.title}</div>
+                  <div style={{ fontSize:13, color:'var(--ink-muted)', lineHeight:1.5 }}>{f.desc}</div>
+                </div>
+              </div>
+            ))}
           </div>
-
-          <div className="map-grid">
-            <div className="map-canvas">
-              {window.TransitMap && (
-                <TransitMap system={system} hour={hour} day={dow} weather={weather} event={event} />
-              )}
-            </div>
-
-            <div className="map-controls">
-              <div className="field">
-                <label>Hour of day <span className="v">{hLabel}</span></label>
-                <input type="range" min="0" max="23" value={hour} onChange={e=>setHour(+e.target.value)} />
-                <div className="hour-strip">
-                  {[0,4,8,12,16,20].map(h => (
-                    <span key={h} className={Math.abs(h-hour)<=1?'on':''}>{String(h).padStart(2,'0')}</span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="field">
-                <label>Day of week <span className="v">{dayName}</span></label>
-                <div className="dow">
-                  {['S','M','T','W','T','F','S'].map((d,i)=>(
-                    <button key={i} className={dow===i?'on':''} onClick={()=>setDow(i)} aria-label={['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][i]}>{d}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="field">
-                <label>Weather</label>
-                <div className="seg">
-                  <button className={weather==='clear'?'on':''} onClick={()=>setWeather('clear')}>Clear</button>
-                  <button className={weather==='rain'?'on':''} onClick={()=>setWeather('rain')}>Rain</button>
-                  <button className={weather==='hot'?'on':''} onClick={()=>setWeather('hot')}>Heat (95°F+)</button>
-                </div>
-              </div>
-
-              <div className="field">
-                <label>Event near a venue</label>
-                <div className="seg">
-                  <button className={event==='none'?'on':''} onClick={()=>setEvent('none')}>None</button>
-                  <button className={event==='small'?'on':''} onClick={()=>setEvent('small')}>Small</button>
-                  <button className={event==='major'?'on':''} onClick={()=>setEvent('major')}>Major</button>
-                </div>
-                <div className="hint">{system==='bart' ? 'Boosts Coliseum, 12th St / Oakland.' : "Boosts Diridon (SAP), Great America, Old Ironsides (Levi's)."}</div>
-              </div>
-
-              <div className="play-row">
-                <button className={`btn ${playing?'btn-secondary':'btn-primary'} play-btn`} onClick={()=>setPlaying(p=>!p)}>
-                  {playing ? <><I.pause /> Pause</> : <><I.play /> Play week-by-week</>}
-                </button>
-                <div className="speed-seg">
-                  {[1,2,4,8].map(s => (
-                    <button key={s} className={speed===s?'on':''} onClick={()=>setSpeed(s)} aria-label={`${s}x speed`}>{s}×</button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="top-stations">
-                <div className="text-muted" style={{ fontSize: 11, letterSpacing:'.06em', textTransform:'uppercase', fontFamily:'var(--mono)', marginBottom: 8 }}>Hottest stops · {hLabel} {dayName}</div>
-                {(stats.top3 || []).map((r, i) => (
-                  <div key={r.s.id} className="hot-row">
-                    <span className="rank">{i+1}</span>
-                    <span className="nm">{r.s.nm}</span>
-                    <span className="v">{(r.v*22).toFixed(0)} <em>ons/hr</em></span>
-                  </div>
-                ))}
-              </div>
-            </div>
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
+            <a
+              href="transit-demo.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display:'inline-flex', alignItems:'center', gap:8,
+                padding:'12px 24px', borderRadius:10, background:'var(--primary)',
+                color:'#fff', fontWeight:600, fontSize:15, textDecoration:'none',
+                fontFamily:'var(--display)',
+              }}>
+              Open Interactive Map ↗
+            </a>
+            <span style={{ fontSize:13, color:'var(--ink-muted)' }}>
+              Opens in a new tab · BART + VTA · no install required
+            </span>
           </div>
         </Reveal>
       </div>

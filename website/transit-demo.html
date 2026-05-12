@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Transit Demand · Live Map Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn0efh1c9W8I5ynv4EhkfXBQ" crossorigin="anonymous"/>
+<style>
+:root{
+  --bg:#f7f5f0;--bg-elev:#fff;--bg-muted:#efece4;
+  --ink:#14151a;--ink-muted:#5a5d68;--ink-soft:#8a8d97;
+  --line:#e4e1d7;--primary:#2a2f8f;--accent:#ee6c4d;
+  --radius:14px;--radius-sm:10px;
+  --body:'Inter',ui-sans-serif,system-ui,sans-serif;
+  --display:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+html.dark{
+  --bg:#0c0d12;--bg-elev:#14161d;--bg-muted:#1a1d26;
+  --ink:#f4f3ee;--ink-muted:#b1b4be;--ink-soft:#777b87;
+  --line:#242732;--primary:#8b91ff;--accent:#ff8160;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);min-height:100vh;font-size:15px}
+
+/* top bar */
+.topbar{display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--bg-elev);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:1000}
+.topbar a{font-family:var(--display);font-weight:600;color:var(--primary);text-decoration:none;font-size:15px}
+.topbar a:hover{opacity:.75}
+.topbar-title{font-family:var(--display);font-weight:700;font-size:16px;flex:1}
+.dark-btn{margin-left:auto;border:1.5px solid var(--line);background:transparent;color:var(--ink);padding:5px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:var(--body)}
+.dark-btn:hover{background:var(--bg-muted)}
+
+/* layout */
+.layout{display:grid;grid-template-columns:1fr 300px;gap:0;height:calc(100vh - 53px)}
+@media(max-width:768px){.layout{grid-template-columns:1fr;grid-template-rows:1fr auto;height:auto}}
+
+/* map */
+#map{width:100%;height:100%;min-height:420px}
+@media(max-width:768px){#map{height:55vh}}
+
+/* sidebar */
+.sidebar{background:var(--bg-elev);border-left:1px solid var(--line);overflow-y:auto;padding:20px 18px;display:flex;flex-direction:column;gap:18px}
+@media(max-width:768px){.sidebar{border-left:none;border-top:1px solid var(--line);padding:16px}}
+
+.stats-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:var(--bg-muted);border-radius:var(--radius-sm);padding:12px 14px}
+.stat-num{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--primary);line-height:1}
+.stat-lbl{font-size:11px;color:var(--ink-muted);margin-top:4px;letter-spacing:.03em}
+.tier-badge{text-align:center;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.tier-low{background:#d1fadf;color:#166534}
+.tier-med{background:#fef3c7;color:#92400e}
+.tier-high{background:#fee2e2;color:#991b1b}
+html.dark .tier-low{background:#14532d;color:#86efac}
+html.dark .tier-med{background:#451a03;color:#fcd34d}
+html.dark .tier-high{background:#450a0a;color:#fca5a5}
+
+.section-label{font-size:11px;font-weight:600;color:var(--ink-muted);letter-spacing:.06em;text-transform:uppercase;font-family:var(--mono);margin-bottom:6px}
+
+/* seg buttons */
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button{padding:6px 11px;border-radius:8px;border:1.5px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;font-size:12px;font-weight:500;font-family:var(--body);transition:all .15s}
+.seg button:hover{border-color:var(--primary);color:var(--primary)}
+.seg button.on{background:var(--primary);border-color:var(--primary);color:#fff}
+
+/* slider */
+.field label{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:500;margin-bottom:6px}
+.field label .val{font-family:var(--mono);color:var(--primary);font-size:13px;font-weight:600}
+input[type=range]{width:100%;accent-color:var(--primary);cursor:pointer}
+.hour-strip{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-soft);margin-top:3px}
+.hour-strip span.on{color:var(--primary);font-weight:700}
+
+/* dow */
+.dow{display:flex;gap:4px}
+.dow button{flex:1;padding:6px 4px;border-radius:6px;border:1.5px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;font-size:12px;font-weight:600;font-family:var(--body)}
+.dow button.on{background:var(--primary);border-color:var(--primary);color:#fff}
+
+/* play row */
+.play-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.play-btn{padding:8px 16px;border-radius:10px;border:none;background:var(--primary);color:#fff;cursor:pointer;font-size:13px;font-weight:600;font-family:var(--body);flex:1}
+.play-btn.paused{background:var(--bg-muted);color:var(--ink);border:1.5px solid var(--line)}
+.speed-seg{display:flex;gap:3px}
+.speed-seg button{padding:5px 8px;border-radius:6px;border:1.5px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;font-size:11px;font-weight:600;font-family:var(--mono)}
+.speed-seg button.on{background:var(--primary);border-color:var(--primary);color:#fff}
+
+/* top stations */
+.hot-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+.hot-row:last-child{border-bottom:none}
+.hot-row .rank{font-family:var(--mono);font-size:11px;color:var(--ink-soft);width:14px;text-align:center;flex-shrink:0}
+.hot-row .nm{font-size:13px;font-weight:500;flex:1}
+.hot-row .v{font-family:var(--mono);font-size:12px;color:var(--primary)}
+.hot-row .v em{font-style:normal;color:var(--ink-muted);font-size:11px}
+
+.hint{font-size:11px;color:var(--ink-soft);margin-top:4px}
+
+hr.divider{border:none;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="index.html">← Back to project</a>
+  <div class="topbar-title">Transit Demand · Live Map Demo</div>
+  <button class="dark-btn" id="darkBtn">Dark</button>
+</div>
+
+<div class="layout">
+  <div id="map"></div>
+
+  <aside class="sidebar">
+    <!-- system -->
+    <div>
+      <div class="section-label">Network</div>
+      <div class="seg" id="sysSeg">
+        <button class="on" data-sys="bart">BART · 50 stations</button>
+        <button data-sys="vta">VTA · 39 stations</button>
+      </div>
+    </div>
+
+    <!-- stats -->
+    <div>
+      <div class="section-label">Current load</div>
+      <div class="stats-row">
+        <div class="stat"><div class="stat-num" id="totalStat">—</div><div class="stat-lbl">network ons/hr</div></div>
+        <div class="stat"><div class="stat-num" id="peakStat">—</div><div class="stat-lbl">peak ons/hr</div></div>
+      </div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:var(--ink-muted)" id="peakName">—</span>
+        <span class="tier-badge tier-low" id="tierBadge">—</span>
+      </div>
+    </div>
+
+    <hr class="divider"/>
+
+    <!-- hour -->
+    <div class="field">
+      <label>Hour of day <span class="val" id="hourLabel">08:00</span></label>
+      <input type="range" id="hourSlider" min="0" max="23" value="8"/>
+      <div class="hour-strip" id="hourStrip"></div>
+    </div>
+
+    <!-- day -->
+    <div>
+      <div class="section-label">Day of week</div>
+      <div class="dow" id="dowSeg"></div>
+    </div>
+
+    <!-- weather -->
+    <div>
+      <div class="section-label">Weather</div>
+      <div class="seg" id="weatherSeg">
+        <button class="on" data-w="clear">Clear</button>
+        <button data-w="rain">Rain</button>
+        <button data-w="hot">Heat (95°F+)</button>
+      </div>
+    </div>
+
+    <!-- event -->
+    <div>
+      <div class="section-label">Event near venue</div>
+      <div class="seg" id="eventSeg">
+        <button class="on" data-e="none">None</button>
+        <button data-e="small">Small</button>
+        <button data-e="major">Major</button>
+      </div>
+      <div class="hint" id="eventHint">Boosts Coliseum, 12th St / Oakland.</div>
+    </div>
+
+    <!-- play -->
+    <div>
+      <div class="play-row">
+        <button class="play-btn paused" id="playBtn">▶ Play week-by-week</button>
+        <div class="speed-seg" id="speedSeg">
+          <button data-s="1">1×</button>
+          <button class="on" data-s="2">2×</button>
+          <button data-s="4">4×</button>
+          <button data-s="8">8×</button>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider"/>
+
+    <!-- top stations -->
+    <div>
+      <div class="section-label" id="topLabel">Hottest stops</div>
+      <div id="topList"></div>
+    </div>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script>
+/* ── Data ─────────────────────────────────────────────────────────── */
+const BART_STATIONS = [
+  { id:'rich', nm:'Richmond',          lat:37.9372, lng:-122.3531, type:'commuter', baseAM:1.4, basePM:1.1, eventBoost:0 },
+  { id:'elc',  nm:'El Cerrito',        lat:37.9252, lng:-122.3170, type:'commuter', baseAM:1.2, basePM:1.0, eventBoost:0 },
+  { id:'nbk',  nm:'N. Berkeley',       lat:37.8741, lng:-122.2832, type:'commuter', baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'bky',  nm:'Berkeley',          lat:37.8699, lng:-122.2681, type:'urban',    baseAM:1.6, basePM:1.5, eventBoost:0 },
+  { id:'mac',  nm:'MacArthur',         lat:37.8286, lng:-122.2672, type:'transfer', baseAM:1.7, basePM:1.6, eventBoost:0 },
+  { id:'ant',  nm:'Antioch',           lat:37.9959, lng:-121.7806, type:'commuter', baseAM:1.6, basePM:0.6, eventBoost:0 },
+  { id:'pit',  nm:'Pittsburg',         lat:38.0183, lng:-121.9456, type:'commuter', baseAM:1.5, basePM:0.7, eventBoost:0 },
+  { id:'ccd',  nm:'Concord',           lat:37.9732, lng:-122.0290, type:'commuter', baseAM:1.4, basePM:0.8, eventBoost:0 },
+  { id:'plh',  nm:'Pleasant Hill',     lat:37.9279, lng:-122.0571, type:'commuter', baseAM:1.3, basePM:0.9, eventBoost:0 },
+  { id:'lfy',  nm:'Lafayette',         lat:37.8934, lng:-122.1238, type:'commuter', baseAM:1.2, basePM:0.9, eventBoost:0 },
+  { id:'orn',  nm:'Orinda',            lat:37.8784, lng:-122.1834, type:'commuter', baseAM:1.1, basePM:0.9, eventBoost:0 },
+  { id:'rkr',  nm:'Rockridge',         lat:37.8445, lng:-122.2512, type:'commuter', baseAM:1.0, basePM:0.95,eventBoost:0 },
+  { id:'12th', nm:'12th St / Oakland', lat:37.8031, lng:-122.2716, type:'transfer', baseAM:1.9, basePM:1.9, eventBoost:0.4 },
+  { id:'19th', nm:'19th St / Oakland', lat:37.8083, lng:-122.2693, type:'transfer', baseAM:1.7, basePM:1.7, eventBoost:0 },
+  { id:'lkm',  nm:'Lake Merritt',      lat:37.7979, lng:-122.2651, type:'urban',    baseAM:1.4, basePM:1.4, eventBoost:0 },
+  { id:'fvw',  nm:'Fruitvale',         lat:37.7750, lng:-122.2242, type:'urban',    baseAM:1.3, basePM:1.3, eventBoost:0 },
+  { id:'col',  nm:'Coliseum',          lat:37.7539, lng:-122.1977, type:'transfer', baseAM:1.0, basePM:1.0, eventBoost:0.9 },
+  { id:'sl',   nm:'San Leandro',       lat:37.7222, lng:-122.1609, type:'commuter', baseAM:1.1, basePM:1.0, eventBoost:0 },
+  { id:'bayp', nm:'Bay Fair',          lat:37.6970, lng:-122.1272, type:'transfer', baseAM:1.0, basePM:0.95,eventBoost:0 },
+  { id:'hyw',  nm:'Hayward',           lat:37.6695, lng:-122.0872, type:'commuter', baseAM:1.0, basePM:0.95,eventBoost:0 },
+  { id:'unc',  nm:'Union City',        lat:37.5908, lng:-122.0174, type:'commuter', baseAM:1.0, basePM:0.95,eventBoost:0 },
+  { id:'frm',  nm:'Fremont',           lat:37.5574, lng:-121.9763, type:'commuter', baseAM:1.05,basePM:0.95,eventBoost:0 },
+  { id:'brb',  nm:'Berryessa',         lat:37.4479, lng:-121.9007, type:'commuter', baseAM:1.0, basePM:0.95,eventBoost:0 },
+  { id:'wo',   nm:'West Oakland',      lat:37.8046, lng:-122.2949, type:'urban',    baseAM:1.3, basePM:1.5, eventBoost:0 },
+  { id:'emb',  nm:'Embarcadero',       lat:37.7930, lng:-122.3969, type:'core',     baseAM:2.4, basePM:2.5, eventBoost:0.2 },
+  { id:'mtg',  nm:'Montgomery',        lat:37.7892, lng:-122.4014, type:'core',     baseAM:2.6, basePM:2.7, eventBoost:0.2 },
+  { id:'pwl',  nm:'Powell',            lat:37.7844, lng:-122.4080, type:'core',     baseAM:2.3, basePM:2.4, eventBoost:0.3 },
+  { id:'cvc',  nm:'Civic Center',      lat:37.7796, lng:-122.4137, type:'core',     baseAM:2.0, basePM:2.1, eventBoost:0.2 },
+  { id:'16th', nm:'16th St Mission',   lat:37.7650, lng:-122.4194, type:'urban',    baseAM:1.5, basePM:1.7, eventBoost:0 },
+  { id:'24th', nm:'24th St Mission',   lat:37.7524, lng:-122.4181, type:'urban',    baseAM:1.4, basePM:1.6, eventBoost:0 },
+  { id:'gln',  nm:'Glen Park',         lat:37.7328, lng:-122.4345, type:'urban',    baseAM:1.1, basePM:1.2, eventBoost:0 },
+  { id:'bls',  nm:'Balboa Park',       lat:37.7219, lng:-122.4475, type:'urban',    baseAM:1.1, basePM:1.2, eventBoost:0 },
+  { id:'daly', nm:'Daly City',         lat:37.7061, lng:-122.4690, type:'transfer', baseAM:1.2, basePM:1.1, eventBoost:0 },
+  { id:'colm', nm:'Colma',             lat:37.6844, lng:-122.4669, type:'commuter', baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'ssf',  nm:'S. San Francisco',  lat:37.6547, lng:-122.4437, type:'commuter', baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'sbr',  nm:'San Bruno',         lat:37.6302, lng:-122.4120, type:'commuter', baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'mil',  nm:'Millbrae',          lat:37.5995, lng:-122.3869, type:'transfer', baseAM:1.2, basePM:1.0, eventBoost:0 },
+  { id:'sfo',  nm:'SFO Airport',       lat:37.6162, lng:-122.3924, type:'airport',  baseAM:1.5, basePM:1.5, eventBoost:0 },
+  { id:'cas',  nm:'Castro Valley',     lat:37.6902, lng:-121.9825, type:'commuter', baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'dub',  nm:'Dublin/Pleasanton', lat:37.7016, lng:-121.8998, type:'commuter', baseAM:1.3, basePM:0.7, eventBoost:0 },
+  { id:'wdb',  nm:'W. Dublin',         lat:37.6995, lng:-121.9287, type:'commuter', baseAM:1.1, basePM:0.8, eventBoost:0 },
+];
+const BART_LINES = [
+  { c:'#f04e23', ids:['rich','elc','nbk','bky','mac','19th','12th','wo','emb','mtg','pwl','cvc','16th','24th','gln','bls','daly','colm','ssf','sbr','mil'] },
+  { c:'#fdb62a', ids:['ant','pit','ccd','plh','lfy','orn','rkr','mac','19th','12th','wo','emb','mtg','pwl','cvc','16th','24th','gln','bls','daly','colm','ssf','sbr','sfo','mil'] },
+  { c:'#0099d8', ids:['dub','wdb','cas','bayp','sl','col','fvw','lkm','12th','19th','mac','rkr','orn','lfy','plh','ccd','pit','ant'] },
+  { c:'#1a8a3f', ids:['brb','frm','unc','hyw','bayp','sl','col','fvw','lkm','12th','wo','emb','mtg','pwl','cvc','daly'] },
+];
+const VTA_STATIONS = [
+  { id:'mtv',   nm:'Mountain View',       lat:37.3943, lng:-122.0761, type:'transfer', baseAM:1.4, basePM:1.2, eventBoost:0 },
+  { id:'evv',   nm:'Evelyn',              lat:37.3870, lng:-122.0553, type:'urban',    baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'win',   nm:'Whisman',             lat:37.3838, lng:-122.0327, type:'urban',    baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'msv',   nm:'Middlefield',         lat:37.3815, lng:-122.0097, type:'urban',    baseAM:0.95,basePM:0.85,eventBoost:0 },
+  { id:'baytm', nm:'Bayshore/NASA',       lat:37.3845, lng:-121.9824, type:'commuter', baseAM:1.4, basePM:0.7, eventBoost:0 },
+  { id:'rmt',   nm:'Reamwood',            lat:37.3787, lng:-121.9618, type:'urban',    baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'old',   nm:'Old Ironsides',       lat:37.3504, lng:-121.9525, type:'transfer', baseAM:1.3, basePM:1.0, eventBoost:1.4 },
+  { id:'lck',   nm:'Lick Mill',           lat:37.3622, lng:-121.9493, type:'urban',    baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'gsh',   nm:'Great America',       lat:37.3990, lng:-121.9764, type:'urban',    baseAM:1.0, basePM:0.9, eventBoost:1.5 },
+  { id:'tas',   nm:'Tasman',              lat:37.4053, lng:-121.9533, type:'transfer', baseAM:1.2, basePM:1.0, eventBoost:0 },
+  { id:'rvr',   nm:'River Oaks',          lat:37.4100, lng:-121.9350, type:'urban',    baseAM:0.95,basePM:0.85,eventBoost:0 },
+  { id:'orc',   nm:'Orchard',             lat:37.4135, lng:-121.9200, type:'urban',    baseAM:0.95,basePM:0.85,eventBoost:0 },
+  { id:'bry',   nm:'Bonaventura',         lat:37.4175, lng:-121.9080, type:'urban',    baseAM:0.95,basePM:0.85,eventBoost:0 },
+  { id:'cnv',   nm:'Component',           lat:37.4218, lng:-121.8950, type:'urban',    baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'krn',   nm:'Karina',              lat:37.4266, lng:-121.8820, type:'urban',    baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'mtfair',nm:'Metro/Airport',       lat:37.3685, lng:-121.9280, type:'transfer', baseAM:1.4, basePM:1.3, eventBoost:0 },
+  { id:'gish',  nm:'Gish',               lat:37.3581, lng:-121.9133, type:'urban',    baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'cvc2',  nm:'Civic Center',        lat:37.3388, lng:-121.8894, type:'transfer', baseAM:1.4, basePM:1.3, eventBoost:0 },
+  { id:'jpsq',  nm:'Japantown',           lat:37.3488, lng:-121.9080, type:'urban',    baseAM:1.1, basePM:1.0, eventBoost:0 },
+  { id:'shc',   nm:'St James',            lat:37.3440, lng:-121.8950, type:'urban',    baseAM:1.2, basePM:1.1, eventBoost:0.3 },
+  { id:'sntc',  nm:'Santa Clara',         lat:37.3519, lng:-121.9358, type:'transfer', baseAM:1.6, basePM:1.5, eventBoost:0.3 },
+  { id:'pmd',   nm:'Paseo de S. Antonio', lat:37.3348, lng:-121.8894, type:'core',     baseAM:1.7, basePM:1.7, eventBoost:0.4 },
+  { id:'sjc',   nm:'San Jose Diridon',    lat:37.3295, lng:-121.9023, type:'core',     baseAM:2.2, basePM:2.3, eventBoost:1.6 },
+  { id:'cnvc',  nm:'Convention Center',   lat:37.3300, lng:-121.8836, type:'urban',    baseAM:1.3, basePM:1.4, eventBoost:0.6 },
+  { id:'cit',   nm:"Children's Discovery",lat:37.3244, lng:-121.8750, type:'urban',    baseAM:1.0, basePM:0.95,eventBoost:0 },
+  { id:'tam',   nm:'Tamien',              lat:37.3131, lng:-121.8771, type:'transfer', baseAM:1.3, basePM:1.2, eventBoost:0 },
+  { id:'ctn',   nm:'Curtner',             lat:37.2980, lng:-121.8664, type:'urban',    baseAM:1.0, basePM:0.95,eventBoost:0 },
+  { id:'cap',   nm:'Capitol',             lat:37.2890, lng:-121.8451, type:'urban',    baseAM:1.1, basePM:1.0, eventBoost:0 },
+  { id:'brh',   nm:'Branham',             lat:37.2740, lng:-121.8281, type:'commuter', baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'orh',   nm:'Ohlone/Chynoweth',    lat:37.2570, lng:-121.8178, type:'commuter', baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'ble',   nm:'Blossom Hill',        lat:37.2430, lng:-121.8234, type:'commuter', baseAM:1.05,basePM:0.95,eventBoost:0 },
+  { id:'snt',   nm:'Snell',               lat:37.2295, lng:-121.8329, type:'commuter', baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'stc',   nm:'Santa Teresa',        lat:37.2144, lng:-121.8260, type:'commuter', baseAM:1.05,basePM:0.95,eventBoost:0 },
+  { id:'race',  nm:'Race',                lat:37.3296, lng:-121.9157, type:'urban',    baseAM:1.0, basePM:0.95,eventBoost:0 },
+  { id:'fru',   nm:'Fruitdale',           lat:37.3240, lng:-121.9290, type:'urban',    baseAM:0.95,basePM:0.9, eventBoost:0 },
+  { id:'bas',   nm:'Bascom',              lat:37.3188, lng:-121.9426, type:'urban',    baseAM:0.95,basePM:0.9, eventBoost:0 },
+  { id:'haml',  nm:'Hamilton',            lat:37.3110, lng:-121.9553, type:'urban',    baseAM:1.0, basePM:0.9, eventBoost:0 },
+  { id:'dws',   nm:'Downtown Campbell',   lat:37.2877, lng:-121.9394, type:'urban',    baseAM:1.05,basePM:1.0, eventBoost:0 },
+  { id:'wch',   nm:'Winchester',          lat:37.2721, lng:-121.9470, type:'commuter', baseAM:1.1, basePM:0.95,eventBoost:0 },
+];
+const VTA_LINES = [
+  { c:'#22a06b', ids:['mtv','evv','win','msv','baytm','rmt','old','lck','gsh','tas','rvr','orc','bry','cnv','krn','mtfair','gish','cvc2','jpsq','shc','sntc','pmd','sjc','cnvc','cit','tam','ctn','cap','brh','orh','ble','snt','stc'] },
+  { c:'#f08323', ids:['mtv','evv','win','msv','baytm','rmt','old','lck','gsh','tas','rvr','orc','bry','cnv','krn','mtfair','gish','cvc2','jpsq','shc','sntc','pmd','sjc','race','fru','bas','haml','dws','wch'] },
+  { c:'#0099d8', ids:['old','tas','sjc','tam','ctn','cap','brh','orh','ble','snt','stc'] },
+];
+
+/* ── State ─────────────────────────────────────────────────────────── */
+let state = { system:'bart', hour:8, dow:2, weather:'clear', event:'none', playing:false, speed:2 };
+let playTimer = null;
+
+/* ── Map ───────────────────────────────────────────────────────────── */
+const map = L.map('map', { scrollWheelZoom: false, zoomControl: true });
+L.tileLayer(
+  'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+  { attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>', maxZoom:18 }
+).addTo(map);
+map.setView([37.76, -122.27], 10);
+
+let mapMarkers = [], mapPolylines = [];
+
+/* ── Heat calc ─────────────────────────────────────────────────────── */
+function heatColor(v) {
+  const t = Math.min(1, v / 2.0);
+  const a = [47,143,91], b = [212,166,74], c = [238,108,77];
+  let r, g, bl;
+  if (t < 0.5) {
+    const u = t / 0.5;
+    r=a[0]+(b[0]-a[0])*u; g=a[1]+(b[1]-a[1])*u; bl=a[2]+(b[2]-a[2])*u;
+  } else {
+    const u = (t-0.5)/0.5;
+    r=b[0]+(c[0]-b[0])*u; g=b[1]+(c[1]-b[1])*u; bl=b[2]+(c[2]-b[2])*u;
+  }
+  return `rgb(${r|0},${g|0},${bl|0})`;
+}
+
+function computeHeat(stations) {
+  const h = state.hour;
+  let am, pm, level;
+  if (h>=7&&h<=9)   { am=1.0; pm=0.0; level=0.95; }
+  else if (h>=16&&h<=18) { am=0.0; pm=1.0; level=1.0; }
+  else if (h>=10&&h<=15) { am=0.3; pm=0.4; level=0.55; }
+  else if (h>=19&&h<=21) { am=0.0; pm=0.55;level=0.6; }
+  else if (h>=22||h<=4)  { am=0.0; pm=0.05;level=0.18; }
+  else                    { am=0.7; pm=0.0; level=0.45; }
+  const dM = (state.dow===0||state.dow===6) ? 0.55 : 1.0;
+  const wM = state.weather==='rain' ? 0.78 : state.weather==='hot' ? 0.88 : 1.0;
+  const eM = state.event==='major' ? 1.0 : state.event==='small' ? 0.4 : 0;
+  return stations.map(s => {
+    let v = (s.baseAM*am + s.basePM*pm + 0.45*level) * dM * wM + s.eventBoost*eM;
+    if (s.type==='core') v = Math.max(v, 0.55);
+    if (s.type==='commuter'&&(state.dow===0||state.dow===6)) v *= 0.6;
+    return Math.max(0.05, Math.min(2.4, v));
+  });
+}
+
+function redraw() {
+  const stations = state.system === 'bart' ? BART_STATIONS : VTA_STATIONS;
+  const lines    = state.system === 'bart' ? BART_LINES    : VTA_LINES;
+  const heat     = computeHeat(stations);
+
+  mapMarkers.forEach(m => m.remove());
+  mapPolylines.forEach(p => p.remove());
+  mapMarkers = []; mapPolylines = [];
+
+  const byId = {};
+  stations.forEach(s => byId[s.id] = s);
+  lines.forEach(ln => {
+    const pts = ln.ids.map(id => byId[id]).filter(s => s);
+    if (pts.length < 2) return;
+    const poly = L.polyline(pts.map(s => [s.lat, s.lng]),
+      { color:ln.c, weight:4, opacity:0.7, lineJoin:'round' }).addTo(map);
+    mapPolylines.push(poly);
+  });
+
+  const ranked = stations.map((s,i) => ({ s, v:heat[i] })).sort((a,b)=>b.v-a.v);
+  const hotIds = new Set(ranked.slice(0,3).map(r=>r.s.id));
+
+  stations.forEach((s,i) => {
+    const v = heat[i];
+    const col = heatColor(v);
+    const isHot = hotIds.has(s.id);
+    const m = L.circleMarker([s.lat, s.lng], {
+      radius: 6 + v*9, fillColor:col, fillOpacity:isHot?0.92:0.75,
+      color:'#fff', weight:isHot?2.5:1.5,
+    }).addTo(map);
+    m.bindPopup(
+      `<div style="font-family:system-ui;min-width:170px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:4px">${s.nm}</div>
+        <div style="color:#555;font-size:12px;margin-bottom:6px">Type: ${s.type}</div>
+        <div style="font-size:13px">Est. load: <b style="color:${col}">${(v*22).toFixed(0)}</b> ons/hr</div>
+      </div>`, { maxWidth:220 });
+    mapMarkers.push(m);
+  });
+
+  /* stats */
+  const total = heat.reduce((a,v)=>a+v*22,0);
+  const peak  = ranked[0];
+  const meanLoad = heat.reduce((a,v)=>a+v,0)/heat.length;
+  const tier = meanLoad < 0.45 ? 'low' : meanLoad < 0.95 ? 'med' : 'high';
+  const tierLabel = tier==='low' ? 'Off-peak' : tier==='med' ? 'Building' : 'Peak crush';
+  document.getElementById('totalStat').textContent = total.toFixed(0);
+  document.getElementById('peakStat').textContent  = (peak.v*22).toFixed(0);
+  document.getElementById('peakName').textContent  = peak.s.nm;
+  const tb = document.getElementById('tierBadge');
+  tb.textContent = tierLabel;
+  tb.className = `tier-badge tier-${tier}`;
+
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const h = String(state.hour).padStart(2,'0');
+  document.getElementById('topLabel').textContent = `Hottest stops · ${h}:00 ${days[state.dow]}`;
+  const topList = document.getElementById('topList');
+  topList.innerHTML = ranked.slice(0,3).map((r,i) =>
+    `<div class="hot-row">
+      <span class="rank">${i+1}</span>
+      <span class="nm">${r.s.nm}</span>
+      <span class="v">${(r.v*22).toFixed(0)} <em>ons/hr</em></span>
+    </div>`).join('');
+
+  /* hour label + strip */
+  document.getElementById('hourLabel').textContent = `${h}:00`;
+  const strip = document.getElementById('hourStrip');
+  strip.innerHTML = [0,4,8,12,16,20].map(hh =>
+    `<span class="${Math.abs(hh-state.hour)<=1?'on':''}">${String(hh).padStart(2,'0')}</span>`).join('');
+}
+
+/* ── Controls ──────────────────────────────────────────────────────── */
+function segClick(parentId, attr, val) {
+  document.querySelectorAll(`#${parentId} button`).forEach(b => {
+    b.classList.toggle('on', b.dataset[attr] === String(val));
+  });
+}
+
+document.getElementById('sysSeg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  state.system = b.dataset.sys;
+  map.setView(state.system==='bart' ? [37.76,-122.27] : [37.35,-121.92],
+              state.system==='bart' ? 10 : 11, { animate:true });
+  segClick('sysSeg','sys',state.system);
+  document.getElementById('eventHint').textContent =
+    state.system==='bart' ? 'Boosts Coliseum, 12th St / Oakland.'
+                          : "Boosts Diridon (SAP), Great America, Old Ironsides (Levi's).";
+  redraw();
+});
+
+document.getElementById('hourSlider').addEventListener('input', e => {
+  state.hour = +e.target.value;
+  redraw();
+});
+
+/* Day of week */
+const DOW_NAMES = ['S','M','T','W','T','F','S'];
+const FULL_DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const dowSeg = document.getElementById('dowSeg');
+DOW_NAMES.forEach((d,i) => {
+  const b = document.createElement('button');
+  b.textContent = d;
+  b.setAttribute('aria-label', FULL_DAYS[i]);
+  if (i === state.dow) b.classList.add('on');
+  b.addEventListener('click', () => {
+    state.dow = i;
+    dowSeg.querySelectorAll('button').forEach((btn,j) => btn.classList.toggle('on', j===i));
+    redraw();
+  });
+  dowSeg.appendChild(b);
+});
+
+document.getElementById('weatherSeg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  state.weather = b.dataset.w;
+  segClick('weatherSeg','w',state.weather);
+  redraw();
+});
+
+document.getElementById('eventSeg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  state.event = b.dataset.e;
+  segClick('eventSeg','e',state.event);
+  redraw();
+});
+
+/* Play */
+document.getElementById('playBtn').addEventListener('click', () => {
+  state.playing = !state.playing;
+  const btn = document.getElementById('playBtn');
+  btn.textContent = state.playing ? '⏸ Pause' : '▶ Play week-by-week';
+  btn.classList.toggle('paused', !state.playing);
+  if (state.playing) {
+    playTimer = setInterval(() => {
+      state.hour = (state.hour + 1) % 24;
+      if (state.hour === 0) state.dow = (state.dow + 1) % 7;
+      document.getElementById('hourSlider').value = state.hour;
+      const btns = document.querySelectorAll('#dowSeg button');
+      btns.forEach((b,i) => b.classList.toggle('on', i===state.dow));
+      redraw();
+    }, 700 / state.speed);
+  } else {
+    clearInterval(playTimer);
+  }
+});
+
+document.getElementById('speedSeg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  state.speed = +b.dataset.s;
+  segClick('speedSeg','s',state.speed);
+  if (state.playing) {
+    clearInterval(playTimer);
+    playTimer = setInterval(() => {
+      state.hour = (state.hour + 1) % 24;
+      if (state.hour === 0) state.dow = (state.dow + 1) % 7;
+      document.getElementById('hourSlider').value = state.hour;
+      const btns = document.querySelectorAll('#dowSeg button');
+      btns.forEach((b,i) => b.classList.toggle('on', i===state.dow));
+      redraw();
+    }, 700 / state.speed);
+  }
+});
+
+/* Dark mode */
+document.getElementById('darkBtn').addEventListener('click', () => {
+  document.documentElement.classList.toggle('dark');
+  document.getElementById('darkBtn').textContent =
+    document.documentElement.classList.contains('dark') ? 'Light' : 'Dark';
+  /* restyle map tiles for dark */
+  map.eachLayer(l => {
+    if (l._url) {
+      const dark = document.documentElement.classList.contains('dark');
+      l.setUrl(dark
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png');
+    }
+  });
+});
+
+/* Hour strip init */
+const strip = document.getElementById('hourStrip');
+[0,4,8,12,16,20].forEach(h => {
+  const span = document.createElement('span');
+  span.textContent = String(h).padStart(2,'0');
+  strip.appendChild(span);
+});
+
+/* Initial draw */
+redraw();
+</script>
+</body>
+</html>
