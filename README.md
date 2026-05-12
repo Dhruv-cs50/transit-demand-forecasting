@@ -2,15 +2,15 @@
 
 CS163 Data Science Senior Project - Dhruv Shah
 
-**🌐 Website:** https://cs-163-final-project-tra-f1136.web.app
+**🌐 Website (App Engine):** https://cs-163-final-project-tra-f1136.wl.r.appspot.com
 
-**⚡ API Playground (interactive):** https://cs-163-final-project-tra-f1136.web.app/api-demo.html
+**⚡ API Playground (interactive):** https://cs-163-final-project-tra-f1136.wl.r.appspot.com/api-demo.html
 
 **🔌 FastAPI REST service:** https://transit-api-308878596074.us-west2.run.app/docs
 
 ---
 
-Bay Area Transit Demand Forecasting is an end-to-end forecasting project for monthly BART station ridership. It builds a station-level feature store from public transit, weather, event, and calendar data; trains statistical and machine-learning forecasting models; evaluates them on chronological splits; and exports the results to a static Firebase-hosted website.
+Bay Area Transit Demand Forecasting is an end-to-end forecasting project for monthly BART station ridership. It builds a station-level feature store from public transit, weather, event, and calendar data; trains statistical and machine-learning forecasting models; evaluates them on chronological splits; and exports the results to a static website hosted on Google App Engine.
 
 The current production path models BART origin-destination ridership at a month-start cadence. The codebase also includes ingestion and feature hooks for broader Bay Area transit feeds, event calendars, weather covariates, and road context so the project can expand beyond the current monthly BART target.
 
@@ -67,7 +67,7 @@ These values come from `website/data/model_comparison.json`. Re-run the pipeline
 |   |-- run_pipeline.sh            # end-to-end local pipeline
 |   `-- export_website_data.py     # model artifacts -> website/data/*.json
 |-- transit_eda/                   # EDA data, notebooks, and generated figures
-|-- website/                       # static React/Babel frontend served by Firebase Hosting
+|-- website/                       # static React/Babel frontend served by Google App Engine
 `-- docs/                          # architecture and data-pipeline runbooks
 ```
 
@@ -163,9 +163,9 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 
 | Service | URL |
 | --- | --- |
-| Website | https://cs-163-final-project-tra-f1136.web.app |
+| Website (App Engine) | https://cs-163-final-project-tra-f1136.wl.r.appspot.com |
 | API | https://transit-api-308878596074.us-west2.run.app |
-| API Playground | https://cs-163-final-project-tra-f1136.web.app/api-demo.html |
+| API Playground | https://cs-163-final-project-tra-f1136.wl.r.appspot.com/api-demo.html |
 | API Docs (Swagger) | https://transit-api-308878596074.us-west2.run.app/docs |
 
 ## Cloud Deployment
@@ -174,7 +174,7 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 
 | Component | GCP Service | Details |
 | --- | --- | --- |
-| Website | Firebase Hosting | CDN-served static site, `website/` directory |
+| Website | App Engine Standard (`python312`) | Static file handlers, `website/` directory, `website/app.yaml` |
 | API | Cloud Run | Serverless container, us-west2, auto-scales 0→N |
 | Container image | Artifact Registry | `us-west2-docker.pkg.dev/<PROJECT_ID>/transit-repo/transit-api:tag1` |
 | Build pipeline | Cloud Build | `cloudbuild.yaml` — builds `Dockerfile.api` for `linux/amd64` |
@@ -216,7 +216,7 @@ gcloud run deploy transit-api \
 | --- | --- | --- |
 | Feature store dataset | BigQuery `transit_data.feature_store` | 1,800 rows × 50 stations, station-month ridership + covariates |
 | Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API |
-| Website assets | Firebase Hosting (global CDN) | HTML/CSS/JSX/JSON, edge-cached |
+| Website assets | App Engine Standard | HTML/CSS/JSX/JSON, served via static file handlers |
 | Pre-computed forecasts | Baked into Docker image | `models/chronos2/outputs/*.parquet` copied at build time |
 
 #### BigQuery Dataset
@@ -248,28 +248,29 @@ bq load --source_format=PARQUET \
 [Client Browser]
       |
       v
-[Firebase Hosting CDN] ──── static HTML/JSX/JSON ────> rendered website
+[App Engine Standard] ──── static HTML/JSX/JSON ────> rendered website
       |
-      | POST /forecast, GET /stations
+      | POST /forecast, GET /stations (live API calls from browser)
       v
 [Cloud Run: transit-api] ──── reads ────> [baked-in parquet cache]
-      |
-      | cache miss (rare)
-      v
+      |                                          |
+      | cache miss (rare)              [BigQuery: transit_data]
+      v                                (feature store, 1,800 rows)
 [Chronos-2 live inference]
 ```
 
 **Scalability properties:**
+- **App Engine Standard** auto-scales instances based on traffic; scales to zero when idle; no server management
 - **Cloud Run** scales to zero when idle and auto-scales horizontally under load; each instance is stateless
-- **Firebase Hosting** serves assets from Google's global CDN with no origin servers for the website itself
 - **Pre-computed parquet cache** means most API requests are parquet lookups with sub-100ms latency and no model load
+- **BigQuery** scales automatically for analytical queries; serverless, no cluster management
 - **Live inference path** (cache miss) runs Chronos-T5-Small on CPU; for higher throughput, swap Cloud Run CPU for GPU-backed instances or Vertex AI Prediction
 
 ## Website
 
 The frontend is a static site in `website/`. It uses CDN-loaded React and Babel — no Node build step needed. The site reads generated JSON files from `website/data/`.
 
-Live URL: **https://cs-163-final-project-tra-f1136.web.app**
+Live URL: **https://cs-163-final-project-tra-f1136.wl.r.appspot.com**
 
 Refresh website data:
 
@@ -277,10 +278,10 @@ Refresh website data:
 python scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
 ```
 
-Deploy with Firebase Hosting:
+Deploy with App Engine:
 
 ```bash
-firebase deploy --only hosting
+gcloud app deploy website/app.yaml --quiet
 ```
 
 ## Forecast API
