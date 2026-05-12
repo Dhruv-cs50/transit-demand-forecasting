@@ -64,6 +64,7 @@ html, body { height: 100%; font-family: var(--sans); background: var(--bg); colo
   flex: 1 1 auto;
   min-width: 0;
   z-index: 1;
+  background: #ddd9d0;
 }
 .sidebar {
   flex: 0 0 340px;
@@ -378,7 +379,8 @@ const tileLayer = L.tileLayer(LIGHT_TILES, { attribution: ATTR, maxZoom: 18 }).a
 map.setView([37.76, -122.27], 10);
 
 /* Force Leaflet to recalculate size after CSS layout settles */
-setTimeout(() => { map.invalidateSize(); redraw(); }, 100);
+setTimeout(() => { map.invalidateSize(); redraw(); }, 250);
+window.addEventListener('resize', () => map.invalidateSize());
 
 let markers = [], polylines = [];
 
@@ -436,16 +438,27 @@ function redraw() {
   const ranked = stations.map((s,i) => ({ s, v: heat[i] })).sort((a,b) => b.v - a.v);
   const top3ids = new Set(ranked.slice(0,3).map(r => r.s.id));
 
-  /* markers */
+  /* markers — DivIcon (DOM elements, always visible regardless of SVG renderer) */
   stations.forEach((s,i) => {
     const v = heat[i];
     const col = heatColor(v);
     const hot = top3ids.has(s.id);
-    const m = L.circleMarker([s.lat, s.lng], {
-      radius: 7 + v * 10,
-      fillColor: col, fillOpacity: hot ? 0.95 : 0.78,
-      color: '#fff', weight: hot ? 2.5 : 1.5,
-    }).addTo(map);
+    const sz = Math.round(14 + v * 18);
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="
+        width:${sz}px;height:${sz}px;border-radius:50%;
+        background:${col};
+        border:${hot ? '3px' : '2px'} solid rgba(255,255,255,0.9);
+        box-shadow:0 1px 4px rgba(0,0,0,0.35);
+        cursor:pointer;
+        transition:transform .1s;
+      " title="${s.nm}"></div>`,
+      iconSize: [sz, sz],
+      iconAnchor: [sz/2, sz/2],
+      popupAnchor: [0, -sz/2],
+    });
+    const m = L.marker([s.lat, s.lng], { icon, zIndexOffset: hot ? 1000 : 0 }).addTo(map);
     m.bindPopup(
       `<b style="font-size:14px">${s.nm}</b><br>
        <span style="color:#666;font-size:12px">Type: ${s.type}</span><br>
