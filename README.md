@@ -4,6 +4,8 @@ CS163 Data Science Senior Project - Dhruv Shah
 
 **🌐 Website (App Engine):** https://cs-163-final-project-tra-f1136.wl.r.appspot.com
 
+**🗺 Interactive Map Demo:** https://cs-163-final-project-tra-f1136.wl.r.appspot.com/transit-demo.html
+
 **⚡ API Playground (interactive):** https://cs-163-final-project-tra-f1136.wl.r.appspot.com/api-demo.html
 
 **🔌 FastAPI REST service:** https://transit-api-308878596074.us-west2.run.app/docs
@@ -175,8 +177,9 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 | Service | URL |
 | --- | --- |
 | Website (App Engine) | https://cs-163-final-project-tra-f1136.wl.r.appspot.com |
-| API | https://transit-api-308878596074.us-west2.run.app |
+| Interactive Map Demo | https://cs-163-final-project-tra-f1136.wl.r.appspot.com/transit-demo.html |
 | API Playground | https://cs-163-final-project-tra-f1136.wl.r.appspot.com/api-demo.html |
+| API (Cloud Run) | https://transit-api-308878596074.us-west2.run.app |
 | API Docs (Swagger) | https://transit-api-308878596074.us-west2.run.app/docs |
 
 ## Cloud Deployment
