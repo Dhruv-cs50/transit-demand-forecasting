@@ -7,7 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn0efh1c9W8I5ynv4EhkfXBQ" crossorigin="anonymous"/>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -21,92 +20,68 @@
   --line:    #e4e1d7;
   --primary: #2a2f8f;
   --accent:  #ee6c4d;
-  --good:    #2f8f5b;
-  --warn:    #c2873b;
   --r:       10px;
   --mono:    'JetBrains Mono', ui-monospace, monospace;
   --sans:    'Inter', ui-sans-serif, system-ui, sans-serif;
   --display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
 }
 html.dark {
-  --bg:      #0c0d12;
-  --surface: #14161d;
-  --muted:   #1a1d26;
-  --ink:     #f4f3ee;
-  --sub:     #b1b4be;
-  --faint:   #777b87;
-  --line:    #242732;
-  --primary: #8b91ff;
-  --accent:  #ff8160;
+  --bg: #0c0d12; --surface: #14161d; --muted: #1a1d26;
+  --ink: #f4f3ee; --sub: #b1b4be; --faint: #777b87; --line: #242732;
+  --primary: #8b91ff; --accent: #ff8160;
 }
 
-html, body { height: 100%; font-family: var(--sans); background: var(--bg); color: var(--ink); font-size: 14px; }
+html, body { height: 100%; overflow: hidden; font-family: var(--sans); background: var(--bg); color: var(--ink); font-size: 14px; }
 
-/* ── Top bar ── */
+/* top bar */
 .bar {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
-  height: 48px;
+  position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 9999;
   display: flex; align-items: center; gap: 12px; padding: 0 18px;
   background: var(--surface); border-bottom: 1px solid var(--line);
 }
-.bar-back { font-family: var(--display); font-weight: 600; color: var(--primary); text-decoration: none; font-size: 14px; white-space: nowrap; }
-.bar-back:hover { opacity: .75; }
-.bar-title { font-family: var(--display); font-weight: 700; font-size: 15px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dark-toggle { margin-left: auto; padding: 5px 14px; border: 1.5px solid var(--line); background: transparent; color: var(--ink); border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap; font-family: var(--sans); }
+.bar a { font-family: var(--display); font-weight: 600; color: var(--primary); text-decoration: none; font-size: 14px; white-space: nowrap; }
+.bar a:hover { opacity: .75; }
+.bar-title { font-family: var(--display); font-weight: 700; font-size: 15px; flex: 1; }
+.dark-btn { margin-left: auto; padding: 5px 14px; border: 1.5px solid var(--line); background: transparent; color: var(--ink); border-radius: 8px; cursor: pointer; font-size: 13px; font-family: var(--sans); }
 
-/* ── Main layout: map left, sidebar right ── */
-.shell {
+/* layout — absolute so Leaflet/GMaps gets exact pixel size */
+#mapWrap {
   position: fixed;
-  top: 48px; bottom: 0; left: 0; right: 0;
-  display: flex;
+  top: 48px; left: 0; bottom: 0; right: 340px;
 }
-#map {
-  flex: 1 1 auto;
-  min-width: 0;
-  z-index: 1;
-  background: #ddd9d0;
-}
+#map { position: absolute; inset: 0; }
+
 .sidebar {
-  flex: 0 0 340px;
-  width: 340px;
-  background: var(--surface);
-  border-left: 1px solid var(--line);
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  z-index: 2;
-}
-@media (max-width: 700px) {
-  .shell { flex-direction: column; }
-  #map { flex: 0 0 55vh; }
-  .sidebar { flex: 1 1 auto; width: 100%; border-left: none; border-top: 1px solid var(--line); }
+  position: fixed;
+  top: 48px; right: 0; bottom: 0; width: 340px;
+  background: var(--surface); border-left: 1px solid var(--line);
+  overflow-y: auto; overflow-x: hidden;
+  padding: 16px; display: flex; flex-direction: column; gap: 14px;
 }
 
-/* ── Sidebar components ── */
-.label {
-  font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
-  color: var(--faint); font-family: var(--mono); margin-bottom: 6px;
+@media (max-width: 700px) {
+  #mapWrap  { right: 0; bottom: 240px; }
+  .sidebar  { top: auto; bottom: 0; left: 0; width: 100%; height: 240px; border-left: none; border-top: 1px solid var(--line); flex-direction: row; flex-wrap: wrap; overflow-x: auto; }
 }
+
+/* components */
+.lbl { font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); font-family: var(--mono); margin-bottom: 6px; }
 
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.stat-box { background: var(--muted); border-radius: var(--r); padding: 10px 12px; min-width: 0; }
+.stat-box { background: var(--muted); border-radius: var(--r); padding: 10px 12px; }
 .stat-num { font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--primary); line-height: 1; }
-.stat-lbl { font-size: 11px; color: var(--sub); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-lbl { font-size: 11px; color: var(--sub); margin-top: 3px; }
 
 .peak-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .peak-name { font-size: 12px; color: var(--sub); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
-.badge-low  { background: #d1fadf; color: #166534; }
-.badge-med  { background: #fef3c7; color: #92400e; }
-.badge-high { background: #fee2e2; color: #991b1b; }
-html.dark .badge-low  { background: #14532d; color: #86efac; }
-html.dark .badge-med  { background: #451a03; color: #fcd34d; }
-html.dark .badge-high { background: #450a0a; color: #fca5a5; }
+.badge-low  { background:#d1fadf; color:#166534; }
+.badge-med  { background:#fef3c7; color:#92400e; }
+.badge-high { background:#fee2e2; color:#991b1b; }
+html.dark .badge-low  { background:#14532d; color:#86efac; }
+html.dark .badge-med  { background:#451a03; color:#fcd34d; }
+html.dark .badge-high { background:#450a0a; color:#fca5a5; }
 
-/* seg */
 .seg { display: flex; gap: 4px; flex-wrap: wrap; }
 .seg button, .dow-row button {
   padding: 6px 12px; border-radius: 8px; border: 1.5px solid var(--line);
@@ -117,35 +92,26 @@ html.dark .badge-high { background: #450a0a; color: #fca5a5; }
 .seg button:hover { border-color: var(--primary); color: var(--primary); }
 .seg button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
 
-/* hour */
-.field-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; font-weight: 500; }
+.field-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; font-weight: 500; }
 .field-val { font-family: var(--mono); color: var(--primary); font-size: 13px; font-weight: 700; }
-input[type=range] { width: 100%; accent-color: var(--primary); cursor: pointer; height: 4px; }
+input[type=range] { width: 100%; accent-color: var(--primary); cursor: pointer; }
 .hour-ticks { display: flex; justify-content: space-between; margin-top: 4px; }
 .hour-ticks span { font-family: var(--mono); font-size: 10px; color: var(--faint); }
 .hour-ticks span.on { color: var(--primary); font-weight: 700; }
 
-/* dow */
 .dow-row { display: flex; gap: 3px; }
-.dow-row button { flex: 1; padding: 6px 2px; border-radius: 7px; border: 1.5px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 600; font-family: var(--sans); text-align: center; }
+.dow-row button { flex: 1; padding: 6px 2px; border-radius: 7px; border: 1.5px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 700; font-family: var(--sans); text-align: center; }
 .dow-row button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
 
-/* hint */
 .hint { font-size: 11px; color: var(--faint); margin-top: 5px; line-height: 1.4; }
 
-/* play */
 .play-row { display: flex; gap: 6px; align-items: center; }
-.play-btn {
-  flex: 1; padding: 9px 14px; border-radius: 9px; border: none;
-  background: var(--primary); color: #fff; cursor: pointer;
-  font-size: 13px; font-weight: 600; font-family: var(--sans); white-space: nowrap;
-}
+.play-btn { flex: 1; padding: 9px 14px; border-radius: 9px; border: none; background: var(--primary); color: #fff; cursor: pointer; font-size: 13px; font-weight: 600; font-family: var(--sans); }
 .play-btn.paused { background: var(--muted); color: var(--ink); border: 1.5px solid var(--line); }
 .speed-row { display: flex; gap: 3px; }
 .speed-row button { padding: 6px 9px; border-radius: 7px; border: 1.5px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; font-size: 11px; font-weight: 700; font-family: var(--mono); }
 .speed-row button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
 
-/* top stations */
 .hot-item { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); }
 .hot-item:last-child { border-bottom: none; }
 .hot-rank { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 14px; text-align: center; flex-shrink: 0; }
@@ -154,121 +120,117 @@ input[type=range] { width: 100%; accent-color: var(--primary); cursor: pointer; 
 .hot-val em { font-style: normal; color: var(--faint); font-size: 10px; }
 
 hr.sep { border: none; border-top: 1px solid var(--line); }
+
+/* legend */
+.legend { display: flex; align-items: center; gap: 8px; }
+.legend-bar { flex: 1; height: 8px; border-radius: 4px; background: linear-gradient(to right, #2f8f5b, #d4a64a, #ee6c4d); }
+.legend-lbl { font-size: 10px; color: var(--faint); white-space: nowrap; }
 </style>
 </head>
 <body>
 
 <header class="bar">
-  <a class="bar-back" href="index.html">← Back to project</a>
+  <a href="index.html">← Back to project</a>
   <div class="bar-title">Transit Demand · Live Map Demo</div>
-  <button class="dark-toggle" id="darkBtn">Dark</button>
+  <button class="dark-btn" id="darkBtn">Dark</button>
 </header>
 
-<div class="shell">
+<div id="mapWrap">
   <div id="map"></div>
-
-  <aside class="sidebar">
-
-    <!-- Network -->
-    <div>
-      <div class="label">Network</div>
-      <div class="seg" id="sysSeg">
-        <button class="on" data-sys="bart">BART · 50 stations</button>
-        <button data-sys="vta">VTA · 39 stations</button>
-      </div>
-    </div>
-
-    <hr class="sep"/>
-
-    <!-- Stats -->
-    <div>
-      <div class="label">Current load</div>
-      <div class="stats-grid">
-        <div class="stat-box">
-          <div class="stat-num" id="totalStat">—</div>
-          <div class="stat-lbl">network ons/hr</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-num" id="peakStat">—</div>
-          <div class="stat-lbl">peak station</div>
-        </div>
-      </div>
-      <div class="peak-row">
-        <span class="peak-name" id="peakName">—</span>
-        <span class="badge badge-low" id="tierBadge">—</span>
-      </div>
-    </div>
-
-    <hr class="sep"/>
-
-    <!-- Hour -->
-    <div>
-      <div class="field-label">
-        Hour of day
-        <span class="field-val" id="hourVal">08:00</span>
-      </div>
-      <input type="range" id="hourSlider" min="0" max="23" value="8"/>
-      <div class="hour-ticks" id="hourTicks"></div>
-    </div>
-
-    <!-- Day -->
-    <div>
-      <div class="label">Day of week — <span id="dowLabel" style="color:var(--primary);font-weight:700">Tue</span></div>
-      <div class="dow-row" id="dowRow"></div>
-    </div>
-
-    <hr class="sep"/>
-
-    <!-- Weather -->
-    <div>
-      <div class="label">Weather</div>
-      <div class="seg" id="weatherSeg">
-        <button class="on" data-w="clear">Clear</button>
-        <button data-w="rain">Rain</button>
-        <button data-w="hot">Heat 95°F+</button>
-      </div>
-    </div>
-
-    <!-- Event -->
-    <div>
-      <div class="label">Event near venue</div>
-      <div class="seg" id="eventSeg">
-        <button class="on" data-e="none">None</button>
-        <button data-e="small">Small</button>
-        <button data-e="major">Major</button>
-      </div>
-      <div class="hint" id="eventHint">Boosts Coliseum &amp; 12th St / Oakland (BART).</div>
-    </div>
-
-    <hr class="sep"/>
-
-    <!-- Play -->
-    <div>
-      <div class="play-row">
-        <button class="play-btn paused" id="playBtn">▶ Play day</button>
-        <div class="speed-row" id="speedRow">
-          <button data-s="1">1×</button>
-          <button class="on" data-s="2">2×</button>
-          <button data-s="4">4×</button>
-          <button data-s="8">8×</button>
-        </div>
-      </div>
-    </div>
-
-    <hr class="sep"/>
-
-    <!-- Top stations -->
-    <div>
-      <div class="label" id="topLabel">Hottest stops</div>
-      <div id="topList"></div>
-    </div>
-
-  </aside>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<aside class="sidebar">
+
+  <div>
+    <div class="lbl">Network</div>
+    <div class="seg" id="sysSeg">
+      <button class="on" data-sys="bart">BART · 50 stations</button>
+      <button data-sys="vta">VTA · 39 stations</button>
+    </div>
+  </div>
+
+  <hr class="sep"/>
+
+  <div>
+    <div class="lbl">Current load</div>
+    <div class="stats-grid">
+      <div class="stat-box"><div class="stat-num" id="totalStat">—</div><div class="stat-lbl">network ons/hr</div></div>
+      <div class="stat-box"><div class="stat-num" id="peakStat">—</div><div class="stat-lbl">peak station</div></div>
+    </div>
+    <div class="peak-row">
+      <span class="peak-name" id="peakName">—</span>
+      <span class="badge badge-low" id="tierBadge">—</span>
+    </div>
+  </div>
+
+  <hr class="sep"/>
+
+  <div>
+    <div class="field-row">Hour of day <span class="field-val" id="hourVal">08:00</span></div>
+    <input type="range" id="hourSlider" min="0" max="23" value="8"/>
+    <div class="hour-ticks" id="hourTicks"></div>
+  </div>
+
+  <div>
+    <div class="lbl">Day — <span id="dowLbl" style="color:var(--primary);font-weight:700">Tue</span></div>
+    <div class="dow-row" id="dowRow"></div>
+  </div>
+
+  <hr class="sep"/>
+
+  <div>
+    <div class="lbl">Weather</div>
+    <div class="seg" id="weatherSeg">
+      <button class="on" data-w="clear">Clear</button>
+      <button data-w="rain">Rain</button>
+      <button data-w="hot">Heat 95°F+</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="lbl">Event near venue</div>
+    <div class="seg" id="eventSeg">
+      <button class="on" data-e="none">None</button>
+      <button data-e="small">Small</button>
+      <button data-e="major">Major</button>
+    </div>
+    <div class="hint" id="eventHint">Boosts Coliseum &amp; 12th St / Oakland.</div>
+  </div>
+
+  <hr class="sep"/>
+
+  <div>
+    <div class="play-row">
+      <button class="play-btn paused" id="playBtn">▶ Play day</button>
+      <div class="speed-row" id="speedRow">
+        <button data-s="1">1×</button>
+        <button class="on" data-s="2">2×</button>
+        <button data-s="4">4×</button>
+        <button data-s="8">8×</button>
+      </div>
+    </div>
+  </div>
+
+  <hr class="sep"/>
+
+  <div>
+    <div class="lbl" id="topLbl">Hottest stops</div>
+    <div id="topList"></div>
+  </div>
+
+  <div>
+    <div class="lbl">Heat scale</div>
+    <div class="legend">
+      <span class="legend-lbl">Low</span>
+      <div class="legend-bar"></div>
+      <span class="legend-lbl">High</span>
+    </div>
+  </div>
+
+</aside>
+
 <script>
-/* ──────────────── Station data ──────────────── */
+/* ── Station data ─────────────────────────────────────────────── */
 const BART = [
   {id:'rich', nm:'Richmond',          lat:37.9372,lng:-122.3531,type:'commuter',aM:1.4,pM:1.1,eb:0},
   {id:'elc',  nm:'El Cerrito',        lat:37.9252,lng:-122.3170,type:'commuter',aM:1.2,pM:1.0,eb:0},
@@ -319,45 +281,45 @@ const BART_LINES = [
   {c:'#1a8a3f',ids:['brb','frm','unc','hyw','bayp','sl','col','fvw','lkm','12th','wo','emb','mtg','pwl','cvc','daly']},
 ];
 const VTA = [
-  {id:'mtv',   nm:'Mountain View',      lat:37.3943,lng:-122.0761,type:'transfer',aM:1.4,pM:1.2,eb:0},
-  {id:'evv',   nm:'Evelyn',             lat:37.3870,lng:-122.0553,type:'urban',   aM:1.0,pM:0.9,eb:0},
-  {id:'win',   nm:'Whisman',            lat:37.3838,lng:-122.0327,type:'urban',   aM:1.0,pM:0.9,eb:0},
-  {id:'msv',   nm:'Middlefield',        lat:37.3815,lng:-122.0097,type:'urban',   aM:0.95,pM:0.85,eb:0},
-  {id:'baytm', nm:'Bayshore/NASA',      lat:37.3845,lng:-121.9824,type:'commuter',aM:1.4,pM:0.7,eb:0},
-  {id:'rmt',   nm:'Reamwood',           lat:37.3787,lng:-121.9618,type:'urban',   aM:1.0,pM:0.9,eb:0},
-  {id:'old',   nm:"Old Ironsides",      lat:37.3504,lng:-121.9525,type:'transfer',aM:1.3,pM:1.0,eb:1.4},
-  {id:'lck',   nm:'Lick Mill',          lat:37.3622,lng:-121.9493,type:'urban',   aM:1.0,pM:0.9,eb:0},
-  {id:'gsh',   nm:'Great America',      lat:37.3990,lng:-121.9764,type:'urban',   aM:1.0,pM:0.9,eb:1.5},
-  {id:'tas',   nm:'Tasman',             lat:37.4053,lng:-121.9533,type:'transfer',aM:1.2,pM:1.0,eb:0},
-  {id:'rvr',   nm:'River Oaks',         lat:37.4100,lng:-121.9350,type:'urban',   aM:0.95,pM:0.85,eb:0},
-  {id:'orc',   nm:'Orchard',            lat:37.4135,lng:-121.9200,type:'urban',   aM:0.95,pM:0.85,eb:0},
-  {id:'bry',   nm:'Bonaventura',        lat:37.4175,lng:-121.9080,type:'urban',   aM:0.95,pM:0.85,eb:0},
-  {id:'cnv',   nm:'Component',          lat:37.4218,lng:-121.8950,type:'urban',   aM:1.0,pM:0.9,eb:0},
-  {id:'krn',   nm:'Karina',             lat:37.4266,lng:-121.8820,type:'urban',   aM:1.0,pM:0.9,eb:0},
-  {id:'mfa',   nm:'Metro/Airport',      lat:37.3685,lng:-121.9280,type:'transfer',aM:1.4,pM:1.3,eb:0},
-  {id:'gish',  nm:'Gish',               lat:37.3581,lng:-121.9133,type:'urban',   aM:1.0,pM:0.9,eb:0},
-  {id:'cvc2',  nm:'Civic Center',       lat:37.3388,lng:-121.8894,type:'transfer',aM:1.4,pM:1.3,eb:0},
-  {id:'jpsq',  nm:'Japantown',          lat:37.3488,lng:-121.9080,type:'urban',   aM:1.1,pM:1.0,eb:0},
-  {id:'shc',   nm:'St James',           lat:37.3440,lng:-121.8950,type:'urban',   aM:1.2,pM:1.1,eb:0.3},
-  {id:'sntc',  nm:'Santa Clara',        lat:37.3519,lng:-121.9358,type:'transfer',aM:1.6,pM:1.5,eb:0.3},
-  {id:'pmd',   nm:'Paseo de S.Antonio', lat:37.3348,lng:-121.8894,type:'core',    aM:1.7,pM:1.7,eb:0.4},
-  {id:'sjc',   nm:'San Jose Diridon',   lat:37.3295,lng:-121.9023,type:'core',    aM:2.2,pM:2.3,eb:1.6},
-  {id:'cnvc',  nm:'Convention Center',  lat:37.3300,lng:-121.8836,type:'urban',   aM:1.3,pM:1.4,eb:0.6},
-  {id:'cit',   nm:"Children's Disc.",   lat:37.3244,lng:-121.8750,type:'urban',   aM:1.0,pM:0.95,eb:0},
-  {id:'tam',   nm:'Tamien',             lat:37.3131,lng:-121.8771,type:'transfer',aM:1.3,pM:1.2,eb:0},
-  {id:'ctn',   nm:'Curtner',            lat:37.2980,lng:-121.8664,type:'urban',   aM:1.0,pM:0.95,eb:0},
-  {id:'cap',   nm:'Capitol',            lat:37.2890,lng:-121.8451,type:'urban',   aM:1.1,pM:1.0,eb:0},
-  {id:'brh',   nm:'Branham',            lat:37.2740,lng:-121.8281,type:'commuter',aM:1.0,pM:0.9,eb:0},
-  {id:'orh',   nm:'Ohlone/Chynoweth',   lat:37.2570,lng:-121.8178,type:'commuter',aM:1.0,pM:0.9,eb:0},
-  {id:'ble',   nm:'Blossom Hill',       lat:37.2430,lng:-121.8234,type:'commuter',aM:1.05,pM:0.95,eb:0},
-  {id:'snt',   nm:'Snell',              lat:37.2295,lng:-121.8329,type:'commuter',aM:1.0,pM:0.9,eb:0},
-  {id:'stc',   nm:'Santa Teresa',       lat:37.2144,lng:-121.8260,type:'commuter',aM:1.05,pM:0.95,eb:0},
-  {id:'race',  nm:'Race',               lat:37.3296,lng:-121.9157,type:'urban',   aM:1.0,pM:0.95,eb:0},
-  {id:'fru',   nm:'Fruitdale',          lat:37.3240,lng:-121.9290,type:'urban',   aM:0.95,pM:0.9,eb:0},
-  {id:'bas',   nm:'Bascom',             lat:37.3188,lng:-121.9426,type:'urban',   aM:0.95,pM:0.9,eb:0},
-  {id:'haml',  nm:'Hamilton',           lat:37.3110,lng:-121.9553,type:'urban',   aM:1.0,pM:0.9,eb:0},
-  {id:'dws',   nm:'Downtown Campbell',  lat:37.2877,lng:-121.9394,type:'urban',   aM:1.05,pM:1.0,eb:0},
-  {id:'wch',   nm:'Winchester',         lat:37.2721,lng:-121.9470,type:'commuter',aM:1.1,pM:0.95,eb:0},
+  {id:'mtv',  nm:'Mountain View',     lat:37.3943,lng:-122.0761,type:'transfer',aM:1.4,pM:1.2,eb:0},
+  {id:'evv',  nm:'Evelyn',            lat:37.3870,lng:-122.0553,type:'urban',   aM:1.0,pM:0.9,eb:0},
+  {id:'win',  nm:'Whisman',           lat:37.3838,lng:-122.0327,type:'urban',   aM:1.0,pM:0.9,eb:0},
+  {id:'msv',  nm:'Middlefield',       lat:37.3815,lng:-122.0097,type:'urban',   aM:0.95,pM:0.85,eb:0},
+  {id:'baytm',nm:'Bayshore/NASA',     lat:37.3845,lng:-121.9824,type:'commuter',aM:1.4,pM:0.7,eb:0},
+  {id:'rmt',  nm:'Reamwood',          lat:37.3787,lng:-121.9618,type:'urban',   aM:1.0,pM:0.9,eb:0},
+  {id:'old',  nm:'Old Ironsides',     lat:37.3504,lng:-121.9525,type:'transfer',aM:1.3,pM:1.0,eb:1.4},
+  {id:'lck',  nm:'Lick Mill',         lat:37.3622,lng:-121.9493,type:'urban',   aM:1.0,pM:0.9,eb:0},
+  {id:'gsh',  nm:'Great America',     lat:37.3990,lng:-121.9764,type:'urban',   aM:1.0,pM:0.9,eb:1.5},
+  {id:'tas',  nm:'Tasman',            lat:37.4053,lng:-121.9533,type:'transfer',aM:1.2,pM:1.0,eb:0},
+  {id:'rvr',  nm:'River Oaks',        lat:37.4100,lng:-121.9350,type:'urban',   aM:0.95,pM:0.85,eb:0},
+  {id:'orc',  nm:'Orchard',           lat:37.4135,lng:-121.9200,type:'urban',   aM:0.95,pM:0.85,eb:0},
+  {id:'bry',  nm:'Bonaventura',       lat:37.4175,lng:-121.9080,type:'urban',   aM:0.95,pM:0.85,eb:0},
+  {id:'cnv',  nm:'Component',         lat:37.4218,lng:-121.8950,type:'urban',   aM:1.0,pM:0.9,eb:0},
+  {id:'krn',  nm:'Karina',            lat:37.4266,lng:-121.8820,type:'urban',   aM:1.0,pM:0.9,eb:0},
+  {id:'mfa',  nm:'Metro/Airport',     lat:37.3685,lng:-121.9280,type:'transfer',aM:1.4,pM:1.3,eb:0},
+  {id:'gish', nm:'Gish',              lat:37.3581,lng:-121.9133,type:'urban',   aM:1.0,pM:0.9,eb:0},
+  {id:'cvc2', nm:'Civic Center',      lat:37.3388,lng:-121.8894,type:'transfer',aM:1.4,pM:1.3,eb:0},
+  {id:'jpsq', nm:'Japantown',         lat:37.3488,lng:-121.9080,type:'urban',   aM:1.1,pM:1.0,eb:0},
+  {id:'shc',  nm:'St James',          lat:37.3440,lng:-121.8950,type:'urban',   aM:1.2,pM:1.1,eb:0.3},
+  {id:'sntc', nm:'Santa Clara',       lat:37.3519,lng:-121.9358,type:'transfer',aM:1.6,pM:1.5,eb:0.3},
+  {id:'pmd',  nm:'Paseo de S.Antonio',lat:37.3348,lng:-121.8894,type:'core',    aM:1.7,pM:1.7,eb:0.4},
+  {id:'sjc',  nm:'San Jose Diridon',  lat:37.3295,lng:-121.9023,type:'core',    aM:2.2,pM:2.3,eb:1.6},
+  {id:'cnvc', nm:'Convention Center', lat:37.3300,lng:-121.8836,type:'urban',   aM:1.3,pM:1.4,eb:0.6},
+  {id:'cit',  nm:"Children's Disc.",  lat:37.3244,lng:-121.8750,type:'urban',   aM:1.0,pM:0.95,eb:0},
+  {id:'tam',  nm:'Tamien',            lat:37.3131,lng:-121.8771,type:'transfer',aM:1.3,pM:1.2,eb:0},
+  {id:'ctn',  nm:'Curtner',           lat:37.2980,lng:-121.8664,type:'urban',   aM:1.0,pM:0.95,eb:0},
+  {id:'cap',  nm:'Capitol',           lat:37.2890,lng:-121.8451,type:'urban',   aM:1.1,pM:1.0,eb:0},
+  {id:'brh',  nm:'Branham',           lat:37.2740,lng:-121.8281,type:'commuter',aM:1.0,pM:0.9,eb:0},
+  {id:'orh',  nm:'Ohlone/Chynoweth',  lat:37.2570,lng:-121.8178,type:'commuter',aM:1.0,pM:0.9,eb:0},
+  {id:'ble',  nm:'Blossom Hill',      lat:37.2430,lng:-121.8234,type:'commuter',aM:1.05,pM:0.95,eb:0},
+  {id:'snt',  nm:'Snell',             lat:37.2295,lng:-121.8329,type:'commuter',aM:1.0,pM:0.9,eb:0},
+  {id:'stc',  nm:'Santa Teresa',      lat:37.2144,lng:-121.8260,type:'commuter',aM:1.05,pM:0.95,eb:0},
+  {id:'race', nm:'Race',              lat:37.3296,lng:-121.9157,type:'urban',   aM:1.0,pM:0.95,eb:0},
+  {id:'fru',  nm:'Fruitdale',         lat:37.3240,lng:-121.9290,type:'urban',   aM:0.95,pM:0.9,eb:0},
+  {id:'bas',  nm:'Bascom',            lat:37.3188,lng:-121.9426,type:'urban',   aM:0.95,pM:0.9,eb:0},
+  {id:'haml', nm:'Hamilton',          lat:37.3110,lng:-121.9553,type:'urban',   aM:1.0,pM:0.9,eb:0},
+  {id:'dws',  nm:'Downtown Campbell', lat:37.2877,lng:-121.9394,type:'urban',   aM:1.05,pM:1.0,eb:0},
+  {id:'wch',  nm:'Winchester',        lat:37.2721,lng:-121.9470,type:'commuter',aM:1.1,pM:0.95,eb:0},
 ];
 const VTA_LINES = [
   {c:'#22a06b',ids:['mtv','evv','win','msv','baytm','rmt','old','lck','gsh','tas','rvr','orc','bry','cnv','krn','mfa','gish','cvc2','jpsq','shc','sntc','pmd','sjc','cnvc','cit','tam','ctn','cap','brh','orh','ble','snt','stc']},
@@ -365,230 +327,225 @@ const VTA_LINES = [
   {c:'#0099d8',ids:['old','tas','sjc','tam','ctn','cap','brh','orh','ble','snt','stc']},
 ];
 
-/* ──────────────── State ──────────────── */
+/* ── State ───────────────────────────────────────────────────── */
 const S = { sys:'bart', hour:8, dow:2, weather:'clear', event:'none', playing:false, speed:2 };
-let timer = null;
+let gmap, markers = [], polylines = [], infoWindow, timer;
 
-/* ──────────────── Map init ──────────────── */
-const LIGHT_TILES = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-const DARK_TILES  = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-const ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
-
-const map = L.map('map', { zoomControl: true, scrollWheelZoom: false });
-const tileLayer = L.tileLayer(LIGHT_TILES, { attribution: ATTR, maxZoom: 18 }).addTo(map);
-map.setView([37.76, -122.27], 10);
-
-/* Force Leaflet to recalculate size after CSS layout settles */
-setTimeout(() => { map.invalidateSize(); redraw(); }, 250);
-window.addEventListener('resize', () => map.invalidateSize());
-
-let markers = [], polylines = [];
-
-/* ──────────────── Heat logic ──────────────── */
+/* ── Heat calc ───────────────────────────────────────────────── */
 function heatColor(v) {
   const t = Math.min(1, v / 2.0);
   const A=[47,143,91], B=[212,166,74], C=[238,108,77];
   let r,g,b;
   if (t < 0.5) { const u=t/0.5; r=A[0]+(B[0]-A[0])*u; g=A[1]+(B[1]-A[1])*u; b=A[2]+(B[2]-A[2])*u; }
   else          { const u=(t-.5)/.5; r=B[0]+(C[0]-B[0])*u; g=B[1]+(C[1]-B[1])*u; b=B[2]+(C[2]-B[2])*u; }
-  return `rgb(${r|0},${g|0},${b|0})`;
+  return `#${[r,g,b].map(x=>Math.round(x).toString(16).padStart(2,'0')).join('')}`;
 }
 
 function calcHeat(stations) {
-  const h = S.hour;
-  let am, pm, lv;
-  if      (h>=7 &&h<=9)  { am=1.0; pm=0.0; lv=0.95; }
-  else if (h>=16&&h<=18) { am=0.0; pm=1.0; lv=1.0;  }
-  else if (h>=10&&h<=15) { am=0.3; pm=0.4; lv=0.55; }
-  else if (h>=19&&h<=21) { am=0.0; pm=0.55;lv=0.6;  }
-  else if (h>=22||h<=4)  { am=0.0; pm=0.05;lv=0.18; }
-  else                    { am=0.7; pm=0.0; lv=0.45; }
-  const dM = (S.dow===0||S.dow===6) ? 0.55 : 1.0;
-  const wM = S.weather==='rain' ? 0.78 : S.weather==='hot' ? 0.88 : 1.0;
-  const eM = S.event==='major' ? 1.0 : S.event==='small' ? 0.4 : 0;
-  return stations.map(s => {
-    let v = (s.aM*am + s.pM*pm + 0.45*lv) * dM * wM + s.eb*eM;
-    if (s.type==='core')     v = Math.max(v, 0.55);
-    if (s.type==='commuter'&&(S.dow===0||S.dow===6)) v *= 0.6;
-    return Math.max(0.05, Math.min(2.4, v));
+  const h=S.hour;
+  let am,pm,lv;
+  if      (h>=7 &&h<=9)  {am=1.0;pm=0.0;lv=0.95;}
+  else if (h>=16&&h<=18) {am=0.0;pm=1.0;lv=1.0;}
+  else if (h>=10&&h<=15) {am=0.3;pm=0.4;lv=0.55;}
+  else if (h>=19&&h<=21) {am=0.0;pm=0.55;lv=0.6;}
+  else if (h>=22||h<=4)  {am=0.0;pm=0.05;lv=0.18;}
+  else                    {am=0.7;pm=0.0;lv=0.45;}
+  const dM=(S.dow===0||S.dow===6)?0.55:1.0;
+  const wM=S.weather==='rain'?0.78:S.weather==='hot'?0.88:1.0;
+  const eM=S.event==='major'?1.0:S.event==='small'?0.4:0;
+  return stations.map(s=>{
+    let v=(s.aM*am+s.pM*pm+0.45*lv)*dM*wM+s.eb*eM;
+    if(s.type==='core') v=Math.max(v,0.55);
+    if(s.type==='commuter'&&(S.dow===0||S.dow===6)) v*=0.6;
+    return Math.max(0.05,Math.min(2.4,v));
   });
 }
 
-/* ──────────────── Draw ──────────────── */
+/* ── Google Maps init ────────────────────────────────────────── */
+function initMap() {
+  gmap = new google.maps.Map(document.getElementById('map'), {
+    center: { lat: 37.76, lng: -122.27 },
+    zoom: 10,
+    mapTypeId: 'roadmap',
+    gestureHandling: 'greedy',
+    streetViewControl: false,
+    mapTypeControl: false,
+    fullscreenControl: false,
+  });
+  infoWindow = new google.maps.InfoWindow();
+  redraw();
+}
+
+/* ── Draw ────────────────────────────────────────────────────── */
 function redraw() {
-  const stations = S.sys === 'bart' ? BART : VTA;
-  const lines    = S.sys === 'bart' ? BART_LINES : VTA_LINES;
+  if (!gmap) return;
+  const stations = S.sys==='bart' ? BART : VTA;
+  const lines    = S.sys==='bart' ? BART_LINES : VTA_LINES;
   const heat     = calcHeat(stations);
 
-  markers.forEach(m => m.remove());
-  polylines.forEach(p => p.remove());
-  markers = []; polylines = [];
-
-  const byId = {};
-  stations.forEach(s => { byId[s.id] = s; });
+  /* clear */
+  markers.forEach(m => m.setMap(null));
+  polylines.forEach(p => p.setMap(null));
+  markers=[]; polylines=[];
 
   /* lines */
+  const byId={};
+  stations.forEach(s => { byId[s.id]=s; });
   lines.forEach(ln => {
-    const pts = ln.ids.map(id => byId[id]).filter(Boolean).map(s => [s.lat, s.lng]);
-    if (pts.length < 2) return;
-    polylines.push(L.polyline(pts, { color: ln.c, weight: 4, opacity: 0.75 }).addTo(map));
+    const path = ln.ids.map(id=>byId[id]).filter(Boolean)
+                       .map(s=>({lat:s.lat,lng:s.lng}));
+    if (path.length < 2) return;
+    polylines.push(new google.maps.Polyline({
+      path, map: gmap,
+      strokeColor: ln.c, strokeOpacity: 0.8, strokeWeight: 4,
+    }));
   });
 
-  /* rank */
-  const ranked = stations.map((s,i) => ({ s, v: heat[i] })).sort((a,b) => b.v - a.v);
-  const top3ids = new Set(ranked.slice(0,3).map(r => r.s.id));
+  /* markers — google.maps.Marker with SVG circle symbol */
+  const ranked = stations.map((s,i)=>({s,v:heat[i]})).sort((a,b)=>b.v-a.v);
+  const top3 = new Set(ranked.slice(0,3).map(r=>r.s.id));
 
-  /* markers — DivIcon (DOM elements, always visible regardless of SVG renderer) */
   stations.forEach((s,i) => {
-    const v = heat[i];
-    const col = heatColor(v);
-    const hot = top3ids.has(s.id);
-    const sz = Math.round(14 + v * 18);
-    const icon = L.divIcon({
-      className: '',
-      html: `<div style="
-        width:${sz}px;height:${sz}px;border-radius:50%;
-        background:${col};
-        border:${hot ? '3px' : '2px'} solid rgba(255,255,255,0.9);
-        box-shadow:0 1px 4px rgba(0,0,0,0.35);
-        cursor:pointer;
-        transition:transform .1s;
-      " title="${s.nm}"></div>`,
-      iconSize: [sz, sz],
-      iconAnchor: [sz/2, sz/2],
-      popupAnchor: [0, -sz/2],
+    const v    = heat[i];
+    const col  = heatColor(v);
+    const hot  = top3.has(s.id);
+    const scale= 8 + v * 10;
+
+    const marker = new google.maps.Marker({
+      position: { lat: s.lat, lng: s.lng },
+      map: gmap,
+      title: s.nm,
+      zIndex: hot ? 999 : Math.round(v * 100),
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: scale,
+        fillColor: col,
+        fillOpacity: hot ? 0.95 : 0.82,
+        strokeColor: '#ffffff',
+        strokeWeight: hot ? 2.5 : 1.5,
+      },
     });
-    const m = L.marker([s.lat, s.lng], { icon, zIndexOffset: hot ? 1000 : 0 }).addTo(map);
-    m.bindPopup(
-      `<b style="font-size:14px">${s.nm}</b><br>
-       <span style="color:#666;font-size:12px">Type: ${s.type}</span><br>
-       <span style="font-size:13px">Load: <b style="color:${col}">${(v*22).toFixed(0)}</b> ons/hr</span>`,
-      { maxWidth: 200 }
-    );
-    markers.push(m);
+
+    marker.addListener('click', () => {
+      infoWindow.setContent(
+        `<div style="font-family:system-ui;padding:4px 2px">
+          <div style="font-weight:700;font-size:14px;margin-bottom:3px">${s.nm}</div>
+          <div style="color:#666;font-size:12px;margin-bottom:4px">Type: ${s.type}</div>
+          <div style="font-size:13px">Est. load: <b style="color:${col}">${(v*22).toFixed(0)}</b> ons/hr</div>
+         </div>`
+      );
+      infoWindow.open(gmap, marker);
+    });
+
+    markers.push(marker);
   });
 
-  /* stats */
-  const total = heat.reduce((a,v) => a + v*22, 0);
+  /* sidebar stats */
+  const total = heat.reduce((a,v)=>a+v*22,0);
   const top   = ranked[0];
-  const mean  = heat.reduce((a,v) => a + v, 0) / heat.length;
-  const tier  = mean < 0.45 ? 'low' : mean < 0.95 ? 'med' : 'high';
-  const tLbl  = tier==='low' ? 'Off-peak' : tier==='med' ? 'Building' : 'Peak crush';
+  const mean  = heat.reduce((a,v)=>a+v,0)/heat.length;
+  const tier  = mean<0.45?'low':mean<0.95?'med':'high';
+  const tLbl  = tier==='low'?'Off-peak':tier==='med'?'Building':'Peak crush';
+  const DAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const hStr  = String(S.hour).padStart(2,'0')+':00';
 
   document.getElementById('totalStat').textContent = total.toFixed(0);
   document.getElementById('peakStat').textContent  = (top.v*22).toFixed(0);
   document.getElementById('peakName').textContent  = top.s.nm;
   const tb = document.getElementById('tierBadge');
-  tb.textContent = tLbl;
-  tb.className = `badge badge-${tier}`;
-
-  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const hStr = String(S.hour).padStart(2,'0') + ':00';
-  document.getElementById('topLabel').textContent = `Hottest stops · ${hStr} ${DAYS[S.dow]}`;
-  document.getElementById('topList').innerHTML = ranked.slice(0,3).map((r,i) =>
+  tb.textContent = tLbl; tb.className = `badge badge-${tier}`;
+  document.getElementById('topLbl').textContent = `Hottest stops · ${hStr} ${DAYS[S.dow]}`;
+  document.getElementById('topList').innerHTML = ranked.slice(0,3).map((r,i)=>
     `<div class="hot-item">
       <span class="hot-rank">${i+1}</span>
       <span class="hot-name">${r.s.nm}</span>
       <span class="hot-val">${(r.v*22).toFixed(0)} <em>ons/hr</em></span>
-    </div>`
-  ).join('');
-
-  /* hour display */
+    </div>`).join('');
   document.getElementById('hourVal').textContent = hStr;
-  document.getElementById('hourSlider').value = S.hour;
-  document.querySelectorAll('#hourTicks span').forEach(sp => {
-    sp.classList.toggle('on', Math.abs(parseInt(sp.dataset.h) - S.hour) <= 1);
-  });
-
-  /* dow display */
-  document.getElementById('dowLabel').textContent = DAYS[S.dow];
-  document.querySelectorAll('#dowRow button').forEach((b,i) => b.classList.toggle('on', i===S.dow));
+  document.getElementById('dowLbl').textContent = DAYS[S.dow];
+  document.querySelectorAll('#hourTicks span').forEach(sp=>
+    sp.classList.toggle('on', Math.abs(+sp.dataset.h - S.hour) <= 1));
+  document.querySelectorAll('#dowRow button').forEach((b,i)=>b.classList.toggle('on',i===S.dow));
 }
 
-/* ──────────────── Build static controls ──────────────── */
-
+/* ── Controls ────────────────────────────────────────────────── */
 /* hour ticks */
 const tickEl = document.getElementById('hourTicks');
-[0,4,8,12,16,20].forEach(h => {
-  const sp = document.createElement('span');
-  sp.textContent = String(h).padStart(2,'0');
-  sp.dataset.h = h;
+[0,4,8,12,16,20].forEach(h=>{
+  const sp=document.createElement('span');
+  sp.textContent=String(h).padStart(2,'0'); sp.dataset.h=h;
   tickEl.appendChild(sp);
 });
 
 /* dow buttons */
-const DOW_SHORT = ['S','M','T','W','T','F','S'];
-const DOW_FULL  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const dowRow = document.getElementById('dowRow');
-DOW_SHORT.forEach((d,i) => {
-  const b = document.createElement('button');
-  b.textContent = d;
-  b.title = DOW_FULL[i];
-  if (i === S.dow) b.classList.add('on');
-  b.addEventListener('click', () => { S.dow = i; redraw(); });
-  dowRow.appendChild(b);
+['S','M','T','W','T','F','S'].forEach((d,i)=>{
+  const b=document.createElement('button');
+  b.textContent=d;
+  if(i===S.dow) b.classList.add('on');
+  b.addEventListener('click',()=>{S.dow=i;redraw();});
+  document.getElementById('dowRow').appendChild(b);
 });
 
-/* ──────────────── Event listeners ──────────────── */
-function segOn(parentId, attr) {
-  document.getElementById(parentId).addEventListener('click', e => {
-    const b = e.target.closest('button[data-' + attr + ']');
-    if (!b) return;
-    S[attr === 'sys' ? 'sys' : attr === 'w' ? 'weather' : 'event'] = b.dataset[attr];
-    document.querySelectorAll(`#${parentId} button`).forEach(btn =>
-      btn.classList.toggle('on', btn === b));
-    if (attr === 'sys') {
-      map.setView(S.sys === 'bart' ? [37.76,-122.27] : [37.35,-121.92],
-                  S.sys === 'bart' ? 10 : 11, { animate: true });
-      document.getElementById('eventHint').textContent = S.sys === 'bart'
-        ? 'Boosts Coliseum & 12th St / Oakland (BART).'
+function segListen(id, attr, stateKey) {
+  document.getElementById(id).addEventListener('click', e=>{
+    const b=e.target.closest('button[data-'+attr+']');
+    if(!b) return;
+    S[stateKey]=b.dataset[attr];
+    document.querySelectorAll('#'+id+' button').forEach(btn=>btn.classList.toggle('on',btn===b));
+    if(stateKey==='sys'){
+      gmap && gmap.panTo(S.sys==='bart'?{lat:37.76,lng:-122.27}:{lat:37.35,lng:-121.92});
+      gmap && gmap.setZoom(S.sys==='bart'?10:11);
+      document.getElementById('eventHint').textContent = S.sys==='bart'
+        ? 'Boosts Coliseum & 12th St / Oakland.'
         : "Boosts Diridon (SAP), Great America, Old Ironsides (VTA).";
     }
     redraw();
   });
 }
-segOn('sysSeg',     'sys');
-segOn('weatherSeg', 'w');
-segOn('eventSeg',   'e');
+segListen('sysSeg','sys','sys');
+segListen('weatherSeg','w','weather');
+segListen('eventSeg','e','event');
 
-document.getElementById('hourSlider').addEventListener('input', e => {
-  S.hour = +e.target.value; redraw();
-});
+document.getElementById('hourSlider').addEventListener('input',e=>{S.hour=+e.target.value;redraw();});
 
-document.getElementById('speedRow').addEventListener('click', e => {
-  const b = e.target.closest('button[data-s]');
-  if (!b) return;
-  S.speed = +b.dataset.s;
-  document.querySelectorAll('#speedRow button').forEach(btn => btn.classList.toggle('on', btn === b));
-  if (S.playing) restartTimer();
-});
-
-function restartTimer() {
+function restartTimer(){
   clearInterval(timer);
-  timer = setInterval(() => {
-    S.hour = (S.hour + 1) % 24;
-    if (S.hour === 0) S.dow = (S.dow + 1) % 7;
+  timer=setInterval(()=>{
+    S.hour=(S.hour+1)%24;
+    if(S.hour===0) S.dow=(S.dow+1)%7;
+    document.getElementById('hourSlider').value=S.hour;
     redraw();
-  }, 700 / S.speed);
+  }, 700/S.speed);
 }
-
-document.getElementById('playBtn').addEventListener('click', () => {
-  S.playing = !S.playing;
-  const btn = document.getElementById('playBtn');
-  btn.textContent = S.playing ? '⏸ Pause' : '▶ Play day';
-  btn.classList.toggle('paused', !S.playing);
-  if (S.playing) restartTimer(); else clearInterval(timer);
+document.getElementById('playBtn').addEventListener('click',()=>{
+  S.playing=!S.playing;
+  const btn=document.getElementById('playBtn');
+  btn.textContent=S.playing?'⏸ Pause':'▶ Play day';
+  btn.classList.toggle('paused',!S.playing);
+  S.playing?restartTimer():clearInterval(timer);
+});
+document.getElementById('speedRow').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-s]');
+  if(!b) return;
+  S.speed=+b.dataset.s;
+  document.querySelectorAll('#speedRow button').forEach(btn=>btn.classList.toggle('on',btn===b));
+  if(S.playing) restartTimer();
 });
 
 /* dark mode */
-document.getElementById('darkBtn').addEventListener('click', () => {
-  const dark = document.documentElement.classList.toggle('dark');
-  document.getElementById('darkBtn').textContent = dark ? 'Light' : 'Dark';
-  tileLayer.setUrl(dark ? DARK_TILES : LIGHT_TILES);
+document.getElementById('darkBtn').addEventListener('click',()=>{
+  const dark=document.documentElement.classList.toggle('dark');
+  document.getElementById('darkBtn').textContent=dark?'Light':'Dark';
+  if(gmap) gmap.setOptions({
+    styles: dark ? [{elementType:'geometry',stylers:[{color:'#242f3e'}]},
+                    {elementType:'labels.text.stroke',stylers:[{color:'#242f3e'}]},
+                    {elementType:'labels.text.fill',stylers:[{color:'#746855'}]},
+                    {featureType:'road',elementType:'geometry',stylers:[{color:'#38414e'}]},
+                    {featureType:'water',elementType:'geometry',stylers:[{color:'#17263c'}]}]
+                 : [],
+  });
 });
-
-/* initial render */
-redraw();
 </script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCz98JSskfF4HNnltmwgmCLYLb8HziY3zI&callback=initMap" async defer></script>
 </body>
 </html>
