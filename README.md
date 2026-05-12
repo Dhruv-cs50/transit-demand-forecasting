@@ -206,10 +206,33 @@ gcloud run deploy transit-api \
 
 | Data | Location | Notes |
 | --- | --- | --- |
+| Feature store dataset | BigQuery `transit_data.feature_store` | 1,800 rows × 50 stations, station-month ridership + covariates |
 | Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API |
 | Website assets | Firebase Hosting (global CDN) | HTML/CSS/JSX/JSON, edge-cached |
 | Pre-computed forecasts | Baked into Docker image | `models/chronos2/outputs/*.parquet` copied at build time |
-| Feature store | `data/processed/` | Parquet files for training and website export |
+
+#### BigQuery Dataset
+
+Project: `cs-163-final-project-tra-f1136`  
+Dataset: `transit_data`  
+Table: `feature_store` — 1,800 rows, 50 stations, monthly granularity
+
+Schema includes: `station_id`, `month`, `ridership`, weather covariates (temperature, precipitation), event indicators (NHL game days, concert events), and calendar features (month-of-year, year, is_holiday).
+
+Query example:
+```sql
+SELECT station_id, month, ridership
+FROM `cs-163-final-project-tra-f1136.transit_data.feature_store`
+WHERE station_id = 'EM'
+ORDER BY month;
+```
+
+Load from parquet:
+```bash
+bq load --source_format=PARQUET \
+  cs-163-final-project-tra-f1136:transit_data.feature_store \
+  data/processed/feature_store_enriched.parquet
+```
 
 ### System Design and Scalability
 
