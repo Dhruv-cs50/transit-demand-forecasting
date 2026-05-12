@@ -2,6 +2,14 @@
 
 CS163 Data Science Senior Project - Dhruv Shah
 
+**🌐 Website:** https://cs-163-final-project-tra-f1136.web.app
+
+**⚡ API Playground (interactive):** https://cs-163-final-project-tra-f1136.web.app/api-demo.html
+
+**🔌 FastAPI REST service:** https://transit-api-308878596074.us-west2.run.app/docs
+
+---
+
 Bay Area Transit Demand Forecasting is an end-to-end forecasting project for monthly BART station ridership. It builds a station-level feature store from public transit, weather, event, and calendar data; trains statistical and machine-learning forecasting models; evaluates them on chronological splits; and exports the results to a static Firebase-hosted website.
 
 The current production path models BART origin-destination ridership at a month-start cadence. The codebase also includes ingestion and feature hooks for broader Bay Area transit feeds, event calendars, weather covariates, and road context so the project can expand beyond the current monthly BART target.
