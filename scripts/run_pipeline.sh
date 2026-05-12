@@ -32,4 +32,4 @@ echo "=== 7. Export website data ==="
 $PYTHON scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
 
 echo ""
-echo "Done. Run: firebase deploy --only hosting"
+echo "Done. Deploy website: gcloud app deploy website/app.yaml --quiet"

@@ -17,6 +17,18 @@ models/chronos2/weights/
 .claude/
 skills-lock.json
 
+# Redundant / scratch directories
+Website-code/
+Final_eda /
+eda/
+
+# Build artifacts in website
+website/my_project.zip
+website/*.zip
+
+# macOS
+.DS_Store
+
 # Logs
 logs
 *.log

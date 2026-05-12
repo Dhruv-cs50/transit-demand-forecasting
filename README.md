@@ -91,21 +91,32 @@ The merge pipeline aggregates BART OD records to origin station-month totals, jo
 
 ## Setup
 
-Use Python 3.11 for the full ML stack. AutoGluon and Chronos dependencies are more stable on Python 3.11 than newer Python releases.
+**Prerequisites:** Python 3.11, Git. AutoGluon and Chronos require Python 3.11 — newer versions have dependency conflicts.
 
 ```bash
+# Clone
+git clone https://github.com/Dhruv-cs50/transit-demand-forecasting.git
+cd transit-demand-forecasting
+
+# Create virtual environment with Python 3.11
 python3.11 -m venv .venv311
-source .venv311/bin/activate
+source .venv311/bin/activate        # Windows: .venv311\Scripts\activate
+
+# Install dependencies
 pip install --upgrade pip
 pip install -r machine_learning_files/requirements.txt
 ```
 
-Before running source fetchers, update `configs/sources.yaml` where credentials are required:
+**API keys** — before running source fetchers, edit `configs/sources.yaml`:
 
-- `transit_511.api_key` for 511 SF Bay.
-- `ticketmaster.api_key` for Ticketmaster Discovery API.
-- Open-Meteo does not require an API key.
-- PeMS usually requires manual authenticated downloads.
+| Key | Required for | Notes |
+| --- | --- | --- |
+| `transit_511.api_key` | 511 SF Bay feed | Free at 511.org |
+| `ticketmaster.api_key` | Event data | Free developer account |
+| Open-Meteo | Weather data | No key required |
+| PeMS | Road data | Manual download, CALTRANS account |
+
+The pipeline works without these keys if you skip the corresponding fetchers — BART OD data (the core dataset) requires no API key and is fetched directly.
 
 ## Reproduce The Pipeline
 
@@ -244,27 +255,39 @@ bq load --source_format=PARQUET \
 
 ### System Design and Scalability
 
-```
-[Client Browser]
-      |
-      v
-[App Engine Standard] ──── static HTML/JSX/JSON ────> rendered website
-      |
-      | POST /forecast, GET /stations (live API calls from browser)
-      v
-[Cloud Run: transit-api] ──── reads ────> [baked-in parquet cache]
-      |                                          |
-      | cache miss (rare)              [BigQuery: transit_data]
-      v                                (feature store, 1,800 rows)
-[Chronos-2 live inference]
+```mermaid
+flowchart LR
+    subgraph Pipeline["Batch Pipeline (local / CI)"]
+        RAW[Raw Data\nBART · Weather · Events]
+        FS[feature_store_enriched\n.parquet]
+        FC[Forecast\n*.parquet]
+        JSON[website/data\n*.json]
+        RAW --> FS --> FC --> JSON
+        FS -->|bq load| BQ
+    end
+
+    subgraph GCP["Google Cloud Platform"]
+        BQ[(BigQuery\ntransit_data.feature_store)]
+        AR[Artifact Registry\nDocker image]
+        CR[Cloud Run\ntransit-api]
+        GAE[App Engine\nwebsite]
+        FC -->|baked into image| AR --> CR
+        JSON -->|static files| GAE
+    end
+
+    USER([Browser]) -->|HTTPS| GAE
+    GAE -->|POST /forecast| CR
+    CR -->|parquet lookup| FC
 ```
 
-**Scalability properties:**
-- **App Engine Standard** auto-scales instances based on traffic; scales to zero when idle; no server management
-- **Cloud Run** scales to zero when idle and auto-scales horizontally under load; each instance is stateless
-- **Pre-computed parquet cache** means most API requests are parquet lookups with sub-100ms latency and no model load
-- **BigQuery** scales automatically for analytical queries; serverless, no cluster management
-- **Live inference path** (cache miss) runs Chronos-T5-Small on CPU; for higher throughput, swap Cloud Run CPU for GPU-backed instances or Vertex AI Prediction
+**Scalability:**
+- **App Engine Standard** — auto-scales instances, zero when idle, no server management
+- **Cloud Run** — scales 0→N replicas per concurrency, each replica stateless
+- **Pre-computed parquet cache** — >99% of API requests are sub-100ms parquet lookups, no model load
+- **BigQuery** — serverless, auto-scales for analytical queries
+- **Upgrade path** — live inference (cache miss) currently runs Chronos-T5-Small on CPU; swap to GPU Cloud Run or Vertex AI for higher throughput
+
+Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ## Website
 
