@@ -102,7 +102,6 @@ const Hero = () => (
         <div style={{ height: 28 }} />
         <div className="hero-meta">
           <span className="meta-chip"><b>Author</b> · Dhruv Punit Shah</span>
-          <span className="meta-chip"><b>Advisor</b> · Dr. Genya Ishigaki</span>
           <span className="meta-chip"><b>Department</b> · Computer Science, SJSU</span>
         </div>
       </Reveal>
