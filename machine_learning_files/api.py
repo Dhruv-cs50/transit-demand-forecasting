@@ -20,6 +20,7 @@ Example request:
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -198,10 +199,21 @@ def _run_forecast(
 # ── FastAPI app ────────────────────────────────────────────────────────────────
 
 if _FASTAPI_AVAILABLE:
+
+    @asynccontextmanager
+    async def lifespan(app_instance: "FastAPI"):
+        try:
+            get_feature_store()
+            log.info("Feature store warm")
+        except Exception as e:
+            log.warning(f"Startup preload failed (will retry on first request): {e}")
+        yield
+
     app = FastAPI(
         title="Bay Area Traffic Forecast API",
         description="Chronos-2 powered ridership forecasting for Bay Area transit stations",
         version="1.0.0",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -210,15 +222,6 @@ if _FASTAPI_AVAILABLE:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    @app.on_event("startup")
-    async def startup():
-        """Pre-load the feature store and model on startup."""
-        try:
-            get_feature_store()
-            log.info("Feature store warm")
-        except Exception as e:
-            log.warning(f"Startup preload failed (will retry on first request): {e}")
 
     @app.get("/health")
     def health():

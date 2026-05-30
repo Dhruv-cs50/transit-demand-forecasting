@@ -439,7 +439,6 @@ def build_features(
         log.info("  ✓ Lag features added")
 
     n_features = len(df.columns)
-    n_new = n_features - len(df.columns)
     log.info(f"  → {n_features} total feature columns for {n_input:,} rows")
 
     return df

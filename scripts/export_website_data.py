@@ -154,8 +154,8 @@ def export_ridership_actuals(df: pd.DataFrame, out_dir: Path) -> None:
     records = []
     for _, row in df.sort_values(["station_id", "timestamp"]).iterrows():
         ts = pd.to_datetime(row["timestamp"])
-        if hasattr(ts, "tz") and ts.tz is not None:
-            ts = ts.tz_localize(None)
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert(None)
         records.append({
             "station_id": row["station_id"],
             "month":      ts.strftime("%Y-%m"),
