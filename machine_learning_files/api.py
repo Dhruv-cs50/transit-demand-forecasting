@@ -20,10 +20,13 @@ Example request:
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+
+import re
 
 import numpy as np
 import pandas as pd
@@ -124,15 +127,16 @@ def _run_forecast(
     cfg = _get_config()
 
     # Fast path: serve from pre-computed zero-shot forecast parquet
-    cached_dir = Path("models/chronos2/outputs")
+    cached_dir = Path(os.getenv("MODEL_OUTPUT_DIR", "models/chronos2/outputs"))
     cached_files = sorted(cached_dir.glob("zero_shot_forecasts_*.parquet")) if cached_dir.exists() else []
     if cached_files:
         cached = pd.read_parquet(cached_files[-1])
         station_cache = cached[cached["station_id"] == station_id]
         if not station_cache.empty:
-            q10_col = next((c for c in station_cache.columns if "0.1" in str(c)), None)
-            q50_col = next((c for c in station_cache.columns if "0.5" in str(c)), None)
-            q90_col = next((c for c in station_cache.columns if "0.9" in str(c)), None)
+            cols = station_cache.columns.tolist()
+            q10_col = next((c for c in cols if re.search(r'(^|[^0-9])0\.1([^0-9]|$)', str(c))), None)
+            q50_col = next((c for c in cols if re.search(r'(^|[^0-9])0\.5([^0-9]|$)', str(c))), None)
+            q90_col = next((c for c in cols if re.search(r'(^|[^0-9])0\.9([^0-9]|$)', str(c))), None)
             results = []
             for _, row in station_cache.head(horizon_hours).iterrows():
                 ts = row.get("timestamp", "")

@@ -104,9 +104,7 @@ def load_transit(freq: str) -> pd.DataFrame:
     # Drop system-wide aggregate rows (e.g. "Exits") — not real station codes
     station_monthly = station_monthly[station_monthly["station_id"].str.len() <= 4]
 
-    # Convert monthly → daily approximation (÷ 22 weekdays) and set to timestamp
     station_monthly["timestamp"] = pd.to_datetime(station_monthly["period"])
-    station_monthly["ridership_daily_est"] = station_monthly["ridership"] / 22
     station_monthly["agency_id"] = "BA"
     station_monthly["transit_mode"] = "rail"
 
@@ -182,13 +180,13 @@ def compute_event_features(
     ev = events.copy()
     ev_ts = pd.to_datetime(ev["timestamp_start"])
     if ev_ts.dt.tz is not None:
-        ev_ts = ev_ts.dt.tz_localize(None)
+        ev_ts = ev_ts.dt.tz_convert(None)
     ev["_year"]  = ev_ts.dt.year
     ev["_month"] = ev_ts.dt.month
 
     ts_series = pd.to_datetime(timestamps)
     if ts_series.dt.tz is not None:
-        ts_series = ts_series.dt.tz_localize(None)
+        ts_series = ts_series.dt.tz_convert(None)
 
     results = []
     for ts in ts_series:
