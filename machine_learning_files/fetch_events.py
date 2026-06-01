@@ -247,7 +247,10 @@ def enrich_events(df: pd.DataFrame) -> pd.DataFrame:
     df["is_game_day"] = True
     df["game_start_hour"] = df["timestamp_start"].dt.hour
     df["is_weekend_event"] = df["timestamp_start"].dt.dayofweek >= 5
-    df["is_playoff"] = df.get("game_type", pd.Series("", index=df.index)) == "3"
+    if "game_type" in df.columns:
+        df["is_playoff"] = df["game_type"].astype(str) == "3"
+    else:
+        df["is_playoff"] = False
 
     return df
 
@@ -274,7 +277,7 @@ def fetch_all(start: date, end: date) -> pd.DataFrame:
     # 2. Ticketmaster (concerts, other sports)
     log.info("=== Fetching Ticketmaster events ===")
     tm_key = cfg["ticketmaster"]["api_key"]
-    if tm_key == "YOUR_TICKETMASTER_API_KEY":
+    if not tm_key or tm_key == "YOUR_TICKETMASTER_API_KEY":
         log.warning("  Ticketmaster API key not set — skipping Ticketmaster data")
     else:
         tm_client = TicketmasterClient(tm_key)

@@ -158,7 +158,10 @@ def _run_forecast(
     if as_of is None:
         as_of = station_df["timestamp"].max()
     else:
-        as_of = pd.Timestamp(as_of, tz="America/Los_Angeles")
+        try:
+            as_of = pd.Timestamp(as_of, tz="America/Los_Angeles")
+        except Exception:
+            raise ValueError(f"Invalid as_of timestamp: {as_of!r}")
 
     context_steps = cfg["chronos2"].get("context_length_steps", None)
     context_steps = cfg["data"].get("context_length_steps") or context_steps

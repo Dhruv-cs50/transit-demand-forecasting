@@ -78,7 +78,7 @@ def wape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
     """
     denom = np.sum(np.abs(y_true))
     if denom < epsilon:
-        return float("nan")
+        return 0.0
     return float(np.sum(np.abs(y_pred - y_true)) / denom * 100)
 
 

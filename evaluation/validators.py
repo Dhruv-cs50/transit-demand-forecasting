@@ -167,11 +167,11 @@ def check_missing_windows(
     large_gaps = []
 
     for station, grp in df.groupby("station_id"):
-        grp = grp.sort_values("timestamp")
+        grp = grp.sort_values("timestamp").reset_index(drop=True)
         diffs = grp["timestamp"].diff().dropna()
         bad = diffs[diffs > max_gap]
         for idx, gap in bad.items():
-            gap_start = grp.loc[idx - 1, "timestamp"] if idx - 1 in grp.index else "unknown"
+            gap_start = grp.loc[idx - 1, "timestamp"] if idx > 0 else "unknown"
             large_gaps.append({
                 "station":   station,
                 "gap_start": str(gap_start),
