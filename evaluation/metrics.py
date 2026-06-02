@@ -261,7 +261,7 @@ def per_station_metrics(
             d["station_id"] = station
             rows.append(d)
 
-    df = pd.DataFrame(rows).sort_values("WAPE_%")
+    df = pd.DataFrame(rows).sort_values(["WAPE_%", "station_id"])
     return df.head(top_n) if top_n else df
 
 
