@@ -82,7 +82,7 @@ def load_bart_file_v1(filepath, year, month):
                         continue
                     try:
                         val = float(matrix[i, j])
-                    except:
+                    except (ValueError, TypeError):
                         val = np.nan
                     records.append({
                         'year': year, 'month': month, 'day_type': day_type,
@@ -118,7 +118,7 @@ def load_bart_file_v2(filepath, year, month):
                         continue
                     try:
                         val = float(matrix[i, j])
-                    except:
+                    except (ValueError, TypeError):
                         val = np.nan
                     records.append({
                         'year': year, 'month': month, 'day_type': day_type,
@@ -138,7 +138,7 @@ def load_bart_year(folder, year, version=1):
         name = os.path.basename(f).replace("Ridership_","").replace(".xlsx","")
         try:
             month = int(name[-2:])
-        except:
+        except (ValueError, IndexError):
             month = 0
         df = loader(f, year, month)
         if not df.empty:
