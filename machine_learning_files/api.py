@@ -14,7 +14,7 @@ Run locally:
 Example request:
     curl -X POST http://localhost:8000/forecast \\
          -H "Content-Type: application/json" \\
-         -d '{"station_id": "EMBR", "horizon_hours": 24}'
+         -d '{"station_id": "EMBR", "horizon_months": 12}'
 """
 
 from __future__ import annotations
@@ -55,9 +55,10 @@ def load_model_config() -> dict:
 if _FASTAPI_AVAILABLE:
 
     class ForecastRequest(BaseModel):
-        station_id:    str           = Field(..., example="EMBR", description="BART/transit station code")
-        horizon_hours: int           = Field(24, ge=1, le=168, description="Hours to forecast (1–168)")
-        as_of:         Optional[str] = Field(None, example="2025-06-01T08:00:00", description="Forecast anchor time (ISO). Default: now.")
+        station_id:      str           = Field(..., example="EMBR", description="BART/transit station code")
+        horizon_months:  int           = Field(12, ge=1, le=24, description="Months to forecast (1–24)")
+        horizon_hours:   int | None    = Field(None, description="Deprecated: use horizon_months instead")
+        as_of:           Optional[str] = Field(None, example="2025-06-01T08:00:00", description="Forecast anchor time (ISO). Default: now.")
 
     class QuantileForecast(BaseModel):
         timestamp: str
@@ -66,10 +67,10 @@ if _FASTAPI_AVAILABLE:
         p90:       float
 
     class ForecastResponse(BaseModel):
-        station_id:    str
-        horizon_hours: int
-        generated_at:  str
-        forecasts:     list[QuantileForecast]
+        station_id:     str
+        horizon_months: int
+        generated_at:   str
+        forecasts:      list[QuantileForecast]
 
     class StationsResponse(BaseModel):
         stations: list[str]
@@ -117,7 +118,7 @@ def get_feature_store() -> pd.DataFrame:
 
 def _run_forecast(
     station_id: str,
-    horizon_hours: int,
+    horizon_months: int,
     as_of: pd.Timestamp | None,
 ) -> list[dict]:
     """Core forecast logic — loads pre-computed parquet first, falls back to live Chronos."""
@@ -134,7 +135,7 @@ def _run_forecast(
             q50_col = next((c for c in station_cache.columns if "0.5" in str(c)), None)
             q90_col = next((c for c in station_cache.columns if "0.9" in str(c)), None)
             results = []
-            for _, row in station_cache.head(horizon_hours).iterrows():
+            for _, row in station_cache.head(horizon_months).iterrows():
                 ts = row.get("timestamp", "")
                 results.append({
                     "timestamp": str(ts),
@@ -238,8 +239,9 @@ if _FASTAPI_AVAILABLE:
 
     @app.post("/forecast", response_model=ForecastResponse)
     def forecast(req: ForecastRequest):
+        horizon = req.horizon_months or req.horizon_hours or 12
         try:
-            forecasts = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
+            forecasts = _run_forecast(req.station_id, horizon, req.as_of)
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
@@ -247,10 +249,10 @@ if _FASTAPI_AVAILABLE:
             raise HTTPException(status_code=500, detail=str(e))
 
         return {
-            "station_id":    req.station_id,
-            "horizon_hours": req.horizon_hours,
-            "generated_at":  datetime.utcnow().isoformat(),
-            "forecasts":     forecasts,
+            "station_id":     req.station_id,
+            "horizon_months": horizon,
+            "generated_at":   datetime.utcnow().isoformat(),
+            "forecasts":      forecasts,
         }
 
     @app.get("/")
