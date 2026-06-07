@@ -119,11 +119,11 @@ class Predictor:
     def _load_zeroshot(self) -> bool:
         """Fall back to zero-shot Chronos-2."""
         try:
-            from chronos import Chronos2Pipeline
+            from chronos import ChronosPipeline
             model_id = self.cfg["chronos2"]["model_id"]
             device   = self.cfg["chronos2"]["device"]
             log.info(f"Loading zero-shot {model_id} on {device} …")
-            self._pipeline = Chronos2Pipeline.from_pretrained(
+            self._pipeline = ChronosPipeline.from_pretrained(
                 model_id, device_map=device
             )
             self._mode = "zeroshot"

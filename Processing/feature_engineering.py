@@ -137,7 +137,7 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
     ).astype(float)
 
     # Rolling precipitation: has it been raining consistently?
-    if df["timestamp"].is_monotonic_increasing:
+    if not df["timestamp"].is_monotonic_increasing:
         df = df.sort_values("timestamp")
     if "station_id" in df.columns:
         grp = df.groupby("station_id")["precip_mm"]
@@ -149,9 +149,13 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
     df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
 
     # Is it the FIRST hour of rain after a dry spell? (commuters unprepared)
-    df["is_rain_onset"] = df["is_raining"] & ~df.groupby(
-        "station_id" if "station_id" in df.columns else [True] * len(df)
-    )["is_raining"].transform(lambda x: x.shift(1).fillna(False))
+    if "station_id" in df.columns:
+        prev_raining = df.groupby("station_id")["is_raining"].transform(
+            lambda x: x.shift(1).fillna(False)
+        )
+    else:
+        prev_raining = df["is_raining"].shift(1).fillna(False)
+    df["is_rain_onset"] = df["is_raining"] & ~prev_raining
 
     # ── Temperature ───────────────────────────────────────────────────────────
     if "temp_f" in df.columns:
@@ -405,6 +409,7 @@ def build_features(
     events: pd.DataFrame = None,
     target_col: str = "ridership",
     add_lags: bool = True,
+    n_input_cols: int = None,
 ) -> pd.DataFrame:
     """
     Full feature engineering pipeline. Run all transformations in sequence.
@@ -419,6 +424,7 @@ def build_features(
         Enriched DataFrame ready to pass into Chronos-2 or baseline models.
     """
     n_input = len(df)
+    n_cols_before = len(df.columns)
     log.info(f"Building features for {n_input:,} rows …")
 
     df = add_time_features(df)
@@ -439,8 +445,8 @@ def build_features(
         log.info("  ✓ Lag features added")
 
     n_features = len(df.columns)
-    n_new = n_features - len(df.columns)
-    log.info(f"  → {n_features} total feature columns for {n_input:,} rows")
+    n_new = n_features - n_cols_before
+    log.info(f"  → {n_features} total feature columns (+{n_new} new) for {n_input:,} rows")
 
     return df
 
