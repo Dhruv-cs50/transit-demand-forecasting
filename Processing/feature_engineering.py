@@ -419,6 +419,7 @@ def build_features(
         Enriched DataFrame ready to pass into Chronos-2 or baseline models.
     """
     n_input = len(df)
+    n_orig_cols = len(df.columns)
     log.info(f"Building features for {n_input:,} rows …")
 
     df = add_time_features(df)
@@ -439,8 +440,8 @@ def build_features(
         log.info("  ✓ Lag features added")
 
     n_features = len(df.columns)
-    n_new = n_features - len(df.columns)
-    log.info(f"  → {n_features} total feature columns for {n_input:,} rows")
+    n_new = n_features - n_orig_cols
+    log.info(f"  → {n_features} total feature columns (+{n_new} new) for {n_input:,} rows")
 
     return df
 

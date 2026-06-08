@@ -182,13 +182,13 @@ def compute_event_features(
     ev = events.copy()
     ev_ts = pd.to_datetime(ev["timestamp_start"])
     if ev_ts.dt.tz is not None:
-        ev_ts = ev_ts.dt.tz_localize(None)
+        ev_ts = ev_ts.dt.tz_convert(None)
     ev["_year"]  = ev_ts.dt.year
     ev["_month"] = ev_ts.dt.month
 
     ts_series = pd.to_datetime(timestamps)
     if ts_series.dt.tz is not None:
-        ts_series = ts_series.dt.tz_localize(None)
+        ts_series = ts_series.dt.tz_convert(None)
 
     results = []
     for ts in ts_series:
@@ -267,7 +267,7 @@ def build_feature_store(
         wdf = weather_df.copy()
         wdf["timestamp"] = pd.to_datetime(wdf["timestamp"])
         if wdf["timestamp"].dt.tz is not None:
-            wdf["timestamp"] = wdf["timestamp"].dt.tz_localize(None)
+            wdf["timestamp"] = wdf["timestamp"].dt.tz_convert(None)
         wdf["_year"]  = wdf["timestamp"].dt.year
         wdf["_month"] = wdf["timestamp"].dt.month
         monthly_weather = (
@@ -337,7 +337,7 @@ def make_splits(df: pd.DataFrame, train_end: str, val_end: str, train_start: str
 
     ts = pd.to_datetime(df["timestamp"])
     if ts.dt.tz is not None:
-        ts = ts.dt.tz_localize(None)
+        ts = ts.dt.tz_convert(None)
 
     def _ts(s): return pd.Timestamp(s).tz_localize(None) if pd.Timestamp(s).tzinfo is None else pd.Timestamp(s).tz_convert(None)
 
