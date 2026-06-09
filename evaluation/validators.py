@@ -171,7 +171,8 @@ def check_missing_windows(
         diffs = grp["timestamp"].diff().dropna()
         bad = diffs[diffs > max_gap]
         for idx, gap in bad.items():
-            gap_start = grp.loc[idx - 1, "timestamp"] if idx - 1 in grp.index else "unknown"
+            pos = grp.index.get_loc(idx)
+            gap_start = str(grp.iloc[pos - 1]["timestamp"]) if pos > 0 else "unknown"
             large_gaps.append({
                 "station":   station,
                 "gap_start": str(gap_start),
