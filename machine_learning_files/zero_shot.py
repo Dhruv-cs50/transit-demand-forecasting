@@ -95,9 +95,11 @@ def prepare_context(
 
     if context_steps is not None:
         context_df = past.tail(context_steps)
-    else:
+    elif context_hours is not None:
         context_start = as_of - pd.Timedelta(hours=context_hours)
         context_df = past[past["timestamp"] >= context_start]
+    else:
+        context_df = past
 
     future_df = station_df[station_df["timestamp"] > as_of]
     return context_df, future_df
