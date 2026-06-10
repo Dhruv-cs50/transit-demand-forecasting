@@ -187,9 +187,9 @@ def _run_forecast(
         ts = row.get("timestamp", "")
         results.append({
             "timestamp": str(ts),
-            "p10": max(0.0, float(row[q_cols["p10"]])) if q_cols["p10"] else float("nan"),
-            "p50": max(0.0, float(row[q_cols["p50"]])) if q_cols["p50"] else float("nan"),
-            "p90": max(0.0, float(row[q_cols["p90"]])) if q_cols["p90"] else float("nan"),
+            "p10": max(0.0, float(row.get(q_cols["p10"], float("nan")))) if q_cols["p10"] else float("nan"),
+            "p50": max(0.0, float(row.get(q_cols["p50"], float("nan")))) if q_cols["p50"] else float("nan"),
+            "p90": max(0.0, float(row.get(q_cols["p90"], float("nan")))) if q_cols["p90"] else float("nan"),
         })
 
     return results
