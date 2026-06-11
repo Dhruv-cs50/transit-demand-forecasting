@@ -166,12 +166,13 @@ class OpenMeteoClient:
         })
 
         # Decode weather codes
-        df["weather_desc"] = df["weather_code"].map(
-            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[0]
-        )
-        df["is_raining"] = df["weather_code"].map(
-            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[1]
-        )
+        def _decode_weather(c):
+            if pd.isna(c):
+                return ("Unknown", False)
+            return WEATHER_CODE_MAP.get(int(c), ("Unknown", False))
+
+        df["weather_desc"] = df["weather_code"].apply(lambda c: _decode_weather(c)[0])
+        df["is_raining"] = df["weather_code"].apply(lambda c: _decode_weather(c)[1])
 
         # Convert inches to mm as well (useful for model features)
         df["precip_mm"] = df["precip_in"] * 25.4
