@@ -443,12 +443,15 @@ class Predictor:
         # Build reason string
         reason = ""
         if "is_sharks_game_window" in station_df.columns:
-            future_row = station_df[station_df["timestamp"] > now]
-            if not future_row.empty and future_row.iloc[0].get("is_sharks_game_window"):
-                hour = int(future_row.iloc[0].get("game_start_hour", 19))
-                reason = f"Sharks home game · puck drop {hour}:00"
+            future_rows = station_df[station_df["timestamp"] > now]
+            if not future_rows.empty:
+                next_row = future_rows.iloc[0]
+                if next_row["is_sharks_game_window"]:
+                    hour = int(next_row.get("game_start_hour", 19) or 19)
+                    reason = f"Sharks home game · puck drop {hour}:00"
         if not reason and "is_raining" in station_df.columns:
-            if station_df[station_df["timestamp"] > now].iloc[0].get("is_raining"):
+            future_rows = station_df[station_df["timestamp"] > now]
+            if not future_rows.empty and future_rows.iloc[0]["is_raining"]:
                 reason = "Rain in forecast · ridership shift expected"
 
         return {

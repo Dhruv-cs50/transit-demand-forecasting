@@ -184,7 +184,8 @@ class TicketmasterClient:
                     continue
 
                 # Estimate event duration by type
-                classification = ev.get("classifications", [{}])[0]
+                _classifications = ev.get("classifications", [])
+                classification = _classifications[0] if _classifications else {}
                 segment = classification.get("segment", {}).get("name", "")
                 event_type = classification.get("genre", {}).get("name", segment or "Other")
                 duration_hrs = {"Sports": 3.0, "Music": 3.0, "Arts & Theatre": 2.5}.get(segment, 2.5)

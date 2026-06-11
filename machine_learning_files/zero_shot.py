@@ -196,10 +196,15 @@ def evaluate_predictions(
         return {}
 
     # Merge predictions with actuals on timestamp
-    median_col = f"mean"  # Chronos calls it mean, or use the 0.5 quantile col
+    median_col = "mean"  # Chronos calls it mean, or use the 0.5 quantile col
     if median_col not in pred_df.columns:
-        q50_col = [c for c in pred_df.columns if "0.5" in str(c)]
-        median_col = q50_col[0] if q50_col else pred_df.columns[-1]
+        q50_cols = [c for c in pred_df.columns if "0.5" in str(c)]
+        if q50_cols:
+            median_col = q50_cols[0]
+        else:
+            raise ValueError(
+                f"No median/P50 column found in predictions. Columns: {pred_df.columns.tolist()}"
+            )
 
     merged = pred_df.merge(
         actuals_df[["timestamp", "ridership"]].rename(columns={"ridership": "actual"}),

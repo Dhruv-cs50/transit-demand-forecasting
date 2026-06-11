@@ -133,17 +133,23 @@ def _run_forecast(
             q10_col = next((c for c in station_cache.columns if "0.1" in str(c)), None)
             q50_col = next((c for c in station_cache.columns if "0.5" in str(c)), None)
             q90_col = next((c for c in station_cache.columns if "0.9" in str(c)), None)
-            results = []
-            for _, row in station_cache.head(horizon_hours).iterrows():
-                ts = row.get("timestamp", "")
-                results.append({
-                    "timestamp": str(ts),
-                    "p10": max(0.0, float(row[q10_col])) if q10_col else 0.0,
-                    "p50": max(0.0, float(row[q50_col])) if q50_col else 0.0,
-                    "p90": max(0.0, float(row[q90_col])) if q90_col else 0.0,
-                })
-            if results:
-                return results
+            if not q10_col or not q50_col or not q90_col:
+                log.warning(
+                    "Cached forecast missing quantile columns for %s — falling back to live inference",
+                    station_id,
+                )
+            else:
+                results = []
+                for _, row in station_cache.head(horizon_hours).iterrows():
+                    ts = row.get("timestamp", "")
+                    results.append({
+                        "timestamp": str(ts),
+                        "p10": max(0.0, float(row[q10_col])),
+                        "p50": max(0.0, float(row[q50_col])),
+                        "p90": max(0.0, float(row[q90_col])),
+                    })
+                if results:
+                    return results
 
     # Slow path: live Chronos inference
     from machine_learning_files.zero_shot import prepare_context, run_zero_shot_forecast
