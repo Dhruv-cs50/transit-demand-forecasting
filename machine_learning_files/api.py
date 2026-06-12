@@ -157,8 +157,10 @@ def _run_forecast(
 
     if as_of is None:
         as_of = station_df["timestamp"].max()
+        if hasattr(as_of, "tz") and as_of.tz is not None:
+            as_of = as_of.tz_localize(None)
     else:
-        as_of = pd.Timestamp(as_of, tz="America/Los_Angeles")
+        as_of = pd.Timestamp(as_of).tz_localize(None)
 
     context_steps = cfg["chronos2"].get("context_length_steps", None)
     context_steps = cfg["data"].get("context_length_steps") or context_steps
@@ -166,7 +168,7 @@ def _run_forecast(
         or cfg["chronos2"].get("prediction_length_steps", 6)
 
     context_df, future_df = prepare_context(
-        df, station_id, cfg["data"].get("context_length_hours"), as_of,
+        df, station_id, cfg["data"].get("context_length_hours", 720), as_of,
         context_steps=context_steps,
     )
 
