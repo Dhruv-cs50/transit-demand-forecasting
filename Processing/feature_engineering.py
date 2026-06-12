@@ -100,7 +100,7 @@ def add_time_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.DataFra
     # Holidays
     df["is_holiday"] = ts.dt.date.map(lambda d: d in CA_HOLIDAYS).astype(bool)
     df["is_holiday_eve"] = ts.dt.date.map(
-        lambda d: (d + pd.Timedelta(days=1)) in CA_HOLIDAYS
+        lambda d: (pd.Timestamp(d) + pd.Timedelta(days=1)).date() in CA_HOLIDAYS
     ).astype(bool)
 
     return df
