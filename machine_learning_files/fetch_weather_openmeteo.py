@@ -148,8 +148,8 @@ class OpenMeteoClient:
 
     def _to_dataframe(self, data: dict, lat: float, lng: float) -> pd.DataFrame:
         hourly = data.get("hourly", {})
-        if not hourly:
-            raise ValueError("Open-Meteo returned empty hourly data")
+        if not hourly or not hourly.get("time"):
+            raise ValueError(f"Open-Meteo returned empty hourly data for ({lat}, {lng})")
 
         df = pd.DataFrame(hourly)
         df["timestamp"] = pd.to_datetime(df["time"])
