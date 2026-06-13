@@ -241,10 +241,11 @@ if _FASTAPI_AVAILABLE:
         try:
             forecasts = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
         except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+            log.warning(f"Invalid forecast request: {e}")
+            raise HTTPException(status_code=404, detail="Station not found or invalid parameters")
         except Exception as e:
             log.exception("Forecast failed")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail="Internal forecast error")
 
         return {
             "station_id":    req.station_id,

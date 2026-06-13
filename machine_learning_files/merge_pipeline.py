@@ -339,7 +339,9 @@ def make_splits(df: pd.DataFrame, train_end: str, val_end: str, train_start: str
     if ts.dt.tz is not None:
         ts = ts.dt.tz_localize(None)
 
-    def _ts(s): return pd.Timestamp(s).tz_localize(None) if pd.Timestamp(s).tzinfo is None else pd.Timestamp(s).tz_convert(None)
+    def _ts(s):
+        ts = pd.Timestamp(s)
+        return ts.tz_localize(None) if ts.tzinfo is None else ts.tz_convert(None)
 
     train_ts = _ts(train_end)
     val_ts   = _ts(val_end)
