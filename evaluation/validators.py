@@ -171,7 +171,8 @@ def check_missing_windows(
         diffs = grp["timestamp"].diff().dropna()
         bad = diffs[diffs > max_gap]
         for idx, gap in bad.items():
-            gap_start = grp.loc[idx - 1, "timestamp"] if idx - 1 in grp.index else "unknown"
+            pos = grp.index.get_loc(idx)
+            gap_start = str(grp.iloc[pos - 1]["timestamp"]) if pos > 0 else "unknown"
             large_gaps.append({
                 "station":   station,
                 "gap_start": str(gap_start),
@@ -369,7 +370,8 @@ def check_station_coverage(
 
     # Resample to hourly and count distinct stations
     df_copy = df.copy()
-    df_copy["timestamp"] = pd.to_datetime(df_copy["timestamp"]).dt.tz_localize(None)
+    _ts = pd.to_datetime(df_copy["timestamp"])
+    df_copy["timestamp"] = _ts.dt.tz_convert(None) if _ts.dt.tz is not None else _ts
     coverage = (
         df_copy.set_index("timestamp")
         .groupby(pd.Grouper(freq=freq))["station_id"]

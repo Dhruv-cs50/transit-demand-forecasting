@@ -83,7 +83,8 @@ def fit_station(
 
     # Prophet requires ds + y columns
     train = station_df.copy()
-    train["ds"] = pd.to_datetime(train["timestamp"]).dt.tz_localize(None)  # Prophet needs tz-naive
+    _ds = pd.to_datetime(train["timestamp"])
+    train["ds"] = _ds.dt.tz_convert(None) if _ds.dt.tz is not None else _ds  # Prophet needs tz-naive
     train["y"]  = train["ridership"].clip(lower=0)
     train = train.dropna(subset=["y"])
 
@@ -232,7 +233,8 @@ def run_prophet_all_stations(
 
         try:
             model, _, regressors = fit_station(station_train, station_id, cfg)
-            last_ds = pd.to_datetime(station_train["timestamp"].max()).tz_localize(None)
+            _last_ts = pd.to_datetime(station_train["timestamp"].max())
+            last_ds = _last_ts.tz_convert(None) if _last_ts.tzinfo is not None else _last_ts
             preds = predict_station(
                 model, station_future, regressors, horizon_steps, last_ds, freq
             )
