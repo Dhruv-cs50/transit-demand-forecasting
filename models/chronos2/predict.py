@@ -448,7 +448,8 @@ class Predictor:
                 hour = int(future_row.iloc[0].get("game_start_hour", 19))
                 reason = f"Sharks home game · puck drop {hour}:00"
         if not reason and "is_raining" in station_df.columns:
-            if station_df[station_df["timestamp"] > now].iloc[0].get("is_raining"):
+            rain_rows = station_df[station_df["timestamp"] > now]
+            if not rain_rows.empty and rain_rows.iloc[0].get("is_raining"):
                 reason = "Rain in forecast · ridership shift expected"
 
         return {
