@@ -135,7 +135,10 @@ def _run_forecast(
             q90_col = next((c for c in station_cache.columns if "0.9" in str(c)), None)
             results = []
             for _, row in station_cache.head(horizon_hours).iterrows():
-                ts = row.get("timestamp", "")
+                ts = row.get("timestamp")
+                if ts is None or (isinstance(ts, float) and pd.isna(ts)):
+                    log.warning("Skipping cached row with missing timestamp")
+                    continue
                 results.append({
                     "timestamp": str(ts),
                     "p10": max(0.0, float(row[q10_col])) if q10_col else 0.0,
@@ -184,7 +187,10 @@ def _run_forecast(
 
     results = []
     for _, row in pred_df.iterrows():
-        ts = row.get("timestamp", "")
+        ts = row.get("timestamp")
+        if ts is None or (isinstance(ts, float) and pd.isna(ts)):
+            log.warning("Skipping live-inference row with missing timestamp")
+            continue
         results.append({
             "timestamp": str(ts),
             "p10": max(0.0, float(row[q_cols["p10"]])) if q_cols["p10"] else float("nan"),

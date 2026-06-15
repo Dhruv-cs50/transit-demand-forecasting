@@ -126,6 +126,8 @@ def to_autogluon_format(
     df = df.dropna(subset=["target"])
     if len(df) < n_before:
         log.warning(f"Dropped {n_before - len(df):,} rows with null target")
+    if df.empty:
+        raise ValueError("All rows have null target — cannot build TimeSeriesDataFrame")
 
     ts_df = TimeSeriesDataFrame.from_data_frame(
         df,
@@ -232,7 +234,6 @@ def build_predictor(
     context_length_steps = cfg["chronos2"].get("context_length_steps", None)
     freq = "MS"   # monthly BART data
     if prediction_length is None:
-        import pandas as pd
         raw_freq = cfg["data"]["resample_freq"]
         horizon = cfg["data"]["forecast_horizon_hours"]
         steps_per_hour = pd.tseries.frequencies.to_offset(raw_freq).nanos / (3600 * 1e9)
