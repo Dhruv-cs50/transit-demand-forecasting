@@ -20,7 +20,7 @@ Example request:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -199,7 +199,7 @@ def _run_forecast(
 
 if _FASTAPI_AVAILABLE:
     app = FastAPI(
-        title="Bay Area Traffic Forecast API",
+        title="Bay Area Transit Forecast API",
         description="Chronos-2 powered ridership forecasting for Bay Area transit stations",
         version="1.0.0",
     )
@@ -224,7 +224,7 @@ if _FASTAPI_AVAILABLE:
     def health():
         return {
             "status":       "ok",
-            "timestamp":    datetime.utcnow().isoformat(),
+            "timestamp":    datetime.now(timezone.utc).isoformat(),
             "model":        _get_config()["chronos2"]["model_id"],
             "store_loaded": _feature_store is not None,
             "model_loaded": _pipeline is not None,
@@ -249,14 +249,14 @@ if _FASTAPI_AVAILABLE:
         return {
             "station_id":    req.station_id,
             "horizon_hours": req.horizon_hours,
-            "generated_at":  datetime.utcnow().isoformat(),
+            "generated_at":  datetime.now(timezone.utc).isoformat(),
             "forecasts":     forecasts,
         }
 
     @app.get("/")
     def root():
         return {
-            "service":  "Bay Area Traffic Forecast API",
+            "service":  "Bay Area Transit Forecast API",
             "docs":     "/docs",
             "health":   "/health",
             "stations": "/stations",
