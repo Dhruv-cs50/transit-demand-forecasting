@@ -309,11 +309,18 @@ def build_feature_store(
     if "timestamp" in base.columns:
         base = add_calendar_features(base, "timestamp")
 
-    # 6. Date range filter
-    if start:
-        base = base[base["timestamp"] >= pd.Timestamp(start, tz="America/Los_Angeles")]
-    if end:
-        base = base[base["timestamp"] <= pd.Timestamp(end, tz="America/Los_Angeles")]
+    # 6. Date range filter — normalize both sides to tz-naive to avoid comparison errors
+    if start or end:
+        ts_col = pd.to_datetime(base["timestamp"])
+        base_ts_naive = ts_col.dt.tz_convert(None) if ts_col.dt.tz is not None else ts_col
+        if start:
+            start_ts = pd.Timestamp(start)
+            start_naive = start_ts.tz_convert(None) if start_ts.tzinfo else start_ts
+            base = base[base_ts_naive >= start_naive]
+        if end:
+            end_ts = pd.Timestamp(end)
+            end_naive = end_ts.tz_convert(None) if end_ts.tzinfo else end_ts
+            base = base[base_ts_naive <= end_naive]
 
     # 7. Save
     out = PROCESSED_DIR / "feature_store.parquet"

@@ -161,17 +161,18 @@ def check_missing_windows(
         step_td = pd.Timedelta(expected_step.nanos, unit="ns")
         max_gap = max(pd.Timedelta(hours=max_gap_hours), step_td * 2)
     except ValueError:
-        # Month-start/month-end offsets are calendar based, not fixed-width.
-        # Two months plus a little slack catches missing station-month rows.
-        max_gap = pd.Timedelta(days=62)
+        # Month-start/month-end offsets are calendar-based, not fixed-width.
+        # 35 days catches any single missing month while tolerating calendar variation.
+        max_gap = pd.Timedelta(days=35)
     large_gaps = []
 
     for station, grp in df.groupby("station_id"):
-        grp = grp.sort_values("timestamp")
+        # Reset index so positional subtraction (iloc[pos-1]) is safe
+        grp = grp.sort_values("timestamp").reset_index(drop=True)
         diffs = grp["timestamp"].diff().dropna()
         bad = diffs[diffs > max_gap]
-        for idx, gap in bad.items():
-            gap_start = grp.loc[idx - 1, "timestamp"] if idx - 1 in grp.index else "unknown"
+        for pos, gap in bad.items():
+            gap_start = grp.loc[pos - 1, "timestamp"] if pos > 0 else "unknown"
             large_gaps.append({
                 "station":   station,
                 "gap_start": str(gap_start),
@@ -314,7 +315,7 @@ def check_event_coverage(df: pd.DataFrame) -> List[ValidationResult]:
     have plausible event proximity scores.
     """
     results = []
-    EVENT_COLS = ["is_game_day", "hours_to_event", "is_sharks_game_window"]
+    EVENT_COLS = ["is_game_day", "hours_to_event", "is_sharks_game"]
     present = [c for c in EVENT_COLS if c in df.columns]
 
     if not present:
@@ -369,7 +370,8 @@ def check_station_coverage(
 
     # Resample to hourly and count distinct stations
     df_copy = df.copy()
-    df_copy["timestamp"] = pd.to_datetime(df_copy["timestamp"]).dt.tz_localize(None)
+    ts_col = pd.to_datetime(df_copy["timestamp"])
+    df_copy["timestamp"] = ts_col.dt.tz_convert(None) if ts_col.dt.tz is not None else ts_col
     coverage = (
         df_copy.set_index("timestamp")
         .groupby(pd.Grouper(freq=freq))["station_id"]
