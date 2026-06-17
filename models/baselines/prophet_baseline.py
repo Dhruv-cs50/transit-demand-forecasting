@@ -232,7 +232,9 @@ def run_prophet_all_stations(
 
         try:
             model, _, regressors = fit_station(station_train, station_id, cfg)
-            last_ds = pd.to_datetime(station_train["timestamp"].max()).tz_localize(None)
+            last_ds = pd.to_datetime(station_train["timestamp"].max())
+            if last_ds.tzinfo is not None:
+                last_ds = last_ds.tz_convert(None)
             preds = predict_station(
                 model, station_future, regressors, horizon_steps, last_ds, freq
             )

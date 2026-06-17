@@ -159,9 +159,9 @@ class MetricsReport:
             "MAPE_%":   round(self.mape,  2),
             "WAPE_%":   round(self.wape,  2),
             "sMAPE_%":  round(self.smape, 2),
-            "MASE":     round(self.mase,  4) if self.mase else None,
-            "Coverage_%": round(self.coverage, 1) if self.coverage else None,
-            "Int_Width":  round(self.int_width, 1) if self.int_width else None,
+            "MASE":     round(self.mase,  4) if self.mase is not None else None,
+            "Coverage_%": round(self.coverage, 1) if self.coverage is not None else None,
+            "Int_Width":  round(self.int_width, 1) if self.int_width is not None else None,
         }
 
     def __str__(self) -> str:
