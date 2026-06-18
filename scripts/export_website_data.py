@@ -155,7 +155,7 @@ def export_ridership_actuals(df: pd.DataFrame, out_dir: Path) -> None:
     for _, row in df.sort_values(["station_id", "timestamp"]).iterrows():
         ts = pd.to_datetime(row["timestamp"])
         if hasattr(ts, "tz") and ts.tz is not None:
-            ts = ts.tz_localize(None)
+            ts = ts.tz_convert(None)
         records.append({
             "station_id": row["station_id"],
             "month":      ts.strftime("%Y-%m"),
@@ -218,7 +218,7 @@ def export_model_comparison(out_dir: Path) -> None:
         return
     actuals = pd.read_parquet(actuals_path)
     actuals["timestamp"] = pd.to_datetime(actuals["timestamp"])
-    _ts = actuals["timestamp"].dt.tz_localize(None) if actuals["timestamp"].dt.tz is not None else actuals["timestamp"]
+    _ts = actuals["timestamp"].dt.tz_convert(None) if actuals["timestamp"].dt.tz is not None else actuals["timestamp"]
     actuals["month"] = _ts.dt.to_period("M").astype(str)
 
     comparison = []
