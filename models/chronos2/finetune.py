@@ -232,13 +232,10 @@ def build_predictor(
     context_length_steps = cfg["chronos2"].get("context_length_steps", None)
     freq = "MS"   # monthly BART data
     if prediction_length is None:
-        import pandas as pd
         raw_freq = cfg["data"]["resample_freq"]
-        horizon = cfg["data"]["forecast_horizon_hours"]
-        steps_per_hour = pd.tseries.frequencies.to_offset(raw_freq).nanos / (3600 * 1e9)
-        prediction_length = int(horizon * steps_per_hour)
+        prediction_length = cfg["data"].get("forecast_horizon_steps", 6)
         freq = raw_freq
-        context_length_steps = int(cfg["data"]["context_length_hours"] * steps_per_hour)
+        context_length_steps = cfg["data"].get("context_length_steps", 24)
 
     log.info(f"Fine-tuning Chronos-2 via AutoGluon")
     log.info(f"  Prediction length : {prediction_length} steps at {freq}")
