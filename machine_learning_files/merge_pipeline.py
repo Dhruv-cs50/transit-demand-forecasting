@@ -309,11 +309,12 @@ def build_feature_store(
     if "timestamp" in base.columns:
         base = add_calendar_features(base, "timestamp")
 
-    # 6. Date range filter
+    # 6. Date range filter — base["timestamp"] is tz-naive (parsed from BART OD period strings),
+    # so comparisons must use tz-naive Timestamps to avoid TypeError in pandas 2.0+.
     if start:
-        base = base[base["timestamp"] >= pd.Timestamp(start, tz="America/Los_Angeles")]
+        base = base[base["timestamp"] >= pd.Timestamp(start)]
     if end:
-        base = base[base["timestamp"] <= pd.Timestamp(end, tz="America/Los_Angeles")]
+        base = base[base["timestamp"] <= pd.Timestamp(end)]
 
     # 7. Save
     out = PROCESSED_DIR / "feature_store.parquet"
