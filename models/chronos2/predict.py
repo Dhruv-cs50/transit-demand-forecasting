@@ -24,7 +24,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -303,7 +303,7 @@ class Predictor:
             return pd.DataFrame()
 
         preds["station_id"] = station_id
-        preds["generated_at"] = datetime.utcnow().isoformat()
+        preds["generated_at"] = datetime.now(timezone.utc).isoformat()
         preds["model_mode"] = self._mode
 
         # Clip negatives
