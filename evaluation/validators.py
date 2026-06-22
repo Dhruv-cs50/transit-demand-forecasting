@@ -369,7 +369,8 @@ def check_station_coverage(
 
     # Resample to hourly and count distinct stations
     df_copy = df.copy()
-    df_copy["timestamp"] = pd.to_datetime(df_copy["timestamp"]).dt.tz_localize(None)
+    ts_col = pd.to_datetime(df_copy["timestamp"])
+    df_copy["timestamp"] = ts_col.dt.tz_convert(None) if ts_col.dt.tz is not None else ts_col
     coverage = (
         df_copy.set_index("timestamp")
         .groupby(pd.Grouper(freq=freq))["station_id"]
