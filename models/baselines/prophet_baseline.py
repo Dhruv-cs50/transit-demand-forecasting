@@ -83,7 +83,8 @@ def fit_station(
 
     # Prophet requires ds + y columns
     train = station_df.copy()
-    train["ds"] = pd.to_datetime(train["timestamp"]).dt.tz_localize(None)  # Prophet needs tz-naive
+    _ds = pd.to_datetime(train["timestamp"])
+    train["ds"] = _ds.dt.tz_convert(None) if _ds.dt.tz is not None else _ds  # Prophet needs tz-naive
     train["y"]  = train["ridership"].clip(lower=0)
     train = train.dropna(subset=["y"])
 

@@ -199,7 +199,13 @@ def run_inference_with_config(
         if q50_col:
             preds_df = preds_df.rename(columns={q50_col[0]: "p50"})
 
-    return preds_df[["timestamp", "station_id", "p10", "p50", "p90"]]
+    required = ["timestamp", "station_id", "p10", "p50", "p90"]
+    missing = [c for c in required if c not in preds_df.columns]
+    if missing:
+        log.error(f"Prediction DataFrame missing columns: {missing}")
+        return pd.DataFrame()
+
+    return preds_df[required]
 
 
 # ── Slice evaluations ──────────────────────────────────────────────────────────
