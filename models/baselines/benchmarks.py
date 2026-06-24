@@ -287,13 +287,22 @@ def run_benchmarks(
             log.error(f"  Prophet failed: {e}")
 
     # ── 4. Chronos-2 zero-shot ─────────────────────────────────────────────────
+    # Use zero_shot module directly to guarantee univariate Chronos inference
+    # (the Predictor singleton prefers fine-tuned weights when available, which
+    # would make this benchmark indistinguishable from the fine-tuned run).
     log.info("\n=== Chronos-2 (zero-shot) ===")
     try:
-        from models.chronos2.predict import Predictor
-        predictor = Predictor()
-        zs_preds = predictor.forecast_all_stations(
+        from machine_learning_files.zero_shot import (
+            build_chronos_pipeline,
+            forecast_all_stations as zs_forecast_all,
+        )
+        zs_pipeline = build_chronos_pipeline(cfg)
+        zs_preds = zs_forecast_all(
+            df=df,
+            pipeline=zs_pipeline,
+            cfg=cfg,
+            output_dir=EVAL_DIR,
             as_of=val_end,
-            output_path=EVAL_DIR / "chronos2_zeroshot_preds.parquet",
         )
         if not zs_preds.empty:
             model_preds["Chronos2_ZeroShot"] = zs_preds
@@ -304,12 +313,12 @@ def run_benchmarks(
         log.error(f"  Chronos-2 zero-shot failed: {e}")
 
     # ── 5. AutoGluon fine-tuned ensemble ───────────────────────────────────────
+    predictor = None
     if Path("models/chronos2/weights").exists():
         log.info("\n=== AutoGluon ensemble (fine-tuned) ===")
         try:
-            if predictor is None:
-                from models.chronos2.predict import Predictor
-                predictor = Predictor()
+            from models.chronos2.predict import Predictor
+            predictor = Predictor()
             ft_preds = predictor.forecast_all_stations(
                 as_of=val_end,
                 output_path=EVAL_DIR / "chronos2_finetuned_preds.parquet",

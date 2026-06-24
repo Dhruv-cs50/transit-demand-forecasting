@@ -35,14 +35,6 @@ RAW_DIR = Path("data/raw/transit/bart")
 # The structure changed over the years so we handle multiple formats.
 BART_OD_BASE = "https://www.bart.gov/sites/default/files/docs/ridership"
 
-# Known filename patterns by year range (BART changes format occasionally)
-# We attempt both .xls and .xlsx
-YEAR_MONTH_FORMAT = {
-    range(2005, 2013): "{year}/Ridership_{month_name}_{year}.xls",
-    range(2013, 2020): "{year_month_dash}_Ridership_{year}.xlsx",
-    range(2020, 2027): "{year_month_dash}_Ridership_{year}.xlsx",
-}
-
 # BART station abbreviation → full name mapping (subset of all 50 stations)
 STATION_NAMES = {
     "12TH": "12th St. Oakland City Center",
