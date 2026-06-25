@@ -160,13 +160,14 @@ def parse_bart_od_excel(content: bytes, year: int, month: int) -> pd.DataFrame:
             valid_dests = [c for c in df.columns if c in STATION_NAMES]
             df = df.loc[valid_origins, valid_dests]
 
-            # Melt to long form
+            # Melt to long form — capture the index name before reset to rename it explicitly
+            idx_name = df.index.name or "index"
             long = df.reset_index().melt(
-                id_vars=df.index.name or "index",
+                id_vars=idx_name,
                 var_name="destination",
                 value_name="riders",
             )
-            long.columns = ["origin", "destination", "riders"]
+            long = long.rename(columns={idx_name: "origin"})
             long["riders"] = pd.to_numeric(long["riders"], errors="coerce").fillna(0).astype(int)
             long["day_type"] = sheet_name.strip()
             frames.append(long)
