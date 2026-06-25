@@ -165,12 +165,12 @@ class OpenMeteoClient:
             "relativehumidity_2m":  "humidity_pct",
         })
 
-        # Decode weather codes
+        # Decode weather codes — guard against NaN before int() conversion
         df["weather_desc"] = df["weather_code"].map(
-            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[0]
+            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[0] if pd.notna(c) else "Unknown"
         )
         df["is_raining"] = df["weather_code"].map(
-            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[1]
+            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[1] if pd.notna(c) else False
         )
 
         # Convert inches to mm as well (useful for model features)
