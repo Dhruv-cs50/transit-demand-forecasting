@@ -182,13 +182,13 @@ def compute_event_features(
     ev = events.copy()
     ev_ts = pd.to_datetime(ev["timestamp_start"])
     if ev_ts.dt.tz is not None:
-        ev_ts = ev_ts.dt.tz_localize(None)
+        ev_ts = ev_ts.dt.tz_convert(None)
     ev["_year"]  = ev_ts.dt.year
     ev["_month"] = ev_ts.dt.month
 
     ts_series = pd.to_datetime(timestamps)
     if ts_series.dt.tz is not None:
-        ts_series = ts_series.dt.tz_localize(None)
+        ts_series = ts_series.dt.tz_convert(None)
 
     results = []
     for ts in ts_series:
@@ -311,9 +311,9 @@ def build_feature_store(
 
     # 6. Date range filter
     if start:
-        base = base[base["timestamp"] >= pd.Timestamp(start, tz="America/Los_Angeles")]
+        base = base[base["timestamp"] >= pd.Timestamp(start)]
     if end:
-        base = base[base["timestamp"] <= pd.Timestamp(end, tz="America/Los_Angeles")]
+        base = base[base["timestamp"] <= pd.Timestamp(end)]
 
     # 7. Save
     out = PROCESSED_DIR / "feature_store.parquet"
