@@ -20,7 +20,7 @@ Example request:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -158,7 +158,8 @@ def _run_forecast(
     if as_of is None:
         as_of = station_df["timestamp"].max()
     else:
-        as_of = pd.Timestamp(as_of, tz="America/Los_Angeles")
+        _ts = pd.Timestamp(as_of)
+        as_of = _ts if _ts.tz is not None else _ts.tz_localize("America/Los_Angeles")
 
     context_steps = cfg["chronos2"].get("context_length_steps", None)
     context_steps = cfg["data"].get("context_length_steps") or context_steps
@@ -224,7 +225,7 @@ if _FASTAPI_AVAILABLE:
     def health():
         return {
             "status":       "ok",
-            "timestamp":    datetime.utcnow().isoformat(),
+            "timestamp":    datetime.now(timezone.utc).isoformat(),
             "model":        _get_config()["chronos2"]["model_id"],
             "store_loaded": _feature_store is not None,
             "model_loaded": _pipeline is not None,
@@ -249,7 +250,7 @@ if _FASTAPI_AVAILABLE:
         return {
             "station_id":    req.station_id,
             "horizon_hours": req.horizon_hours,
-            "generated_at":  datetime.utcnow().isoformat(),
+            "generated_at":  datetime.now(timezone.utc).isoformat(),
             "forecasts":     forecasts,
         }
 
