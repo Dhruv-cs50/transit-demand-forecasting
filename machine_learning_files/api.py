@@ -20,7 +20,7 @@ Example request:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -224,7 +224,7 @@ if _FASTAPI_AVAILABLE:
     def health():
         return {
             "status":       "ok",
-            "timestamp":    datetime.utcnow().isoformat(),
+            "timestamp":    datetime.now(timezone.utc).isoformat(),
             "model":        _get_config()["chronos2"]["model_id"],
             "store_loaded": _feature_store is not None,
             "model_loaded": _pipeline is not None,
@@ -249,7 +249,7 @@ if _FASTAPI_AVAILABLE:
         return {
             "station_id":    req.station_id,
             "horizon_hours": req.horizon_hours,
-            "generated_at":  datetime.utcnow().isoformat(),
+            "generated_at":  datetime.now(timezone.utc).isoformat(),
             "forecasts":     forecasts,
         }
 
