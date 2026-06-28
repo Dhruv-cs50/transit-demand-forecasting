@@ -137,7 +137,7 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
     ).astype(float)
 
     # Rolling precipitation: has it been raining consistently?
-    if df["timestamp"].is_monotonic_increasing:
+    if not df["timestamp"].is_monotonic_increasing:
         df = df.sort_values("timestamp")
     if "station_id" in df.columns:
         grp = df.groupby("station_id")["precip_mm"]
@@ -439,7 +439,6 @@ def build_features(
         log.info("  ✓ Lag features added")
 
     n_features = len(df.columns)
-    n_new = n_features - len(df.columns)
     log.info(f"  → {n_features} total feature columns for {n_input:,} rows")
 
     return df
