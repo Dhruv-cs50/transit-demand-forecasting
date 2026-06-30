@@ -182,7 +182,13 @@ def fit_auto_arima(
     """
     try:
         import pmdarima as pm
-        s = 24 if "h" in freq.lower() else 96
+        fl = freq.lower()
+        if "ms" in fl or "month" in fl or fl == "m":
+            s = 12
+        elif "h" in fl:
+            s = 24
+        else:
+            s = 96
         model = pm.auto_arima(
             series,
             seasonal=True, m=s,
