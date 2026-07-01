@@ -179,8 +179,13 @@ def run_inference_with_config(
     if prediction_length is None:
         freq = cfg["data"]["resample_freq"]
         horizon_hours = cfg["data"]["forecast_horizon_hours"]
-        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-        prediction_length = int(horizon_hours * steps_per_hour)
+        try:
+            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+            prediction_length = int(horizon_hours * steps_per_hour)
+        except ValueError:
+            # Non-fixed frequencies (e.g. "MS" for month-start) have no fixed
+            # nanosecond duration — approximate using a 30-day month.
+            prediction_length = max(1, round(horizon_hours / (30 * 24)))
 
     preds = predictor.predict(ts_df, prediction_length=prediction_length)
 
@@ -482,7 +487,10 @@ def event_day_impact_table(
         if target_col not in grp.columns:
             continue
 
-        normal_median = grp[grp.get("is_game_day", pd.Series(False)) == False][target_col].median()
+        if "is_game_day" in grp.columns:
+            normal_median = grp[grp["is_game_day"] == False][target_col].median()
+        else:
+            normal_median = grp[target_col].median()
 
         if "is_game_day" in grp.columns:
             game_median = grp[grp["is_game_day"] == True][target_col].median()

@@ -272,11 +272,17 @@ def build_feature_store(
         wdf["_month"] = wdf["timestamp"].dt.month
         monthly_weather = (
             wdf
-            .groupby(["_year", "_month"])[[
-                "temp_f", "precip_mm", "windspeed_mph",
-                "is_raining", "weather_code", "cloud_cover_pct"
-            ]]
-            .mean()
+            .groupby(["_year", "_month"])
+            .agg(
+                temp_f=("temp_f", "mean"),
+                precip_mm=("precip_mm", "mean"),
+                windspeed_mph=("windspeed_mph", "mean"),
+                is_raining=("is_raining", "mean"),
+                # weather_code is a categorical WMO code — averaging it produces a
+                # meaningless fractional value, so take the most common code instead.
+                weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
+                cloud_cover_pct=("cloud_cover_pct", "mean"),
+            )
             .reset_index()
         )
         log.info(f"Merging {len(monthly_weather):,} month-average weather rows …")
