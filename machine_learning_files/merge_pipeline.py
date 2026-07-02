@@ -182,13 +182,13 @@ def compute_event_features(
     ev = events.copy()
     ev_ts = pd.to_datetime(ev["timestamp_start"])
     if ev_ts.dt.tz is not None:
-        ev_ts = ev_ts.dt.tz_localize(None)
+        ev_ts = ev_ts.dt.tz_convert(None)
     ev["_year"]  = ev_ts.dt.year
     ev["_month"] = ev_ts.dt.month
 
     ts_series = pd.to_datetime(timestamps)
     if ts_series.dt.tz is not None:
-        ts_series = ts_series.dt.tz_localize(None)
+        ts_series = ts_series.dt.tz_convert(None)
 
     results = []
     for ts in ts_series:
@@ -315,11 +315,19 @@ def build_feature_store(
     if "timestamp" in base.columns:
         base = add_calendar_features(base, "timestamp")
 
-    # 6. Date range filter
+    # 6. Date range filter (compare in the same tz space as base timestamps)
     if start:
-        base = base[base["timestamp"] >= pd.Timestamp(start, tz="America/Los_Angeles")]
+        start_ts = pd.Timestamp(start)
+        if base["timestamp"].dt.tz is not None:
+            start_ts = start_ts.tz_localize("America/Los_Angeles") if start_ts.tzinfo is None \
+                else start_ts.tz_convert("America/Los_Angeles")
+        base = base[base["timestamp"] >= start_ts]
     if end:
-        base = base[base["timestamp"] <= pd.Timestamp(end, tz="America/Los_Angeles")]
+        end_ts = pd.Timestamp(end)
+        if base["timestamp"].dt.tz is not None:
+            end_ts = end_ts.tz_localize("America/Los_Angeles") if end_ts.tzinfo is None \
+                else end_ts.tz_convert("America/Los_Angeles")
+        base = base[base["timestamp"] <= end_ts]
 
     # 7. Save
     out = PROCESSED_DIR / "feature_store.parquet"
