@@ -353,7 +353,7 @@ const Results = () => {
 /* ── Live demo: teaser card linking to standalone map page ─────── */
 const Demo = () => {
   const features = [
-    { icon: '🗺', title: 'Real Leaflet map', desc: 'CartoDB Voyager tiles — all 50 BART and 39 VTA stations plotted at true lat/lng.' },
+    { icon: '🗺', title: 'Real Google Maps', desc: 'All 50 BART and 39 VTA stations plotted at true lat/lng.' },
     { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded ridership load: green → amber → coral as demand rises.' },
     { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to animate demand through a full 24-hour day.' },
     { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to see how the model adjusts boardings.' },
@@ -366,7 +366,7 @@ const Demo = () => {
           <Reveal delay="1"><div className="row">
             <h2>Where is the rush, right now?</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
-              An interactive Leaflet map shows expected boardings across BART and VTA.
+              An interactive Google Maps view shows expected boardings across BART and VTA.
               Scrub through the hour, change the day, add weather or a major event — the
               heat overlay updates in real time.
             </p>

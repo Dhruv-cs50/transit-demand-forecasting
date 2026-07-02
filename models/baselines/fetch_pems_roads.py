@@ -250,7 +250,7 @@ class PeMSClient:
                 rename[col] = "occupancy_pct"
             elif "timestamp" in lc or "time" in lc:
                 rename[col] = "timestamp"
-            elif "station" in lc or "id" in lc:
+            elif lc == "station":
                 rename[col] = "sensor_id"
 
         df = df.rename(columns=rename)

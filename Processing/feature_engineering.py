@@ -301,12 +301,13 @@ def add_station_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # Transfer hub stations — multi-modal, highest baseline ridership
+    # Note: Diridon is a Caltrain/VTA hub, not a BART station_id — it has no
+    # entry here and is instead captured via dist_from_diridon_km/in_event_catchment below.
     HUB_STATIONS = {
         "EMBR", "MONT", "POWL", "CIVC",  # SF BART hubs
         "19TH", "MCAR",                    # Oakland hubs
         "MLBR", "SFIA",                    # Airport connections
         "BERY", "MLPT",                    # South Bay (Berryessa/Milpitas)
-        "diridon",                          # Caltrain/VTA hub
     }
 
     df["is_hub_station"] = df["station_id"].isin(HUB_STATIONS)
