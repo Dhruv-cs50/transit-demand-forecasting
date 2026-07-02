@@ -1,5 +1,5 @@
 """
-processing/merge_pipeline.py
+machine_learning_files/merge_pipeline.py
 ─────────────────────────────
 Joins all raw data sources into a single tidy feature store parquet file,
 keyed on (timestamp, station_id).
@@ -38,8 +38,8 @@ Schema:
     lng             float64
 
 Usage:
-    python processing/merge_pipeline.py
-    python processing/merge_pipeline.py --freq 15min --start 2020-01-01
+    python machine_learning_files/merge_pipeline.py
+    python machine_learning_files/merge_pipeline.py --freq 15min --start 2020-01-01
 """
 
 import argparse

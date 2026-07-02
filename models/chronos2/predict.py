@@ -4,8 +4,8 @@ models/chronos2/predict.py
 Production inference wrapper for the fine-tuned Chronos-2 model.
 
 This is the single entry point called by:
-  - serving/api.py        (FastAPI endpoint → Live demo on website)
-  - serving/scheduler.py  (nightly batch forecast run)
+  - machine_learning_files/api.py        (FastAPI endpoint → Live demo on website)
+  - models/baselines/scheduler.py        (nightly batch forecast run)
   - evaluation scripts    (metrics, ablation)
 
 It handles:
@@ -71,7 +71,7 @@ class Predictor:
             return
         self.cfg         = load_config()
         self._predictor  = None   # AutoGluon TimeSeriesPredictor
-        self._pipeline   = None   # Chronos2Pipeline (zero-shot fallback)
+        self._pipeline   = None   # ChronosPipeline (zero-shot fallback)
         self._store      = None   # feature store DataFrame
         self._mode       = None   # "finetuned" | "zeroshot" | "naive"
         self._initialised = True
@@ -97,7 +97,7 @@ class Predictor:
                 return self._store
 
         raise FileNotFoundError(
-            "No feature store found. Run: python processing/merge_pipeline.py"
+            "No feature store found. Run: python machine_learning_files/merge_pipeline.py"
         )
 
     # ── Model loading ──────────────────────────────────────────────────────────
@@ -119,11 +119,16 @@ class Predictor:
     def _load_zeroshot(self) -> bool:
         """Fall back to zero-shot Chronos-2."""
         try:
-            from chronos import Chronos2Pipeline
+            # NOTE: configs/model.yaml pins a Chronos-1 T5 checkpoint
+            # ("amazon/chronos-t5-small"), which loads via ChronosPipeline —
+            # Chronos2Pipeline is for Chronos-2 architecture checkpoints and
+            # doesn't exist in chronos-forecasting 1.x at all. api.py already
+            # loads the same model_id with ChronosPipeline; match that here.
+            from chronos import ChronosPipeline
             model_id = self.cfg["chronos2"]["model_id"]
             device   = self.cfg["chronos2"]["device"]
             log.info(f"Loading zero-shot {model_id} on {device} …")
-            self._pipeline = Chronos2Pipeline.from_pretrained(
+            self._pipeline = ChronosPipeline.from_pretrained(
                 model_id, device_map=device
             )
             self._mode = "zeroshot"
@@ -256,20 +261,36 @@ class Predictor:
             or cfg["chronos2"].get("context_length_steps")
         quantile_levels = quantile_levels or cfg["chronos2"]["quantile_levels"]
 
-        horizon_steps = cfg["data"].get("forecast_horizon_steps") \
-            or cfg["chronos2"].get("prediction_length_steps")
-        if horizon_steps is None:
-            horizon_hours = horizon_hours or cfg["data"]["forecast_horizon_hours"]
-            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-            horizon_steps = int(horizon_hours * steps_per_hour)
+        def _hours_to_steps(hrs: float) -> int:
+            try:
+                steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+                return int(hrs * steps_per_hour)
+            except ValueError:
+                # Non-fixed frequencies (e.g. "MS" for month-start) have no
+                # fixed nanosecond duration — approximate using a 30-day month.
+                return max(1, round(hrs / (30 * 24)))
 
-        # Resolve as_of
+        # Caller-supplied horizon_hours must take precedence over config,
+        # matching arima.py/prophet_baseline.py — otherwise callers (including
+        # the nightly scheduler's `horizon_hours=24`) are silently ignored
+        # whenever the config already has a horizon configured.
+        if horizon_hours is not None:
+            horizon_steps = _hours_to_steps(horizon_hours)
+        else:
+            horizon_steps = cfg["data"].get("forecast_horizon_steps") \
+                or cfg["chronos2"].get("prediction_length_steps")
+            if horizon_steps is None:
+                horizon_steps = _hours_to_steps(cfg["data"]["forecast_horizon_hours"])
+
+        # Resolve as_of — feature_store timestamps are tz-naive, so as_of must
+        # stay naive too, or the `<=`/`>` comparisons in _build_context() raise
+        # TypeError: Invalid comparison between dtype=datetime64[ns] and Timestamp.
         df = self.get_feature_store()
         if as_of is None:
             station_ts = df[df["station_id"] == station_id]["timestamp"]
-            as_of = station_ts.max() if not station_ts.empty else pd.Timestamp.now(tz="America/Los_Angeles")
-        elif as_of.tzinfo is None:
-            as_of = as_of.tz_localize("America/Los_Angeles")
+            as_of = station_ts.max() if not station_ts.empty else pd.Timestamp.now()
+        elif as_of.tzinfo is not None:
+            as_of = as_of.tz_localize(None)
 
         context_df, future_df = self._build_context(
             station_id, as_of,
@@ -373,7 +394,7 @@ class Predictor:
     ) -> pd.DataFrame:
         """
         Run forecasts for every station in the feature store.
-        Used by serving/scheduler.py for nightly batch runs.
+        Used by models/baselines/scheduler.py for nightly batch runs.
         """
         df = self.get_feature_store()
         stations = df["station_id"].unique()

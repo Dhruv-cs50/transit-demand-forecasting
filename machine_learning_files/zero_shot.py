@@ -1,5 +1,5 @@
 """
-models/chronos2/zero_shot.py
+machine_learning_files/zero_shot.py
 ─────────────────────────────
 Zero-shot Chronos-2 inference — no fine-tuning required.
 Uses your historical ridership data as context, with weather and events
@@ -9,8 +9,8 @@ This is your baseline. Run it first to establish a performance floor
 before investing in fine-tuning.
 
 Usage:
-    python models/chronos2/zero_shot.py
-    python models/chronos2/zero_shot.py --station EMBR --horizon 24
+    python machine_learning_files/zero_shot.py
+    python machine_learning_files/zero_shot.py --station EMBR --horizon 24
 """
 
 import argparse
@@ -40,7 +40,7 @@ def load_feature_store(station_id: str = None) -> pd.DataFrame:
     path = PROCESSED_DIR / "feature_store.parquet"
     if not path.exists():
         raise FileNotFoundError(
-            "Feature store not found. Run: python processing/merge_pipeline.py"
+            "Feature store not found. Run: python machine_learning_files/merge_pipeline.py"
         )
     df = pd.read_parquet(path)
     if station_id:
@@ -328,7 +328,9 @@ def main():
     df = load_feature_store(station_id=args.station)
     pipeline = build_chronos_pipeline(cfg)
 
-    as_of = pd.Timestamp(args.as_of, tz="America/Los_Angeles") if args.as_of else None
+    # feature_store timestamps are tz-naive — keep as_of naive too, or the
+    # context-window comparisons in prepare_context() raise TypeError.
+    as_of = pd.Timestamp(args.as_of) if args.as_of else None
     output_dir = Path("models/chronos2/outputs")
 
     if args.station:
