@@ -224,15 +224,18 @@ def run_benchmarks(
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
 
     freq       = cfg["data"].get("resample_freq", "MS")
-    train_end  = pd.Timestamp(cfg["data"]["train_end"], tz="America/Los_Angeles")
-    val_end    = pd.Timestamp(cfg["data"]["val_end"],   tz="America/Los_Angeles")
+    # NOTE: feature_store timestamps are tz-naive (merge_pipeline.py never
+    # localizes them despite its docstring) — cutoffs must stay naive too,
+    # or comparisons against df["timestamp"] raise TypeError.
+    train_end  = pd.Timestamp(cfg["data"]["train_end"])
+    val_end    = pd.Timestamp(cfg["data"]["val_end"])
     train_start = cfg["data"].get("train_start")
     horizon_steps = cfg["data"].get("forecast_horizon_steps") \
         or cfg["chronos2"].get("prediction_length_steps")
 
     train_df = df[df["timestamp"] <= val_end]
     if train_start:
-        start_ts = pd.Timestamp(train_start, tz="America/Los_Angeles")
+        start_ts = pd.Timestamp(train_start)
         train_df = train_df[train_df["timestamp"] >= start_ts]
     test_df  = df[df["timestamp"] >  val_end]
 

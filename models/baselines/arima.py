@@ -225,8 +225,10 @@ def run_arima_all_stations(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     def _as_local_ts(value) -> pd.Timestamp:
+        # feature_store timestamps are tz-naive — keep cutoffs naive so the
+        # `df["timestamp"] <= cutoff` comparison below doesn't raise TypeError.
         ts = pd.Timestamp(value)
-        return ts.tz_localize("America/Los_Angeles") if ts.tzinfo is None else ts.tz_convert("America/Los_Angeles")
+        return ts.tz_localize(None) if ts.tzinfo is not None else ts
 
     train_end    = _as_local_ts(cfg["data"]["train_end"])
     cutoff       = _as_local_ts(train_cutoff) if train_cutoff is not None else train_end

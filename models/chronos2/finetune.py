@@ -55,7 +55,7 @@ def load_config() -> dict:
 def load_train_val(cfg: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Load the chronological train and val splits from the feature store.
-    These were created by processing/merge_pipeline.py.
+    These were created by machine_learning_files/merge_pipeline.py.
 
     Returns (train_df, val_df) — both in AutoGluon TimeSeriesDataFrame format.
     """
@@ -66,7 +66,7 @@ def load_train_val(cfg: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     if not train_path.exists():
         raise FileNotFoundError(
-            "Train split not found. Run: python processing/merge_pipeline.py"
+            "Train split not found. Run: python machine_learning_files/merge_pipeline.py"
         )
 
     log.info("Loading train split …")

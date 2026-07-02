@@ -1,5 +1,5 @@
 """
-serving/api.py
+machine_learning_files/api.py
 ───────────────
 FastAPI service exposing the Chronos-2 forecast as a REST API.
 
@@ -9,7 +9,7 @@ Endpoints:
     GET  /health     — liveness check
 
 Run locally:
-    uvicorn serving.api:app --reload --port 8000
+    uvicorn machine_learning_files.api:app --reload --port 8000
 
 Example request:
     curl -X POST http://localhost:8000/forecast \\
@@ -20,7 +20,8 @@ Example request:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -158,12 +159,25 @@ def _run_forecast(
     if as_of is None:
         as_of = station_df["timestamp"].max()
     else:
-        as_of = pd.Timestamp(as_of, tz="America/Los_Angeles")
+        # feature_store timestamps are tz-naive — keep as_of naive too, or the
+        # context-window comparisons in prepare_context() raise TypeError.
+        as_of = pd.Timestamp(as_of)
 
     context_steps = cfg["chronos2"].get("context_length_steps", None)
     context_steps = cfg["data"].get("context_length_steps") or context_steps
-    prediction_length = cfg["data"].get("forecast_horizon_steps") \
-        or cfg["chronos2"].get("prediction_length_steps", 6)
+
+    # Caller-supplied horizon_hours must take precedence over config —
+    # otherwise the documented `horizon_hours` request field is silently
+    # ignored whenever the config already has a horizon configured (it
+    # always does). Convert hours -> steps the same way arima.py/
+    # prophet_baseline.py/ablation.py do, with the same non-fixed-frequency
+    # (e.g. "MS" month-start) fallback so this doesn't crash on `.nanos`.
+    freq = cfg["data"].get("resample_freq", "MS")
+    try:
+        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+        prediction_length = max(1, int(horizon_hours * steps_per_hour))
+    except ValueError:
+        prediction_length = max(1, round(horizon_hours / (30 * 24)))
 
     context_df, future_df = prepare_context(
         df, station_id, cfg["data"].get("context_length_hours"), as_of,
@@ -198,10 +212,22 @@ def _run_forecast(
 # ── FastAPI app ────────────────────────────────────────────────────────────────
 
 if _FASTAPI_AVAILABLE:
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Pre-load the feature store and model on startup."""
+        try:
+            get_feature_store()
+            log.info("Feature store warm")
+        except Exception as e:
+            log.warning(f"Startup preload failed (will retry on first request): {e}")
+        yield
+
     app = FastAPI(
         title="Bay Area Traffic Forecast API",
         description="Chronos-2 powered ridership forecasting for Bay Area transit stations",
         version="1.0.0",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -211,20 +237,11 @@ if _FASTAPI_AVAILABLE:
         allow_headers=["*"],
     )
 
-    @app.on_event("startup")
-    async def startup():
-        """Pre-load the feature store and model on startup."""
-        try:
-            get_feature_store()
-            log.info("Feature store warm")
-        except Exception as e:
-            log.warning(f"Startup preload failed (will retry on first request): {e}")
-
     @app.get("/health")
     def health():
         return {
             "status":       "ok",
-            "timestamp":    datetime.utcnow().isoformat(),
+            "timestamp":    datetime.now(timezone.utc).isoformat(),
             "model":        _get_config()["chronos2"]["model_id"],
             "store_loaded": _feature_store is not None,
             "model_loaded": _pipeline is not None,
@@ -249,7 +266,7 @@ if _FASTAPI_AVAILABLE:
         return {
             "station_id":    req.station_id,
             "horizon_hours": req.horizon_hours,
-            "generated_at":  datetime.utcnow().isoformat(),
+            "generated_at":  datetime.now(timezone.utc).isoformat(),
             "forecasts":     forecasts,
         }
 
