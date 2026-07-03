@@ -670,11 +670,13 @@ stations_pct = np.arange(1, len(sorted_exits)+1) / len(sorted_exits) * 100
 axes[1,1].plot(stations_pct, cumulative*100, color=BART_BLUE, linewidth=2.5)
 axes[1,1].plot([0,100],[0,100], 'k--', linewidth=1, alpha=0.5, label='Equal distribution')
 top20_idx = np.searchsorted(stations_pct, 80)
+bottom80_share = cumulative[top20_idx] * 100
+top20_share = 100 - bottom80_share
 axes[1,1].axvline(80, color='red', linestyle=':', linewidth=1.2)
-axes[1,1].axhline(cumulative[top20_idx]*100, color='red', linestyle=':', linewidth=1.2)
+axes[1,1].axhline(bottom80_share, color='red', linestyle=':', linewidth=1.2)
 axes[1,1].annotate(
-    f'Top 20% of stations\n= {cumulative[top20_idx]*100:.0f}% of exits',
-    xy=(80, cumulative[top20_idx]*100), xytext=(50, 60),
+    f'Top 20% of stations\n= {top20_share:.0f}% of exits',
+    xy=(80, bottom80_share), xytext=(50, 60),
     arrowprops=dict(arrowstyle='->', color='red'),
     fontsize=9, color='red'
 )

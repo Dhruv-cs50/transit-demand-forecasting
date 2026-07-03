@@ -424,9 +424,11 @@ def main():
         print(f"\n{'─'*50}")
         print(f"Fine-tuning complete!")
         print(f"  Model saved → {output_dir}")
-        print(f"  WAPE  : {scores.get('WAPE', 'N/A'):.4f}")
-        print(f"  MASE  : {scores.get('MASE', 'N/A'):.4f}")
-        print(f"  MAE   : {scores.get('MAE', 'N/A'):.4f}")
+        def _fmt(key):
+            return f"{scores[key]:.4f}" if key in scores else "N/A"
+        print(f"  WAPE  : {_fmt('WAPE')}")
+        print(f"  MASE  : {_fmt('MASE')}")
+        print(f"  MAE   : {_fmt('MAE')}")
         print(f"\nNext step: python models/chronos2/predict.py")
 
     return predictor

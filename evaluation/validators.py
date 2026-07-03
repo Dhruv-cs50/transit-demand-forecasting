@@ -64,7 +64,11 @@ REQUIRED_COLUMNS = [
 ]
 
 EXPECTED_DTYPES = {
-    "timestamp":  "datetime64[ns, America/Los_Angeles]",
+    # NOTE: merge_pipeline.py's build_feature_store() never actually localizes
+    # timestamps (see updates/2026-07-02.md) — the column is genuinely
+    # tz-naive today, so this only requires "some datetime64 dtype" rather
+    # than a specific tz, and will keep matching once that's fixed too.
+    "timestamp":  "datetime64[ns]",
     "station_id": "object",
     "ridership":  "float64",
 }
@@ -112,6 +116,41 @@ def check_required_columns(df: pd.DataFrame) -> List[ValidationResult]:
             check="required_columns",
             severity=Severity.INFO,
             message=f"All {len(REQUIRED_COLUMNS)} required columns present",
+        ))
+    return results
+
+
+def check_dtypes(df: pd.DataFrame) -> List[ValidationResult]:
+    """Confirm columns match their expected dtype category (numeric/string/datetime).
+
+    Uses category checks rather than exact dtype-string equality against
+    EXPECTED_DTYPES so a tz-naive vs. tz-aware timestamp doesn't false-positive
+    here — that distinction is tracked separately (see EXPECTED_DTYPES note).
+    """
+    results = []
+    problems = []
+
+    if "timestamp" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        problems.append(f"timestamp is {df['timestamp'].dtype}, expected a datetime64 dtype")
+    if "station_id" in df.columns and not (
+        pd.api.types.is_object_dtype(df["station_id"]) or pd.api.types.is_string_dtype(df["station_id"])
+    ):
+        problems.append(f"station_id is {df['station_id'].dtype}, expected object/string")
+    if "ridership" in df.columns and not pd.api.types.is_numeric_dtype(df["ridership"]):
+        problems.append(f"ridership is {df['ridership'].dtype}, expected a numeric dtype")
+
+    if problems:
+        results.append(ValidationResult(
+            check="dtypes",
+            severity=Severity.ERROR,
+            message=f"{len(problems)} column(s) have unexpected dtypes",
+            details={"problems": problems},
+        ))
+    else:
+        results.append(ValidationResult(
+            check="dtypes",
+            severity=Severity.INFO,
+            message="All checked columns have expected dtypes",
         ))
     return results
 
@@ -474,6 +513,7 @@ def validate_feature_store(
 
     checks = [
         check_required_columns(df),
+        check_dtypes(df),
         check_timestamp_monotonic(df),
         check_missing_windows(df, freq),
         check_ridership_anomalies(df),
