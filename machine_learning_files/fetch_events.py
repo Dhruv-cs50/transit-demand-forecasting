@@ -178,8 +178,9 @@ class TicketmasterClient:
                     continue
 
                 try:
-                    ts_start = pd.to_datetime(dt_str).tz_convert("America/Los_Angeles") \
-                        if "T" in dt_str else pd.to_datetime(dt_str)
+                    ts_start = pd.to_datetime(dt_str)
+                    ts_start = ts_start.tz_localize("America/Los_Angeles") if ts_start.tzinfo is None \
+                        else ts_start.tz_convert("America/Los_Angeles")
                 except Exception:
                     continue
 
@@ -247,7 +248,7 @@ def enrich_events(df: pd.DataFrame) -> pd.DataFrame:
     df["is_game_day"] = True
     df["game_start_hour"] = df["timestamp_start"].dt.hour
     df["is_weekend_event"] = df["timestamp_start"].dt.dayofweek >= 5
-    df["is_playoff"] = df.get("game_type", pd.Series("", index=df.index)) == "3"
+    df["is_playoff"] = df.get("game_type", pd.Series(0, index=df.index)) == 3
 
     return df
 

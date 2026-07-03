@@ -207,7 +207,11 @@ def fetch_all(start_year: int, end_year: int) -> None:
                 continue
 
             log.info(f"Downloading BART OD for {year}-{month:02d} …")
-            df = download_month(year, month)
+            try:
+                df = download_month(year, month)
+            except Exception as e:
+                log.error(f"  Failed to parse {year}-{month:02d}, skipping: {e}")
+                df = None
             if df is not None:
                 df.to_parquet(out_path, index=False)
                 all_frames.append(df)
