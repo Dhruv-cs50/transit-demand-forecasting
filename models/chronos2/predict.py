@@ -71,7 +71,7 @@ class Predictor:
             return
         self.cfg         = load_config()
         self._predictor  = None   # AutoGluon TimeSeriesPredictor
-        self._pipeline   = None   # Chronos2Pipeline (zero-shot fallback)
+        self._pipeline   = None   # ChronosPipeline (zero-shot fallback)
         self._store      = None   # feature store DataFrame
         self._mode       = None   # "finetuned" | "zeroshot" | "naive"
         self._initialised = True
@@ -117,13 +117,15 @@ class Predictor:
             return False
 
     def _load_zeroshot(self) -> bool:
-        """Fall back to zero-shot Chronos-2."""
+        """Fall back to zero-shot Chronos."""
         try:
-            from chronos import Chronos2Pipeline
+            # model_id ("amazon/chronos-t5-small") is a T5-architecture checkpoint,
+            # not a Chronos-2 one — load it via ChronosPipeline, same as zero_shot.py.
+            from chronos import ChronosPipeline
             model_id = self.cfg["chronos2"]["model_id"]
             device   = self.cfg["chronos2"]["device"]
             log.info(f"Loading zero-shot {model_id} on {device} …")
-            self._pipeline = Chronos2Pipeline.from_pretrained(
+            self._pipeline = ChronosPipeline.from_pretrained(
                 model_id, device_map=device
             )
             self._mode = "zeroshot"
