@@ -125,7 +125,9 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     df = pd.read_parquet(files[-1])  # use the most recent combined file
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
-        df["timestamp"] = df["timestamp"].dt.tz_convert(None)
+        # Preserve local wall-clock time (see compute_event_features) rather than
+        # shifting to UTC — this timestamp is later bucketed by _year/_month.
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
 
     # Skip resample — resampling 5 years of hourly data to 15min creates millions
     # of intermediate rows. Monthly aggregation is done downstream in build_feature_store.
@@ -182,13 +184,18 @@ def compute_event_features(
     ev = events.copy()
     ev_ts = pd.to_datetime(ev["timestamp_start"])
     if ev_ts.dt.tz is not None:
-        ev_ts = ev_ts.dt.tz_convert(None)
+        # tz_convert(None) shifts to UTC before dropping tz, which can push a
+        # late-night local game across a month boundary (e.g. 11pm Apr 30 PDT
+        # becomes 6am May 1 UTC) and miscount it into the wrong month's game
+        # tally. tz_localize(None) drops the tz label while keeping the local
+        # wall-clock time, which is what monthly _year/_month bucketing needs.
+        ev_ts = ev_ts.dt.tz_localize(None)
     ev["_year"]  = ev_ts.dt.year
     ev["_month"] = ev_ts.dt.month
 
     ts_series = pd.to_datetime(timestamps)
     if ts_series.dt.tz is not None:
-        ts_series = ts_series.dt.tz_convert(None)
+        ts_series = ts_series.dt.tz_localize(None)
 
     results = []
     for ts in ts_series:

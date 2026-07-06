@@ -1,5 +1,5 @@
 """
-evaluation/benchmarks.py
+models/baselines/benchmarks.py
 ─────────────────────────
 Head-to-head comparison of all models on the held-out test set.
 
@@ -19,8 +19,8 @@ Produces:
 This is what powers the "MAPE 11.8%" number on your website hero.
 
 Usage:
-    python evaluation/benchmarks.py
-    python evaluation/benchmarks.py --quick   # skip slow baselines
+    python -m models.baselines.benchmarks
+    python -m models.baselines.benchmarks --quick   # skip slow baselines
 """
 
 from __future__ import annotations

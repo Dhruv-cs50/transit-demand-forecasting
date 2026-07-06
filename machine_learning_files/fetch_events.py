@@ -247,7 +247,9 @@ def enrich_events(df: pd.DataFrame) -> pd.DataFrame:
     df["is_game_day"] = True
     df["game_start_hour"] = df["timestamp_start"].dt.hour
     df["is_weekend_event"] = df["timestamp_start"].dt.dayofweek >= 5
-    df["is_playoff"] = df.get("game_type", pd.Series("", index=df.index)) == "3"
+    # gameType comes back from the NHL API as an int (1/2/3/4), not a string —
+    # cast before comparing so this doesn't silently always evaluate to False.
+    df["is_playoff"] = df.get("game_type", pd.Series("", index=df.index)).astype(str) == "3"
 
     return df
 
