@@ -26,7 +26,7 @@ echo "=== 5. AutoGluon fine-tune (DeepAR + AutoETS ensemble) ==="
 $PYTHON models/chronos2/finetune.py --time-limit 1800
 
 echo "=== 6. Benchmarks ==="
-$PYTHON models/baselines/benchmarks.py
+$PYTHON -m models.baselines.benchmarks
 
 echo "=== 7. Export website data ==="
 $PYTHON scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
