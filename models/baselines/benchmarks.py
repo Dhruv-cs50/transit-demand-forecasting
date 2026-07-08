@@ -185,16 +185,17 @@ def diebold_mariano_test(
     except ImportError:
         return {"error": "scipy not installed"}
 
-    merged_a = actuals.merge(preds_a[["timestamp","station_id","p50"]],
+    actual_cols = actuals[["timestamp", "station_id", "ridership"]]
+    merged_a = actual_cols.merge(preds_a[["timestamp","station_id","p50"]],
                               on=["timestamp","station_id"], how="inner")
-    merged_b = actuals.merge(preds_b[["timestamp","station_id","p50"]],
+    merged_b = actual_cols.merge(preds_b[["timestamp","station_id","p50"]],
                               on=["timestamp","station_id"], how="inner")
     common = merged_a.merge(merged_b, on=["timestamp","station_id"],
                             suffixes=("_a","_b"))
     if common.empty:
         return {}
 
-    y_true = common["ridership"].values.astype(float)
+    y_true = common["ridership_a"].values.astype(float)
     e_a = np.abs(y_true - np.maximum(common["p50_a"].values.astype(float), 0))
     e_b = np.abs(y_true - np.maximum(common["p50_b"].values.astype(float), 0))
     d   = e_a - e_b   # positive = B is better
