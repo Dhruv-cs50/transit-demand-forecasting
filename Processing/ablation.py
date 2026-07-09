@@ -165,9 +165,15 @@ def run_inference_with_config(
     ablated_df = ablated_df.rename(columns={"station_id": "item_id", "ridership": "target"})
     ablated_df = ablated_df.sort_values(["item_id", "timestamp"])
 
+    # Keep every covariate column the fine-tuned predictor was trained with —
+    # not just the ones in `include_groups`. zero_out_groups() already zeroed
+    # the excluded ones; dropping those columns entirely instead would hand
+    # AutoGluon a schema missing its known_covariates_names for every config
+    # except "6_full_model", breaking the very comparison ablation exists to run.
+    all_covariate_cols = [c for group_cols in COVARIATE_GROUPS.values() for c in group_cols]
     ts_df = TimeSeriesDataFrame.from_data_frame(
         ablated_df[["item_id", "timestamp", "target"]
-            + [c for g in include_groups for c in COVARIATE_GROUPS[g] if c in ablated_df.columns]
+            + [c for c in all_covariate_cols if c in ablated_df.columns]
         ],
         id_column="item_id",
         timestamp_column="timestamp",

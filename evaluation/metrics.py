@@ -96,14 +96,16 @@ def mase(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     y_train: np.ndarray,
-    seasonality: int = 96,   # 96 × 15min = 24hr seasonal period
+    seasonality: int = 12,   # 12 months = annual seasonal period for monthly BART OD data
 ) -> float:
     """
     Mean Absolute Scaled Error.
     Scales MAE by the in-sample MAE of a seasonal naive forecast.
     MASE < 1.0 means the model beats the seasonal naive baseline.
 
-    seasonality=96 → compare vs same-time-yesterday (24hrs at 15min freq)
+    seasonality=12 → compare vs same-month-last-year (this project's data is
+    monthly BART OD ridership, not 15-min/hourly — a 96-step "24hr" seasonal
+    period doesn't apply and would scale against a nonsensical lag).
     """
     # Seasonal naive in-sample error
     naive_errors = np.abs(y_train[seasonality:] - y_train[:-seasonality])
@@ -211,7 +213,7 @@ def _compute(
     mase_val = None
     if train_df is not None and actual_col in train_df.columns:
         y_train = train_df[actual_col].dropna().values.astype(float)
-        if len(y_train) > 96:
+        if len(y_train) > 24:
             mase_val = mase(y_true, y_pred, y_train)
 
     # Prediction interval metrics
