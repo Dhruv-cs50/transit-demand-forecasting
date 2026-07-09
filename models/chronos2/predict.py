@@ -133,7 +133,23 @@ class Predictor:
             log.warning(f"Chronos-2 load failed: {e}")
             return False
 
-    def _ensure_loaded(self):
+    def _ensure_loaded(self, force_mode: str = None):
+        """
+        Load the backend for `self._mode`. If `force_mode` is given, load
+        (and cache) that specific backend without disturbing `self._mode`,
+        so callers that need to compare modes side-by-side (e.g. benchmarks.py
+        comparing zero-shot vs fine-tuned) don't get the singleton's cached
+        preferred mode silently substituted in.
+        """
+        if force_mode == "zeroshot":
+            if self._pipeline is None:
+                self._load_zeroshot()
+            return
+        if force_mode == "finetuned":
+            if self._predictor is None:
+                self._load_finetuned()
+            return
+
         if self._mode is not None:
             return
         if not self._load_finetuned():
@@ -234,6 +250,7 @@ class Predictor:
         horizon_hours: int = None,
         as_of: pd.Timestamp = None,
         quantile_levels: list[float] = None,
+        mode: str = None,
     ) -> pd.DataFrame:
         """
         Generate a forecast for a single station.
@@ -243,11 +260,18 @@ class Predictor:
             horizon_hours  : hours to forecast ahead (default from config)
             as_of          : forecast origin timestamp (default: latest in store)
             quantile_levels: e.g. [0.1, 0.5, 0.9] for P10/P50/P90
+            mode           : force a specific backend ("zeroshot" | "finetuned")
+                             instead of the singleton's auto-selected mode.
+                             Needed when comparing modes head-to-head (see
+                             evaluation/benchmarks.py) — without this, a second
+                             Predictor() call still resolves to whichever mode
+                             was cached by the first call.
 
         Returns:
             DataFrame with columns: timestamp, p10, p50, p90, station_id
         """
-        self._ensure_loaded()
+        self._ensure_loaded(force_mode=mode)
+        active_mode = mode or self._mode
 
         cfg             = self.cfg
         freq            = cfg["data"].get("resample_freq", "MS")
@@ -277,19 +301,24 @@ class Predictor:
             context_steps=context_steps,
         )
 
+        if active_mode == "finetuned" and self._predictor is None:
+            active_mode = "naive"
+        if active_mode == "zeroshot" and self._pipeline is None:
+            active_mode = "naive"
+
         log.info(
-            f"Forecasting {station_id} | mode={self._mode} | "
+            f"Forecasting {station_id} | mode={active_mode} | "
             f"horizon={horizon_steps} steps at {freq} | context={len(context_df)} rows"
         )
 
         # ── Fine-tuned AutoGluon ───────────────────────────────────────────────
-        if self._mode == "finetuned":
+        if active_mode == "finetuned":
             preds = self._finetuned_forecast(
                 context_df, future_df, station_id, horizon_steps, quantile_levels
             )
 
         # ── Zero-shot Chronos-2 ───────────────────────────────────────────────
-        elif self._mode == "zeroshot":
+        elif active_mode == "zeroshot":
             preds = self._zeroshot_forecast(
                 context_df, future_df, station_id, horizon_steps, quantile_levels
             )
@@ -304,7 +333,7 @@ class Predictor:
 
         preds["station_id"] = station_id
         preds["generated_at"] = datetime.utcnow().isoformat()
-        preds["model_mode"] = self._mode
+        preds["model_mode"] = active_mode
 
         # Clip negatives
         for col in ["p10", "p50", "p90"]:
@@ -370,10 +399,15 @@ class Predictor:
         horizon_hours: int = None,
         as_of: pd.Timestamp = None,
         output_path: Path = None,
+        mode: str = None,
     ) -> pd.DataFrame:
         """
         Run forecasts for every station in the feature store.
         Used by serving/scheduler.py for nightly batch runs.
+
+        mode: force "zeroshot" or "finetuned" (see forecast()). Needed by
+        evaluation/benchmarks.py to get true zero-shot results instead of
+        silently reusing whichever backend this singleton loaded first.
         """
         df = self.get_feature_store()
         stations = df["station_id"].unique()
@@ -381,7 +415,7 @@ class Predictor:
 
         for station_id in stations:
             try:
-                preds = self.forecast(station_id, horizon_hours, as_of)
+                preds = self.forecast(station_id, horizon_hours, as_of, mode=mode)
                 if not preds.empty:
                     all_preds.append(preds)
                     log.info(f"  ✅ {station_id}: {len(preds)} timesteps")

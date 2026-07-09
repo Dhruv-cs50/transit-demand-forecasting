@@ -294,6 +294,7 @@ def run_benchmarks(
         zs_preds = predictor.forecast_all_stations(
             as_of=val_end,
             output_path=EVAL_DIR / "chronos2_zeroshot_preds.parquet",
+            mode="zeroshot",
         )
         if not zs_preds.empty:
             model_preds["Chronos2_ZeroShot"] = zs_preds
@@ -313,6 +314,7 @@ def run_benchmarks(
             ft_preds = predictor.forecast_all_stations(
                 as_of=val_end,
                 output_path=EVAL_DIR / "chronos2_finetuned_preds.parquet",
+                mode="finetuned",
             )
             if not ft_preds.empty:
                 model_preds["AutoGluon_Ensemble"] = ft_preds
