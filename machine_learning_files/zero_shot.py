@@ -242,8 +242,13 @@ def forecast_all_stations(
     if prediction_length is None:
         freq = cfg["data"]["resample_freq"]
         horizon = cfg["data"]["forecast_horizon_hours"]
-        steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-        prediction_length = int(horizon * steps_per_hour)
+        try:
+            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+            prediction_length = int(horizon * steps_per_hour)
+        except ValueError:
+            # Non-fixed frequencies (e.g. "MS" for month-start) have no fixed
+            # nanosecond duration — approximate using a 30-day month.
+            prediction_length = max(1, round(horizon / (30 * 24)))
 
     context_hours = cfg["data"].get("context_length_hours")
     quantile_levels = chronos_cfg["quantile_levels"]
@@ -338,8 +343,14 @@ def main():
             or cfg["chronos2"].get("prediction_length_steps", None)
         if prediction_length is None:
             freq = cfg["data"]["resample_freq"]
-            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-            prediction_length = int(cfg["data"]["forecast_horizon_hours"] * steps_per_hour)
+            horizon = cfg["data"]["forecast_horizon_hours"]
+            try:
+                steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+                prediction_length = int(horizon * steps_per_hour)
+            except ValueError:
+                # Non-fixed frequencies (e.g. "MS" for month-start) have no fixed
+                # nanosecond duration — approximate using a 30-day month.
+                prediction_length = max(1, round(horizon / (30 * 24)))
         context_df, future_df = prepare_context(
             df, args.station, cfg["data"].get("context_length_hours"), as_of,
             context_steps=context_steps,

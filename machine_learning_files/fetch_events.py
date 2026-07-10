@@ -247,7 +247,7 @@ def enrich_events(df: pd.DataFrame) -> pd.DataFrame:
     df["is_game_day"] = True
     df["game_start_hour"] = df["timestamp_start"].dt.hour
     df["is_weekend_event"] = df["timestamp_start"].dt.dayofweek >= 5
-    df["is_playoff"] = df.get("game_type", pd.Series("", index=df.index)) == "3"
+    df["is_playoff"] = pd.to_numeric(df.get("game_type", pd.Series(0, index=df.index)), errors="coerce") == 3
 
     return df
 

@@ -235,7 +235,12 @@ def build_predictor(
         import pandas as pd
         raw_freq = cfg["data"]["resample_freq"]
         horizon = cfg["data"]["forecast_horizon_hours"]
-        steps_per_hour = pd.tseries.frequencies.to_offset(raw_freq).nanos / (3600 * 1e9)
+        try:
+            steps_per_hour = pd.tseries.frequencies.to_offset(raw_freq).nanos / (3600 * 1e9)
+        except ValueError:
+            # Non-fixed frequencies (e.g. "MS" for month-start) have no fixed
+            # nanosecond duration — approximate using a 30-day month.
+            steps_per_hour = 1 / (30 * 24)
         prediction_length = int(horizon * steps_per_hour)
         freq = raw_freq
         context_length_steps = int(cfg["data"]["context_length_hours"] * steps_per_hour)

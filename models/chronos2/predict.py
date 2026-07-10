@@ -260,8 +260,13 @@ class Predictor:
             or cfg["chronos2"].get("prediction_length_steps")
         if horizon_steps is None:
             horizon_hours = horizon_hours or cfg["data"]["forecast_horizon_hours"]
-            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-            horizon_steps = int(horizon_hours * steps_per_hour)
+            try:
+                steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+                horizon_steps = int(horizon_hours * steps_per_hour)
+            except ValueError:
+                # Non-fixed frequencies (e.g. "MS" for month-start) have no fixed
+                # nanosecond duration — approximate using a 30-day month.
+                horizon_steps = max(1, round(horizon_hours / (30 * 24)))
 
         # Resolve as_of
         df = self.get_feature_store()
@@ -428,17 +433,22 @@ class Predictor:
         if station_df.empty or forecast_df is None or forecast_df.empty:
             return {}
 
-        # Typical for this hour + day-of-week
+        # Typical for this calendar month. The feature store is monthly
+        # (each timestamp is a month-start), so hour_of_day is always 0 and
+        # day_of_week is just whichever weekday the 1st fell on — neither
+        # is a meaningful "typical" filter at this granularity.
         now = forecast_df["timestamp"].iloc[0]
         typical_mask = (
-            (station_df["hour_of_day"] == now.hour) &
-            (station_df["day_of_week"] == now.dayofweek) &
+            (station_df["timestamp"].dt.month == now.month) &
             (~station_df.get("is_game_day", pd.Series(False, index=station_df.index)))
         )
         typical_median = station_df[typical_mask]["ridership"].median()
         forecast_p50   = forecast_df["p50"].iloc[0]
 
-        lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
+        if pd.isna(typical_median) or typical_median <= 0:
+            lift_pct = float("nan")
+        else:
+            lift_pct = ((forecast_p50 - typical_median) / typical_median) * 100
 
         # Build reason string
         reason = ""
