@@ -9,7 +9,7 @@ requests>=2.31.0
 PyYAML>=6.0.1
 
 # ── ML / forecasting ───────────────────────────────────────────────────────────
-chronos-forecasting>=1.3.0     # Chronos-2 from Amazon (includes torch deps)
+chronos-forecasting>=2.0.0     # Chronos-2 from Amazon (includes torch deps) — Chronos2Pipeline was added in 2.0
 autogluon.timeseries>=1.1.0    # fine-tuning + covariate regressors
 
 # Baselines
