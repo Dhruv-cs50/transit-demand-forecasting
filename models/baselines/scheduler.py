@@ -95,7 +95,7 @@ def run_step(name: str, script: str, args: list[str] = None) -> bool:
 def step_fetch_weather() -> bool:
     """Pull the 7-day weather forecast for all station locations."""
     try:
-        from ingestion.fetch_weather_openmeteo import (
+        from machine_learning_files.fetch_weather_openmeteo import (
             OpenMeteoClient, fetch_forecast_all_stations, load_config
         )
         cfg = load_config()
@@ -112,7 +112,7 @@ def step_fetch_events() -> bool:
     """Pull upcoming events for the next 30 days."""
     try:
         from datetime import date
-        from ingestion.fetch_events import fetch_all
+        from machine_learning_files.fetch_events import fetch_all
         today = date.today()
         end   = today + timedelta(days=30)
         fetch_all(today, end)
@@ -125,7 +125,7 @@ def step_fetch_events() -> bool:
 def step_validate() -> bool:
     """Run data quality checks on the merged feature store."""
     try:
-        from processing.validators import validate_feature_store, ValidationMode
+        from evaluation.validators import validate_feature_store, ValidationMode
 
         path = PROCESSED_DIR / "feature_store_enriched.parquet"
         if not path.exists():
@@ -220,7 +220,7 @@ class NightlyPipeline:
         log.info("\n[3/5] Rebuilding feature store …")
         self.results["merge"] = run_step(
             "Merge pipeline",
-            "processing/merge_pipeline.py",
+            "machine_learning_files/merge_pipeline.py",
         )
 
         # Step 4 — Validate (gate before forecast)
@@ -327,7 +327,7 @@ def main():
             "events":   step_fetch_events,
             "validate": step_validate,
             "forecast": step_forecast,
-            "merge":    lambda: run_step("Merge", "processing/merge_pipeline.py"),
+            "merge":    lambda: run_step("Merge", "machine_learning_files/merge_pipeline.py"),
         }[args.step]
         ok = step_fn()
         sys.exit(0 if ok else 1)
