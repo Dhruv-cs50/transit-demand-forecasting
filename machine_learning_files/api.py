@@ -158,7 +158,13 @@ def _run_forecast(
     if as_of is None:
         as_of = station_df["timestamp"].max()
     else:
-        as_of = pd.Timestamp(as_of, tz="America/Los_Angeles")
+        # feature_store timestamps are tz-naive — keep as_of naive too, or the
+        # context-window comparisons in prepare_context() raise TypeError.
+        as_of = pd.Timestamp(as_of)
+        if station_df["timestamp"].dt.tz is not None:
+            as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
+        elif as_of.tzinfo is not None:
+            as_of = as_of.tz_localize(None)
 
     context_steps = cfg["chronos2"].get("context_length_steps", None)
     context_steps = cfg["data"].get("context_length_steps") or context_steps

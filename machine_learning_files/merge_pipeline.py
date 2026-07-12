@@ -182,13 +182,17 @@ def compute_event_features(
     ev = events.copy()
     ev_ts = pd.to_datetime(ev["timestamp_start"])
     if ev_ts.dt.tz is not None:
-        ev_ts = ev_ts.dt.tz_convert(None)
+        # tz_convert(None) would shift to UTC before stripping the tz label,
+        # pushing evening LA events past midnight into the wrong month.
+        # tz_localize(None) drops the tz label in place, preserving the
+        # LA wall-clock value that _year/_month bucketing expects.
+        ev_ts = ev_ts.dt.tz_localize(None)
     ev["_year"]  = ev_ts.dt.year
     ev["_month"] = ev_ts.dt.month
 
     ts_series = pd.to_datetime(timestamps)
     if ts_series.dt.tz is not None:
-        ts_series = ts_series.dt.tz_convert(None)
+        ts_series = ts_series.dt.tz_localize(None)
 
     results = []
     for ts in ts_series:

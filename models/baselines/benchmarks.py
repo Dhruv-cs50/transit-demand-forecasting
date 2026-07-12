@@ -223,16 +223,25 @@ def run_benchmarks(
     """
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
 
+    def _match_tz(ts: pd.Timestamp) -> pd.Timestamp:
+        # Compare in the same tz space as df["timestamp"] — the feature store
+        # is tz-naive by default, so hard-coding tz-aware cutoffs here raises
+        # "Invalid comparison between dtype=datetime64[ns] and Timestamp".
+        if df["timestamp"].dt.tz is not None:
+            return ts.tz_localize("America/Los_Angeles") if ts.tzinfo is None \
+                else ts.tz_convert("America/Los_Angeles")
+        return ts.tz_localize(None) if ts.tzinfo is not None else ts
+
     freq       = cfg["data"].get("resample_freq", "MS")
-    train_end  = pd.Timestamp(cfg["data"]["train_end"], tz="America/Los_Angeles")
-    val_end    = pd.Timestamp(cfg["data"]["val_end"],   tz="America/Los_Angeles")
+    train_end  = _match_tz(pd.Timestamp(cfg["data"]["train_end"]))
+    val_end    = _match_tz(pd.Timestamp(cfg["data"]["val_end"]))
     train_start = cfg["data"].get("train_start")
     horizon_steps = cfg["data"].get("forecast_horizon_steps") \
         or cfg["chronos2"].get("prediction_length_steps")
 
     train_df = df[df["timestamp"] <= val_end]
     if train_start:
-        start_ts = pd.Timestamp(train_start, tz="America/Los_Angeles")
+        start_ts = _match_tz(pd.Timestamp(train_start))
         train_df = train_df[train_df["timestamp"] >= start_ts]
     test_df  = df[df["timestamp"] >  val_end]
 
