@@ -117,20 +117,25 @@ class Predictor:
             return False
 
     def _load_zeroshot(self) -> bool:
-        """Fall back to zero-shot Chronos-2."""
+        """Fall back to zero-shot Chronos."""
         try:
-            from chronos import Chronos2Pipeline
+            # configs/model.yaml pins a Chronos-1 T5 checkpoint
+            # ("amazon/chronos-t5-small"), which loads via ChronosPipeline —
+            # Chronos2Pipeline is for Chronos-2 architecture checkpoints and
+            # is the wrong class for this model_id. api.py already loads the
+            # same model_id with ChronosPipeline; match that here.
+            from chronos import ChronosPipeline
             model_id = self.cfg["chronos2"]["model_id"]
             device   = self.cfg["chronos2"]["device"]
             log.info(f"Loading zero-shot {model_id} on {device} …")
-            self._pipeline = Chronos2Pipeline.from_pretrained(
+            self._pipeline = ChronosPipeline.from_pretrained(
                 model_id, device_map=device
             )
             self._mode = "zeroshot"
-            log.info("✅ Zero-shot Chronos-2 ready")
+            log.info("✅ Zero-shot Chronos ready")
             return True
         except Exception as e:
-            log.warning(f"Chronos-2 load failed: {e}")
+            log.warning(f"Chronos load failed: {e}")
             return False
 
     def _ensure_loaded(self):
@@ -263,13 +268,22 @@ class Predictor:
             steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
             horizon_steps = int(horizon_hours * steps_per_hour)
 
-        # Resolve as_of
+        # Resolve as_of — must match df["timestamp"]'s tz-awareness (the feature
+        # store is tz-naive by default), otherwise the <= / > comparisons in
+        # _build_context raise "Invalid comparison between dtype=datetime64[ns]
+        # and Timestamp".
         df = self.get_feature_store()
+        ts_is_aware = df["timestamp"].dt.tz is not None
         if as_of is None:
             station_ts = df[df["station_id"] == station_id]["timestamp"]
-            as_of = station_ts.max() if not station_ts.empty else pd.Timestamp.now(tz="America/Los_Angeles")
-        elif as_of.tzinfo is None:
-            as_of = as_of.tz_localize("America/Los_Angeles")
+            if not station_ts.empty:
+                as_of = station_ts.max()
+            else:
+                as_of = pd.Timestamp.now(tz="America/Los_Angeles") if ts_is_aware else pd.Timestamp.now()
+        elif ts_is_aware:
+            as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
+        elif as_of.tzinfo is not None:
+            as_of = as_of.tz_localize(None)
 
         context_df, future_df = self._build_context(
             station_id, as_of,

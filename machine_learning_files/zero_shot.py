@@ -328,7 +328,15 @@ def main():
     df = load_feature_store(station_id=args.station)
     pipeline = build_chronos_pipeline(cfg)
 
-    as_of = pd.Timestamp(args.as_of, tz="America/Los_Angeles") if args.as_of else None
+    # feature_store timestamps are tz-naive — keep as_of naive too, or the
+    # context-window comparisons in prepare_context() raise TypeError.
+    as_of = None
+    if args.as_of:
+        as_of = pd.Timestamp(args.as_of)
+        if df["timestamp"].dt.tz is not None:
+            as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
+        elif as_of.tzinfo is not None:
+            as_of = as_of.tz_localize(None)
     output_dir = Path("models/chronos2/outputs")
 
     if args.station:

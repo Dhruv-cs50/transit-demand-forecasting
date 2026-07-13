@@ -225,8 +225,13 @@ def run_arima_all_stations(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     def _as_local_ts(value) -> pd.Timestamp:
+        # Compare in the same tz space as df["timestamp"] — the feature store
+        # is tz-naive by default, so forcing tz-aware here raises
+        # "Invalid comparison between dtype=datetime64[ns] and Timestamp".
         ts = pd.Timestamp(value)
-        return ts.tz_localize("America/Los_Angeles") if ts.tzinfo is None else ts.tz_convert("America/Los_Angeles")
+        if df["timestamp"].dt.tz is not None:
+            return ts.tz_localize("America/Los_Angeles") if ts.tzinfo is None else ts.tz_convert("America/Los_Angeles")
+        return ts.tz_localize(None) if ts.tzinfo is not None else ts
 
     train_end    = _as_local_ts(cfg["data"]["train_end"])
     cutoff       = _as_local_ts(train_cutoff) if train_cutoff is not None else train_end
