@@ -137,6 +137,36 @@ def to_autogluon_format(
     return ts_df
 
 
+# Known-future covariates: can be passed for the forecast horizon (weather
+# forecast, event schedule, calendar — all knowable ahead of time). Shared by
+# _default_covariate_cols() and _get_known_covariate_cols() so the two never
+# drift apart — they used to be independently maintained copies, and
+# _get_known_covariate_cols()'s copy silently fell behind (missing
+# is_playoff, weather_code, cloud_cover_pct, precip_in, is_very_cold,
+# is_very_hot, is_windy, temp_deviation), which meant AutoGluon was never
+# told those columns are usable for the forecast horizon even when present.
+KNOWN_FUTURE_COLS = [
+    # Calendar — always known ahead of time
+    "hour_of_day", "day_of_week", "is_weekend", "is_monday", "is_friday",
+    "is_holiday", "is_holiday_eve", "is_am_peak", "is_pm_peak",
+    "is_midday", "is_late_night", "month", "week_of_year", "quarter",
+    "hour_sin", "hour_cos", "dow_sin", "dow_cos", "month_sin", "month_cos",
+    # Weather forecast (7-day ahead from Open-Meteo)
+    "temp_f", "precip_mm", "precip_in", "windspeed_mph",
+    "is_raining", "weather_code", "cloud_cover_pct",
+    "precip_intensity", "weather_discomfort",
+    "is_very_cold", "is_very_hot", "is_windy", "temp_deviation",
+    # Event schedule (known from NHL/Ticketmaster calendar)
+    "is_game_day", "is_sharks_game_window", "game_start_hour",
+    "is_pre_event_window", "is_post_event_window", "is_playoff",
+    "is_any_event_day", "nearest_event_attendance_tier",
+    "hours_to_next_event",
+    # Station static (never changes)
+    "is_hub_station", "capacity_tier", "in_event_catchment",
+    "dist_from_diridon_km",
+]
+
+
 def _default_covariate_cols(df: pd.DataFrame) -> list[str]:
     """
     Return the covariate columns present in the dataframe, split into
@@ -151,26 +181,7 @@ def _default_covariate_cols(df: pd.DataFrame) -> list[str]:
       - Lag features
       - Rolling statistics
     """
-    known_future = [
-        # Calendar — always known ahead of time
-        "hour_of_day", "day_of_week", "is_weekend", "is_monday", "is_friday",
-        "is_holiday", "is_holiday_eve", "is_am_peak", "is_pm_peak",
-        "is_midday", "is_late_night", "month", "week_of_year", "quarter",
-        "hour_sin", "hour_cos", "dow_sin", "dow_cos", "month_sin", "month_cos",
-        # Weather forecast (7-day ahead from Open-Meteo)
-        "temp_f", "precip_mm", "precip_in", "windspeed_mph",
-        "is_raining", "weather_code", "cloud_cover_pct",
-        "precip_intensity", "weather_discomfort",
-        "is_very_cold", "is_very_hot", "is_windy", "temp_deviation",
-        # Event schedule (known from NHL/Ticketmaster calendar)
-        "is_game_day", "is_sharks_game_window", "game_start_hour",
-        "is_pre_event_window", "is_post_event_window", "is_playoff",
-        "is_any_event_day", "nearest_event_attendance_tier",
-        "hours_to_next_event",
-        # Station static (never changes)
-        "is_hub_station", "capacity_tier", "in_event_catchment",
-        "dist_from_diridon_km",
-    ]
+    known_future = KNOWN_FUTURE_COLS
 
     past_only = [
         # Lag features — only known up to present
@@ -299,20 +310,7 @@ def build_predictor(
 
 def _get_known_covariate_cols(ts_df: "TimeSeriesDataFrame") -> list[str]:
     """Extract the known-future covariate column names from the TimeSeriesDataFrame."""
-    known_future_names = [
-        "hour_of_day", "day_of_week", "is_weekend", "is_monday", "is_friday",
-        "is_holiday", "is_holiday_eve", "is_am_peak", "is_pm_peak",
-        "is_midday", "is_late_night", "month", "week_of_year", "quarter",
-        "hour_sin", "hour_cos", "dow_sin", "dow_cos", "month_sin", "month_cos",
-        "temp_f", "precip_mm", "windspeed_mph", "is_raining",
-        "precip_intensity", "weather_discomfort",
-        "is_game_day", "is_sharks_game_window", "game_start_hour",
-        "is_pre_event_window", "is_post_event_window",
-        "is_any_event_day", "nearest_event_attendance_tier",
-        "hours_to_next_event", "is_hub_station", "capacity_tier",
-        "in_event_catchment", "dist_from_diridon_km",
-    ]
-    return [c for c in known_future_names if c in ts_df.columns]
+    return [c for c in KNOWN_FUTURE_COLS if c in ts_df.columns]
 
 
 # ── Evaluation ─────────────────────────────────────────────────────────────────

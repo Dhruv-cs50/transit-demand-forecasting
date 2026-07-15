@@ -177,6 +177,49 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
 
 # ── Event features ─────────────────────────────────────────────────────────────
 
+def _add_monthly_event_features(df: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+    """
+    Monthly-cadence proxy for add_event_features()'s hour-windowed columns:
+    was there an event (or specifically a Sharks game) anywhere in the row's
+    calendar month, rather than within an hour-scale window of a specific
+    timestamp. Mirrors merge_pipeline.py's compute_event_features(), which
+    already buckets is_game_day/is_sharks_game/is_playoff the same way.
+    """
+    ev = events.copy()
+    ev["_year"]  = ev["timestamp_start"].dt.year
+    ev["_month"] = ev["timestamp_start"].dt.month
+    if "is_sharks_game" not in ev.columns:
+        ev["is_sharks_game"] = False
+
+    monthly = (
+        ev.groupby(["_year", "_month"])
+        .agg(event_count=("timestamp_start", "size"), has_sharks=("is_sharks_game", "any"))
+        .reset_index()
+    )
+
+    df["_year"]  = df["timestamp"].dt.year
+    df["_month"] = df["timestamp"].dt.month
+    df = df.merge(monthly, on=["_year", "_month"], how="left")
+    df["event_count"] = df["event_count"].fillna(0).astype(int)
+    df["has_sharks"]  = df["has_sharks"].fillna(False)
+
+    df["is_any_event_day"]      = df["event_count"] > 0
+    df["is_sharks_game_window"] = df["has_sharks"]
+    # Approach/departure windows have no monthly-granularity equivalent.
+    df["is_pre_event_window"]  = False
+    df["is_post_event_window"] = False
+    max_count = max(int(df["event_count"].max()), 1)
+    df["event_proximity_score"] = df["event_count"] / max_count
+    df["nearest_event_attendance_tier"] = (
+        df["is_sharks_game_window"].astype(int) * 2  # major
+        + (df["is_any_event_day"] & ~df["is_sharks_game_window"]).astype(int)  # minor
+    )
+    df["hours_to_next_event"]    = np.nan
+    df["hours_since_last_event"] = np.nan
+
+    return df.drop(columns=["_year", "_month", "event_count", "has_sharks"])
+
+
 def add_event_features(
     df: pd.DataFrame,
     events: pd.DataFrame,
@@ -215,6 +258,17 @@ def add_event_features(
     for frame, col in [(df, "timestamp"), (events, "timestamp_start")]:
         if frame[col].dt.tz is None:
             frame[col] = frame[col].dt.tz_localize("America/Los_Angeles")
+
+    # approach_hours/departure_hours-scale windows are only meaningful when
+    # df's timestamps carry sub-daily resolution. At this pipeline's actual
+    # monthly cadence every row sits at midnight-of-month, so a game at, say,
+    # 19:00 is ~350+ hours away from the row it should be flagging — these
+    # columns would silently be constant False/0 forever (the same dead-signal
+    # class of bug already fixed for is_am_peak/is_pm_peak in
+    # merge_pipeline.py). Fall back to a monthly event-presence proxy instead
+    # of returning a permanently dead feature.
+    if df["timestamp"].dt.hour.nunique() <= 1:
+        return _add_monthly_event_features(df, events)
 
     ev_starts = events["timestamp_start"].values
     ev_ends   = events["timestamp_end"].values if "timestamp_end" in events.columns \

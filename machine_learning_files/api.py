@@ -164,7 +164,10 @@ def _run_forecast(
         if station_df["timestamp"].dt.tz is not None:
             as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
         elif as_of.tzinfo is not None:
-            as_of = as_of.tz_localize(None)
+            # Convert to LA wall-clock time before dropping the tz label — stripping
+            # a non-LA offset directly would keep the wrong wall-clock digits (e.g.
+            # 08:00 UTC silently becomes "08:00 naive" instead of the correct 01:00 PDT).
+            as_of = as_of.tz_convert("America/Los_Angeles").tz_localize(None)
 
     context_steps = cfg["chronos2"].get("context_length_steps", None)
     context_steps = cfg["data"].get("context_length_steps") or context_steps
