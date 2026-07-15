@@ -651,7 +651,7 @@ const API_BASE = 'https://transit-api-308878596074.us-west2.run.app';
 const BARTForecasts = () => {
   const [forecasts, setForecasts] = React.useState([]);
   const [actuals, setActuals]     = React.useState([]);
-  const [station, setStation]     = React.useState('EM');
+  const [station, setStation]     = React.useState('EMBR');
   const [loading, setLoading]     = React.useState(true);
   const [comparison, setComparison] = React.useState([]);
   const [liveData, setLiveData]   = React.useState(null);
@@ -659,11 +659,11 @@ const BARTForecasts = () => {
   const [liveError, setLiveError] = React.useState(null);
 
   const KEY_STATIONS = [
-    { id:'EM', name:'Embarcadero' },
-    { id:'MT', name:'Montgomery St' },
-    { id:'12', name:'12th St Oakland' },
-    { id:'BE', name:'Berryessa' },
-    { id:'FM', name:'Fremont' },
+    { id:'EMBR', name:'Embarcadero' },
+    { id:'MONT', name:'Montgomery St' },
+    { id:'12TH', name:'12th St Oakland' },
+    { id:'BERY', name:'Berryessa' },
+    { id:'FRMT', name:'Fremont' },
   ];
 
   React.useEffect(() => {
