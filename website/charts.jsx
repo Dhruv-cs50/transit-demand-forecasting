@@ -91,7 +91,7 @@ const Calibration = ({ width = 460, height = 260 }) => {
     fetch('data/forecasts.json')
       .then(r => r.json()).catch(() => [])
       .then(d => {
-        const em = d.filter(r => r.station_id === 'EM')
+        const em = d.filter(r => r.station_id === 'EMBR')
                     .sort((a, b) => a.month.localeCompare(b.month));
         setPts(em);
       });

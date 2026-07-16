@@ -165,10 +165,16 @@ def run_inference_with_config(
     ablated_df = ablated_df.rename(columns={"station_id": "item_id", "ridership": "target"})
     ablated_df = ablated_df.sort_values(["item_id", "timestamp"])
 
+    # Select columns from ALL covariate groups, not just include_groups: the
+    # predictor was fine-tuned once on the full covariate schema, so every
+    # ablation config must feed it that same schema. zero_out_groups() already
+    # zeroed the excluded groups' values above -- selecting only
+    # include_groups' columns here discarded that zeroing entirely and fed
+    # the predictor a smaller, mismatched schema per config (e.g. "1_baseline"
+    # got only "target", with none of the covariates the model expects).
+    all_covariate_cols = [c for g in COVARIATE_GROUPS for c in COVARIATE_GROUPS[g] if c in ablated_df.columns]
     ts_df = TimeSeriesDataFrame.from_data_frame(
-        ablated_df[["item_id", "timestamp", "target"]
-            + [c for g in include_groups for c in COVARIATE_GROUPS[g] if c in ablated_df.columns]
-        ],
+        ablated_df[["item_id", "timestamp", "target"] + all_covariate_cols],
         id_column="item_id",
         timestamp_column="timestamp",
     )

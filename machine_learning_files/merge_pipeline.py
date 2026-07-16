@@ -6,9 +6,13 @@ keyed on (timestamp, station_id).
 
 Sources joined:
   1. Transit ridership   (data/raw/transit/)     — target variable
-  2. Road speed/flow     (data/raw/roads/)        — road context
-  3. Weather             (data/raw/weather/)      — past + future covariate
-  4. Events              (data/raw/events/)       — future-known covariate
+  2. Weather             (data/raw/weather/)      — past + future covariate
+  3. Events              (data/raw/events/)       — future-known covariate
+
+Road speed/flow (models/baselines/fetch_pems_roads.py) is fetched separately
+but is not yet wired into this pipeline — no road_speed_mph/road_flow/lat/lng
+columns are produced here despite earlier versions of this docstring claiming
+otherwise.
 
 Output: data/processed/feature_store.parquet
 Schema:
@@ -17,8 +21,6 @@ Schema:
     agency_id       str
     transit_mode    str      (rail / bus / ferry / road)
     ridership       float64  ← TARGET
-    road_speed_mph  float64
-    road_flow       float64
     temp_f          float64
     precip_mm       float64
     is_raining      bool
@@ -34,8 +36,8 @@ Schema:
     hour_of_day     int
     day_of_week     int      (0=Mon, 6=Sun)
     month           int
-    lat             float64
-    lng             float64
+    is_am_peak      bool     (only present when timestamps carry sub-daily resolution)
+    is_pm_peak      bool     (only present when timestamps carry sub-daily resolution)
 
 Usage:
     python processing/merge_pipeline.py
@@ -60,6 +62,20 @@ RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
 CONFIG_PATH = Path("configs/sources.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
+
+# Direct name correspondence between the 7 weather-monitoring locations in
+# configs/sources.yaml (weather.station_coords) and real BART station codes
+# (cross-checked against fetch_bart_od.py's STATION_NAMES). "diridon" has no
+# BART equivalent -- it's a Caltrain/VTA hub -- so it's intentionally left
+# unmapped here; it still contributes to the regional fallback average below.
+STATION_TO_WEATHER_STATION = {
+    "EMBR": "embarcadero",
+    "MLBR": "millbrae",
+    "FRMT": "fremont_bart",
+    "BERY": "berryessa",
+    "SFIA": "sfo",
+    "19TH": "oakland_19th",
+}
 
 
 def load_configs() -> tuple[dict, dict]:
@@ -235,9 +251,15 @@ def add_calendar_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.Dat
     df["month"]        = ts.dt.month
     df["week_of_year"] = ts.dt.isocalendar().week.astype(int)
     df["is_holiday"]   = ts.dt.date.map(lambda d: d in us_holidays)
-    # Peak commute windows
-    df["is_am_peak"]   = ts.dt.hour.between(7, 9)
-    df["is_pm_peak"]   = ts.dt.hour.between(16, 19)
+    # Peak commute windows are only meaningful when timestamps actually carry
+    # sub-daily resolution. At the monthly cadence this pipeline currently
+    # runs at, every timestamp sits at midnight, so these would always
+    # evaluate to constant False -- a dead signal fed straight into training
+    # rather than a real "not currently peak" reading. Only add them when the
+    # data can actually distinguish hours.
+    if ts.dt.hour.nunique() > 1:
+        df["is_am_peak"] = ts.dt.hour.between(7, 9)
+        df["is_pm_peak"] = ts.dt.hour.between(16, 19)
 
     return df
 
@@ -265,7 +287,9 @@ def build_feature_store(
     # (In production this would be the 511 stop-observation data at 15-min resolution)
     base = transit_df.copy()
 
-    # 3. Merge weather — aggregate hourly weather to monthly, join on year/month
+    # 3. Merge weather — aggregate hourly weather to monthly, join per-station
+    # where a BART station maps to a dedicated weather-monitoring location,
+    # falling back to the regional (all-locations) average everywhere else.
     if not weather_df.empty:
         weather_df = weather_df.rename(columns={"station": "weather_station"})
         wdf = weather_df.copy()
@@ -274,30 +298,49 @@ def build_feature_store(
             wdf["timestamp"] = wdf["timestamp"].dt.tz_localize(None)
         wdf["_year"]  = wdf["timestamp"].dt.year
         wdf["_month"] = wdf["timestamp"].dt.month
-        monthly_weather = (
-            wdf
-            .groupby(["_year", "_month"])
-            .agg(
-                temp_f=("temp_f", "mean"),
-                precip_mm=("precip_mm", "mean"),
-                windspeed_mph=("windspeed_mph", "mean"),
-                is_raining=("is_raining", "mean"),
-                # weather_code is a categorical WMO code — averaging it produces a
-                # meaningless fractional value, so take the most common code instead.
-                weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
-                cloud_cover_pct=("cloud_cover_pct", "mean"),
-            )
-            .reset_index()
+
+        agg_kwargs = dict(
+            temp_f=("temp_f", "mean"),
+            precip_mm=("precip_mm", "mean"),
+            windspeed_mph=("windspeed_mph", "mean"),
+            is_raining=("is_raining", "mean"),
+            # weather_code is a categorical WMO code — averaging it produces a
+            # meaningless fractional value, so take the most common code instead.
+            weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
+            cloud_cover_pct=("cloud_cover_pct", "mean"),
         )
-        log.info(f"Merging {len(monthly_weather):,} month-average weather rows …")
+        weather_cols = list(agg_kwargs.keys())
+
+        # Previously this blended all 7 monitoring locations (including
+        # "diridon", ~50mi from the Bay Area BART core) into one number per
+        # month and joined it onto every station — every station got
+        # identical weather regardless of where it actually sits.
+        station_weather = (
+            wdf.groupby(["weather_station", "_year", "_month"]).agg(**agg_kwargs).reset_index()
+        )
+        regional_weather = (
+            wdf.groupby(["_year", "_month"]).agg(**agg_kwargs).reset_index()
+        )
+        log.info(
+            f"Merging weather: {len(station_weather):,} per-station rows "
+            f"(direct match for {len(STATION_TO_WEATHER_STATION)} stations) "
+            f"+ {len(regional_weather):,} regional fallback rows …"
+        )
 
         base_ts = pd.to_datetime(base["timestamp"])
         if base_ts.dt.tz is not None:
             base_ts = base_ts.dt.tz_localize(None)
         base["_year"]  = base_ts.dt.year
         base["_month"] = base_ts.dt.month
-        base = base.merge(monthly_weather, on=["_year", "_month"], how="left")
-        base = base.drop(columns=["_year", "_month"])
+        base["weather_station"] = base["station_id"].map(STATION_TO_WEATHER_STATION)
+
+        matched  = base.merge(station_weather, on=["weather_station", "_year", "_month"], how="left")
+        fallback = base.merge(regional_weather, on=["_year", "_month"], how="left")
+        has_match = base["weather_station"].notna()
+        for col in weather_cols:
+            base[col] = matched[col].where(has_match, fallback[col])
+
+        base = base.drop(columns=["_year", "_month", "weather_station"])
 
     # 4. Compute event features against the timestamp column
     if not events_df.empty and "timestamp" in base.columns:
