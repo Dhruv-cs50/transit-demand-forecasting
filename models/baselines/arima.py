@@ -83,6 +83,7 @@ def fit_station(
     station_df: pd.DataFrame,
     station_id: str,
     freq: str,
+    use_auto: bool = False,
 ) -> tuple:
     """
     Fit a SARIMA model for a single station.
@@ -110,6 +111,18 @@ def fit_station(
             f"Not enough data for SARIMA seasonal period "
             f"({len(series)} < {orders['seasonal_order'][3] * 2})"
         )
+
+    if use_auto:
+        # auto_arima only selects orders — still fit the final model with
+        # statsmodels' SARIMAX so the returned object supports get_forecast(),
+        # same as the fixed-order path below.
+        auto_model, method = fit_auto_arima(series, freq)
+        if auto_model is not None:
+            orders = {
+                "order": auto_model.order,
+                "seasonal_order": auto_model.seasonal_order,
+            }
+        log.info(f"  auto_arima order selection: {method}")
 
     log.info(
         f"  Fitting SARIMA{orders['order']}×{orders['seasonal_order']} "
@@ -260,7 +273,7 @@ def run_arima_all_stations(
             continue
 
         try:
-            fit, last_ts = fit_station(station_train, station_id, freq)
+            fit, last_ts = fit_station(station_train, station_id, freq, use_auto=use_auto)
             preds = predict_station(fit, last_ts, horizon_steps, freq)
             preds["station_id"] = station_id
             preds["model"]      = "SARIMA"

@@ -25,51 +25,55 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("export_website_data")
 
-# Mapping from BART 2-letter codes in feature store → website station IDs in transit-map.jsx.
-# Only codes that have a matching station in the website's BART_STATIONS array are included.
-# Codes with no website counterpart (AS, EP, ML, NC, OA, SH, WC, WP, WS) are omitted.
+# Mapping from BART 4-letter station codes (machine_learning_files/fetch_bart_od.py's
+# STATION_NAMES — the actual `station_id` values produced by merge_pipeline.py) →
+# website station IDs used in website/transit-demo.html's station array.
+# Codes with no website counterpart (ASHB, PLZA, MLPT, NCON, OAKL, PCTR, SHAY, WARM,
+# WCRK) are omitted. PCTR ("Pittsburg Center", the Ebart infill station) has no
+# distinct website node — PITT ("Pittsburg/Bay Point") maps to the website's single
+# "pit" / "Pittsburg" entry.
 BART_CODE_TO_WEBSITE_ID = {
-    "12": "12th",   # 12th St. Oakland City Center
-    "16": "16th",   # 16th St. Mission
-    "19": "19th",   # 19th St. Oakland
-    "24": "24th",   # 24th St. Mission
-    "AN": "ant",    # Antioch
-    "BE": "brb",    # Berryessa/North San José
-    "BF": "bayp",   # Bay Fair
-    "BK": "bky",    # Downtown Berkeley
-    "BP": "bls",    # Balboa Park
-    "CC": "cvc",    # Civic Center/UN Plaza (BART, distinct from VTA cvc)
-    "CL": "col",    # Coliseum
-    "CM": "colm",   # Colma
-    "CN": "ccd",    # Concord
-    "CV": "cas",    # Castro Valley
-    "DC": "daly",   # Daly City
-    "ED": "dub",    # Dublin/Pleasanton
-    "EM": "emb",    # Embarcadero
-    "EN": "elc",    # El Cerrito Del Norte → website's single "El Cerrito"
-    "FM": "frm",    # Fremont
-    "FV": "fvw",    # Fruitvale
-    "GP": "gln",    # Glen Park
-    "HY": "hyw",    # Hayward
-    "LF": "lfy",    # Lafayette
-    "LM": "lkm",    # Lake Merritt
-    "MA": "mac",    # MacArthur
-    "MB": "mil",    # Millbrae
-    "MT": "mtg",    # Montgomery St.
-    "NB": "nbk",    # North Berkeley
-    "OR": "orn",    # Orinda
-    "OW": "wo",     # West Oakland
-    "PC": "pit",    # Pittsburg Center → website's Pittsburg
-    "PH": "plh",    # Pleasant Hill/Contra Costa Centre
-    "PL": "pwl",    # Powell St.
-    "RM": "rich",   # Richmond
-    "RR": "rkr",    # Rockridge
-    "SB": "sbr",    # San Bruno
-    "SL": "sl",     # San Leandro
-    "SO": "sfo",    # SFO Airport
-    "SS": "ssf",    # South San Francisco
-    "UC": "unc",    # Union City
-    "WD": "wdb",    # West Dublin/Pleasanton
+    "12TH": "12th",  # 12th St. Oakland City Center
+    "16TH": "16th",  # 16th St. Mission
+    "19TH": "19th",  # 19th St. Oakland
+    "24TH": "24th",  # 24th St. Mission
+    "ANTC": "ant",   # Antioch
+    "BALB": "bls",   # Balboa Park
+    "BAYF": "bayp",  # Bay Fair
+    "BERY": "brb",   # Berryessa/North San José
+    "CAST": "cas",   # Castro Valley
+    "CIVC": "cvc",   # Civic Center/UN Plaza
+    "COLS": "col",   # Coliseum
+    "COLM": "colm",  # Colma
+    "CONC": "ccd",   # Concord
+    "DALY": "daly",  # Daly City
+    "DBRK": "bky",   # Downtown Berkeley
+    "DUBL": "dub",   # Dublin/Pleasanton
+    "DELN": "elc",   # El Cerrito Del Norte → website's single "El Cerrito"
+    "EMBR": "emb",   # Embarcadero
+    "FRMT": "frm",   # Fremont
+    "FTVL": "fvw",   # Fruitvale
+    "GLEN": "gln",   # Glen Park
+    "HAYW": "hyw",   # Hayward
+    "LAFY": "lfy",   # Lafayette
+    "LAKE": "lkm",   # Lake Merritt
+    "MCAR": "mac",   # MacArthur
+    "MLBR": "mil",   # Millbrae
+    "MONT": "mtg",   # Montgomery St.
+    "NBRK": "nbk",   # North Berkeley
+    "ORIN": "orn",   # Orinda
+    "PITT": "pit",   # Pittsburg/Bay Point → website's Pittsburg
+    "PHIL": "plh",   # Pleasant Hill/Contra Costa Centre
+    "POWL": "pwl",   # Powell St.
+    "RICH": "rich",  # Richmond
+    "ROCK": "rkr",   # Rockridge
+    "SBRN": "sbr",   # San Bruno
+    "SFIA": "sfo",   # SFO Airport
+    "SANL": "sl",    # San Leandro
+    "SSAN": "ssf",   # South San Francisco
+    "UCTY": "unc",   # Union City
+    "WDUB": "wdb",   # West Dublin/Pleasanton
+    "WOAK": "wo",    # West Oakland
 }
 
 WEBSITE_IDS_WITH_REAL_DATA = set(BART_CODE_TO_WEBSITE_ID.values())

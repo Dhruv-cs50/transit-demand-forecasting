@@ -138,7 +138,19 @@ class Predictor:
             log.warning(f"Chronos load failed: {e}")
             return False
 
-    def _ensure_loaded(self):
+    def _ensure_loaded(self, force_mode: str = None):
+        # force_mode bypasses the cached auto-selected mode to explicitly load
+        # a specific backend (e.g. benchmarks.py comparing zero-shot vs.
+        # fine-tuned head-to-head needs an actual zero-shot run even when
+        # fine-tuned weights exist and would otherwise always win the
+        # finetuned-first fallback below).
+        if force_mode is not None:
+            if force_mode == "finetuned" and self._predictor is None:
+                self._load_finetuned()
+            elif force_mode == "zeroshot" and self._pipeline is None:
+                self._load_zeroshot()
+            self._mode = force_mode
+            return
         if self._mode is not None:
             return
         if not self._load_finetuned():
@@ -239,6 +251,7 @@ class Predictor:
         horizon_hours: int = None,
         as_of: pd.Timestamp = None,
         quantile_levels: list[float] = None,
+        force_mode: str = None,
     ) -> pd.DataFrame:
         """
         Generate a forecast for a single station.
@@ -247,12 +260,15 @@ class Predictor:
             station_id     : transit station code (e.g. "DIRIDON", "EMBR")
             horizon_hours  : hours to forecast ahead (default from config)
             as_of          : forecast origin timestamp (default: latest in store)
+            force_mode     : "finetuned" | "zeroshot" — bypass the cached
+                              finetuned-first auto-selection and load this
+                              backend explicitly (see _ensure_loaded)
             quantile_levels: e.g. [0.1, 0.5, 0.9] for P10/P50/P90
 
         Returns:
             DataFrame with columns: timestamp, p10, p50, p90, station_id
         """
-        self._ensure_loaded()
+        self._ensure_loaded(force_mode=force_mode)
 
         cfg             = self.cfg
         freq            = cfg["data"].get("resample_freq", "MS")
@@ -283,7 +299,10 @@ class Predictor:
         elif ts_is_aware:
             as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
         elif as_of.tzinfo is not None:
-            as_of = as_of.tz_localize(None)
+            # Convert to LA wall-clock time before dropping the tz label — stripping
+            # a non-LA offset directly would keep the wrong wall-clock digits (e.g.
+            # 08:00 UTC silently becomes "08:00 naive" instead of the correct 01:00 PDT).
+            as_of = as_of.tz_convert("America/Los_Angeles").tz_localize(None)
 
         context_df, future_df = self._build_context(
             station_id, as_of,
@@ -384,6 +403,7 @@ class Predictor:
         horizon_hours: int = None,
         as_of: pd.Timestamp = None,
         output_path: Path = None,
+        force_mode: str = None,
     ) -> pd.DataFrame:
         """
         Run forecasts for every station in the feature store.
@@ -395,7 +415,7 @@ class Predictor:
 
         for station_id in stations:
             try:
-                preds = self.forecast(station_id, horizon_hours, as_of)
+                preds = self.forecast(station_id, horizon_hours, as_of, force_mode=force_mode)
                 if not preds.empty:
                     all_preds.append(preds)
                     log.info(f"  ✅ {station_id}: {len(preds)} timesteps")
@@ -462,7 +482,8 @@ class Predictor:
                 hour = int(future_row.iloc[0].get("game_start_hour", 19))
                 reason = f"Sharks home game · puck drop {hour}:00"
         if not reason and "is_raining" in station_df.columns:
-            if station_df[station_df["timestamp"] > now].iloc[0].get("is_raining"):
+            rain_row = station_df[station_df["timestamp"] > now]
+            if not rain_row.empty and rain_row.iloc[0].get("is_raining"):
                 reason = "Rain in forecast · ridership shift expected"
 
         return {

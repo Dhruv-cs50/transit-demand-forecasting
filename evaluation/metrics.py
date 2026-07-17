@@ -97,6 +97,7 @@ def mase(
     y_pred: np.ndarray,
     y_train: np.ndarray,
     seasonality: int = 96,   # 96 × 15min = 24hr seasonal period
+    ids: np.ndarray = None,
 ) -> float:
     """
     Mean Absolute Scaled Error.
@@ -104,13 +105,55 @@ def mase(
     MASE < 1.0 means the model beats the seasonal naive baseline.
 
     seasonality=96 → compare vs same-time-yesterday (24hrs at 15min freq)
+
+    y_train must already be sorted chronologically. If `ids` is given
+    (aligned 1:1 with y_train, e.g. station_id per row), the seasonal-naive
+    lag is computed independently within each id's own run of rows instead
+    of across the whole array — otherwise, when y_train concatenates
+    multiple series (e.g. all stations stacked together), the lag silently
+    diffs unrelated series against each other.
     """
-    # Seasonal naive in-sample error
-    naive_errors = np.abs(y_train[seasonality:] - y_train[:-seasonality])
+    if ids is not None:
+        naive_error_chunks = []
+        for _, idx in pd.Series(np.arange(len(y_train))).groupby(pd.Series(ids), sort=False):
+            vals = y_train[idx.values]
+            if len(vals) > seasonality:
+                naive_error_chunks.append(np.abs(vals[seasonality:] - vals[:-seasonality]))
+        if not naive_error_chunks:
+            return float("nan")
+        naive_errors = np.concatenate(naive_error_chunks)
+    else:
+        if len(y_train) <= seasonality:
+            return float("nan")
+        naive_errors = np.abs(y_train[seasonality:] - y_train[:-seasonality])
+
     scale = np.mean(naive_errors)
     if scale < 1e-8:
         return float("nan")
     return float(np.mean(np.abs(y_pred - y_true)) / scale)
+
+
+def _infer_seasonal_period(train_df: pd.DataFrame) -> int:
+    """
+    Infer the seasonal-naive lag from the training data's actual timestamp
+    cadence, instead of assuming the 15-min-freq 96 default regardless of
+    the pipeline's real granularity (this project's feature store is
+    monthly — configs/model.yaml's `data.granularity` — for which 96 has
+    no meaning and 12, the annual seasonal period, is correct).
+    """
+    if train_df is None or "timestamp" not in train_df.columns or len(train_df) < 2:
+        return 96
+    ts = pd.to_datetime(train_df["timestamp"]).sort_values().drop_duplicates()
+    if len(ts) < 2:
+        return 96
+    median_delta = ts.diff().dropna().median()
+    if median_delta >= pd.Timedelta(days=25):
+        return 12   # monthly cadence → annual seasonal period
+    if median_delta >= pd.Timedelta(hours=20):
+        return 7    # daily cadence → weekly seasonal period
+    if median_delta <= pd.Timedelta(minutes=20):
+        return 96   # 15-min cadence → 24hr seasonal period
+    return 24        # hourly cadence → 24hr seasonal period
 
 
 def coverage(
@@ -210,9 +253,16 @@ def _compute(
     # MASE requires training data for scale
     mase_val = None
     if train_df is not None and actual_col in train_df.columns:
-        y_train = train_df[actual_col].dropna().values.astype(float)
-        if len(y_train) > 96:
-            mase_val = mase(y_true, y_pred, y_train)
+        seasonal_period = _infer_seasonal_period(train_df)
+        train_sorted = train_df.sort_values("timestamp") if "timestamp" in train_df.columns else train_df
+        train_valid = train_sorted.dropna(subset=[actual_col])
+        y_train = train_valid[actual_col].values.astype(float)
+        # Group the seasonal-naive scale by station so multi-station train_df
+        # (e.g. overall_metrics' full training set) never diffs one station's
+        # ridership against another's.
+        ids = train_valid["station_id"].values if "station_id" in train_valid.columns else None
+        if len(y_train) > seasonal_period:
+            mase_val = mase(y_true, y_pred, y_train, seasonality=seasonal_period, ids=ids)
 
     # Prediction interval metrics
     cov_val = width_val = None

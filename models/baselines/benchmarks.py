@@ -300,9 +300,16 @@ def run_benchmarks(
     try:
         from models.chronos2.predict import Predictor
         predictor = Predictor()
+        # Predictor is a process-wide singleton that prefers fine-tuned
+        # weights whenever they exist. Without force_mode="zeroshot", this
+        # section would silently run the fine-tuned model the moment
+        # models/chronos2/weights exists — mislabeling it "Chronos2_ZeroShot"
+        # on the leaderboard and making the DM-test below compare the
+        # fine-tuned model against itself (d == 0 for every observation).
         zs_preds = predictor.forecast_all_stations(
             as_of=val_end,
             output_path=EVAL_DIR / "chronos2_zeroshot_preds.parquet",
+            force_mode="zeroshot",
         )
         if not zs_preds.empty:
             model_preds["Chronos2_ZeroShot"] = zs_preds
@@ -322,6 +329,7 @@ def run_benchmarks(
             ft_preds = predictor.forecast_all_stations(
                 as_of=val_end,
                 output_path=EVAL_DIR / "chronos2_finetuned_preds.parquet",
+                force_mode="finetuned",
             )
             if not ft_preds.empty:
                 model_preds["AutoGluon_Ensemble"] = ft_preds

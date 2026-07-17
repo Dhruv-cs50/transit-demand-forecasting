@@ -215,7 +215,7 @@ Content-Type: application/json
     <h3 style="font-size:15px;margin-bottom:14px">Try with curl</h3>
     <pre id="curlExample" class="mono" style="background:var(--bg-muted);border-radius:8px;padding:14px;font-size:12px;overflow-x:auto;margin:0;color:var(--ink);white-space:pre-wrap">curl -X POST https://&lt;your-url&gt;/forecast \
   -H "Content-Type: application/json" \
-  -d '{"station_id":"EM","horizon_hours":6}'</pre>
+  -d '{"station_id":"EMBR","horizon_hours":6}'</pre>
   </div>
 </main>
 
@@ -285,17 +285,17 @@ async function loadStations() {
       sel.appendChild(opt);
     });
     /* default to Embarcadero */
-    if (data.stations && data.stations.includes('EM')) sel.value = 'EM';
+    if (data.stations && data.stations.includes('EMBR')) sel.value = 'EMBR';
   } catch(e) {
-    /* fallback: common BART station IDs */
-    const fallback = ['EM','MT','PL','CC','12','24','BK','19','BP','DC','SO','MA','FV','OW'];
+    /* fallback: common BART station IDs (4-letter codes matching the feature store's station_id) */
+    const fallback = ['EMBR','MONT','POWL','CIVC','12TH','24TH','DBRK','19TH','BALB','DALY','SFIA','MCAR','FTVL','WOAK'];
     sel.innerHTML = '<option value="">— select station —</option>';
     fallback.forEach(s => {
       const opt = document.createElement('option');
       opt.value = s; opt.textContent = s;
       sel.appendChild(opt);
     });
-    sel.value = 'EM';
+    sel.value = 'EMBR';
   }
 }
 
