@@ -4,8 +4,10 @@ scripts/export_website_data.py
 Reads the feature store and exports two JSON files consumed by the website:
 
   website/data/stations_ridership.json
-      Per-station average monthly ridership + normalized heat scale (0-2.4)
-      Used by transit-map.jsx to anchor station heat values to real data.
+      Per-station average monthly ridership + normalized heat scale (0-2.4).
+      Was consumed by the now-deleted transit-map.jsx Leaflet map; the live
+      map (website/transit-demo.html) currently uses hardcoded demo data
+      instead, so this file has no live consumer today.
 
   website/data/stations_meta.json
       Station list with real names and BART IDs — used by Demo dropdowns.
@@ -101,7 +103,8 @@ def compute_station_ridership(df: pd.DataFrame) -> pd.DataFrame:
 
 def normalize_to_heat_scale(series: pd.Series, target_max: float = 2.4) -> pd.Series:
     """
-    Normalize ridership to 0–2.4 scale matching transit-map.jsx heat range.
+    Normalize ridership to 0–2.4 scale (the heat range the now-deleted
+    transit-map.jsx expected).
     Uses soft normalization: 95th percentile as the ceiling to avoid one
     outlier dominating the color scale.
     """
