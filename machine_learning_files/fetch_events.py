@@ -178,8 +178,16 @@ class TicketmasterClient:
                     continue
 
                 try:
-                    ts_start = pd.to_datetime(dt_str).tz_convert("America/Los_Angeles") \
-                        if "T" in dt_str else pd.to_datetime(dt_str)
+                    if "T" in dt_str:
+                        ts_start = pd.to_datetime(dt_str).tz_convert("America/Los_Angeles")
+                    else:
+                        # Event time still TBD (Ticketmaster gives only localDate) —
+                        # localize to LA so this stays tz-aware like the branch above
+                        # and like NHLClient's rows. Leaving it tz-naive here made
+                        # `pd.to_datetime` raise "Cannot mix tz-aware with tz-naive
+                        # values" in enrich_events() the moment a TBD-time event and
+                        # a timed event/Sharks game landed in the same batch.
+                        ts_start = pd.to_datetime(dt_str).tz_localize("America/Los_Angeles")
                 except Exception:
                     continue
 

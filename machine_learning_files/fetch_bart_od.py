@@ -124,10 +124,18 @@ def download_month(year: int, month: int) -> pd.DataFrame | None:
         try:
             log.debug(f"  Trying {url}")
             resp = requests.get(url, timeout=60)
-            if resp.status_code == 200:
-                log.info(f"  ✓ {url}")
-                return parse_bart_od_excel(resp.content, year, month)
+            if resp.status_code != 200:
+                continue
+            log.info(f"  ✓ {url}")
+            return parse_bart_od_excel(resp.content, year, month)
         except requests.RequestException:
+            continue
+        except Exception as e:
+            # A 200 response isn't proof it's a real Excel file — bart.gov
+            # serves soft-404 HTML landing pages on some retired URL patterns.
+            # Without this, an unparseable response killed the entire
+            # multi-year batch job instead of just this one candidate URL.
+            log.debug(f"  Unparseable response from {url}: {e}")
             continue
     log.warning(f"  No file found for {year}-{month:02d}")
     return None
