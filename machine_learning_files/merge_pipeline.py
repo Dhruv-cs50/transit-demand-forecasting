@@ -303,9 +303,11 @@ def build_feature_store(
             temp_f=("temp_f", "mean"),
             precip_mm=("precip_mm", "mean"),
             windspeed_mph=("windspeed_mph", "mean"),
-            is_raining=("is_raining", "mean"),
-            # weather_code is a categorical WMO code — averaging it produces a
-            # meaningless fractional value, so take the most common code instead.
+            # is_raining and weather_code are both categorical/boolean — averaging
+            # them produces meaningless fractional values (and breaks downstream
+            # `== True`/`== False` comparisons in metrics.py/ablation.py/
+            # benchmarks.py), so take the most common value instead.
+            is_raining=("is_raining", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
             weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
             cloud_cover_pct=("cloud_cover_pct", "mean"),
         )
