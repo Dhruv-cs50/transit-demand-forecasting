@@ -91,11 +91,18 @@ def add_time_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.DataFra
     df["is_monday"]      = df["day_of_week"] == 0   # Mondays often anomalous post-weekend
     df["is_friday"]      = df["day_of_week"] == 4   # Fridays have early PM peak
 
-    # Commute windows (Bay Area-specific timing)
-    df["is_am_peak"]     = df["hour_of_day"].between(7, 9)    # 7–9am
-    df["is_pm_peak"]     = df["hour_of_day"].between(16, 19)  # 4–7pm
-    df["is_midday"]      = df["hour_of_day"].between(10, 15)
-    df["is_late_night"]  = (df["hour_of_day"] >= 22) | (df["hour_of_day"] <= 5)
+    # Commute windows (Bay Area-specific timing) — only meaningful when
+    # timestamps actually carry sub-daily resolution. At this pipeline's
+    # monthly cadence every timestamp sits at midnight, so hour_of_day is
+    # always 0 and these would be constant (is_late_night permanently True,
+    # the rest permanently False) — a dead signal fed straight into
+    # training/ablation rather than a real reading. Same class of bug
+    # already fixed for merge_pipeline.py's is_am_peak/is_pm_peak.
+    if df["hour_of_day"].nunique() > 1:
+        df["is_am_peak"]     = df["hour_of_day"].between(7, 9)    # 7–9am
+        df["is_pm_peak"]     = df["hour_of_day"].between(16, 19)  # 4–7pm
+        df["is_midday"]      = df["hour_of_day"].between(10, 15)
+        df["is_late_night"]  = (df["hour_of_day"] >= 22) | (df["hour_of_day"] <= 5)
 
     # Holidays
     df["is_holiday"] = ts.dt.date.map(lambda d: d in CA_HOLIDAYS).astype(bool)
