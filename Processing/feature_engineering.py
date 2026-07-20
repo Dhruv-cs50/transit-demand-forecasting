@@ -144,7 +144,7 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
     ).astype(float)
 
     # Rolling precipitation: has it been raining consistently?
-    if df["timestamp"].is_monotonic_increasing:
+    if not df["timestamp"].is_monotonic_increasing:
         df = df.sort_values("timestamp")
     if "station_id" in df.columns:
         grp = df.groupby("station_id")["precip_mm"]
@@ -542,6 +542,22 @@ def main():
     out = PROCESSED_DIR / "feature_store_enriched.parquet"
     df_enriched.to_parquet(out, index=False)
     log.info(f"Enriched feature store saved → {out}")
+
+    # Re-cut splits/{train,val,test}.parquet from the ENRICHED store. merge_pipeline.py's
+    # own make_splits() call (pipeline step 1) runs before this step and only sees the base
+    # feature store, so its splits/ files never carry is_sharks_game_window, precip_intensity,
+    # in_event_catchment, etc. — silently emptying ablation.py's and metrics.py's event/weather
+    # diagnostic slices whenever they read their default `splits/test.parquet`. Overwrite with
+    # the enriched cut here so the on-disk splits/ always match the enriched schema.
+    from machine_learning_files.merge_pipeline import load_configs, make_splits
+
+    _, model_cfg = load_configs()
+    make_splits(
+        df_enriched,
+        train_end=model_cfg["data"]["train_end"],
+        val_end=model_cfg["data"]["val_end"],
+        train_start=model_cfg["data"].get("train_start"),
+    )
 
     # Print feature summary
     print(f"\n{'─'*60}")

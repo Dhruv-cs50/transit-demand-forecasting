@@ -123,10 +123,13 @@ def _run_forecast(
     """Core forecast logic — loads pre-computed parquet first, falls back to live Chronos."""
     cfg = _get_config()
 
-    # Fast path: serve from pre-computed zero-shot forecast parquet
+    # Fast path: serve from pre-computed zero-shot forecast parquet. Only valid when
+    # the caller didn't request a specific anchor time — the cache is a single batch
+    # forecast generated at its own "now", with no per-as_of variants, so honoring a
+    # caller-supplied as_of here would silently ignore it and return the wrong anchor.
     cached_dir = Path("models/chronos2/outputs")
     cached_files = sorted(cached_dir.glob("zero_shot_forecasts_*.parquet")) if cached_dir.exists() else []
-    if cached_files:
+    if cached_files and as_of is None:
         cached = pd.read_parquet(cached_files[-1])
         station_cache = cached[cached["station_id"] == station_id]
         if not station_cache.empty:
