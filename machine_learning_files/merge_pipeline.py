@@ -303,7 +303,9 @@ def build_feature_store(
             temp_f=("temp_f", "mean"),
             precip_mm=("precip_mm", "mean"),
             windspeed_mph=("windspeed_mph", "mean"),
-            is_raining=("is_raining", "mean"),
+            # is_raining is a boolean — averaging it produces a fraction instead
+            # of a bool, silently breaking every downstream ==True/==False filter.
+            is_raining=("is_raining", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
             # weather_code is a categorical WMO code — averaging it produces a
             # meaningless fractional value, so take the most common code instead.
             weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
