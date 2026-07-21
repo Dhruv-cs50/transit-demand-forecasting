@@ -352,6 +352,7 @@ class Predictor:
         context_df, future_df, station_id, horizon_steps, quantile_levels
     ) -> pd.DataFrame:
         from autogluon.timeseries import TimeSeriesDataFrame
+        from models.chronos2.finetune import KNOWN_FUTURE_COLS
 
         ctx = context_df.rename(columns={"station_id": "item_id", "ridership": "target"})
         ctx = ctx.sort_values("timestamp")
@@ -363,7 +364,25 @@ class Predictor:
             timestamp_column="timestamp",
         )
 
-        preds = self._predictor.predict(ts_df, prediction_length=horizon_steps)
+        # TimeSeriesPredictor.predict() has no prediction_length argument — the
+        # horizon is fixed when the predictor is built (finetune.py's
+        # build_predictor). What it does need, since the predictor was fit with
+        # known_covariates_names set, is `known_covariates` for the forecast
+        # horizon: the future weather-forecast/event-schedule rows this method
+        # received in `future_df` and never used.
+        known_covariates = None
+        if future_df is not None and not future_df.empty:
+            fut = future_df.rename(columns={"station_id": "item_id"}).sort_values("timestamp")
+            fut = fut.groupby("item_id", as_index=False, group_keys=False).head(horizon_steps)
+            cov_cols = [c for c in KNOWN_FUTURE_COLS if c in fut.columns]
+            if cov_cols:
+                known_covariates = TimeSeriesDataFrame.from_data_frame(
+                    fut[["item_id", "timestamp"] + cov_cols],
+                    id_column="item_id",
+                    timestamp_column="timestamp",
+                )
+
+        preds = self._predictor.predict(ts_df, known_covariates=known_covariates)
         preds_df = preds.reset_index()
 
         col_map = {}
