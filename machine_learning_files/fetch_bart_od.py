@@ -125,8 +125,15 @@ def download_month(year: int, month: int) -> pd.DataFrame | None:
             log.debug(f"  Trying {url}")
             resp = requests.get(url, timeout=60)
             if resp.status_code == 200:
+                try:
+                    parsed = parse_bart_od_excel(resp.content, year, month)
+                except Exception as e:
+                    # A 200 with a non-Excel body (e.g. bart.gov soft-404 HTML)
+                    # would otherwise blow up the whole multi-year batch job.
+                    log.debug(f"  {url} returned 200 but failed to parse: {e}")
+                    continue
                 log.info(f"  ✓ {url}")
-                return parse_bart_od_excel(resp.content, year, month)
+                return parsed
         except requests.RequestException:
             continue
     log.warning(f"  No file found for {year}-{month:02d}")
