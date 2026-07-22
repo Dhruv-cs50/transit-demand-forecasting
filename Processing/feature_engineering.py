@@ -91,11 +91,18 @@ def add_time_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.DataFra
     df["is_monday"]      = df["day_of_week"] == 0   # Mondays often anomalous post-weekend
     df["is_friday"]      = df["day_of_week"] == 4   # Fridays have early PM peak
 
-    # Commute windows (Bay Area-specific timing)
-    df["is_am_peak"]     = df["hour_of_day"].between(7, 9)    # 7–9am
-    df["is_pm_peak"]     = df["hour_of_day"].between(16, 19)  # 4–7pm
-    df["is_midday"]      = df["hour_of_day"].between(10, 15)
-    df["is_late_night"]  = (df["hour_of_day"] >= 22) | (df["hour_of_day"] <= 5)
+    # Commute windows (Bay Area-specific timing) — only meaningful when
+    # timestamps actually carry sub-daily resolution. At this pipeline's
+    # monthly cadence every timestamp sits at midnight, so hour_of_day is
+    # always 0 and these would be constant (is_late_night permanently True,
+    # the rest permanently False) — a dead signal fed straight into
+    # training/ablation rather than a real reading. Same class of bug
+    # already fixed for merge_pipeline.py's is_am_peak/is_pm_peak.
+    if df["hour_of_day"].nunique() > 1:
+        df["is_am_peak"]     = df["hour_of_day"].between(7, 9)    # 7–9am
+        df["is_pm_peak"]     = df["hour_of_day"].between(16, 19)  # 4–7pm
+        df["is_midday"]      = df["hour_of_day"].between(10, 15)
+        df["is_late_night"]  = (df["hour_of_day"] >= 22) | (df["hour_of_day"] <= 5)
 
     # Holidays
     df["is_holiday"] = ts.dt.date.map(lambda d: d in CA_HOLIDAYS).astype(bool)
@@ -137,7 +144,7 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
     ).astype(float)
 
     # Rolling precipitation: has it been raining consistently?
-    if df["timestamp"].is_monotonic_increasing:
+    if not df["timestamp"].is_monotonic_increasing:
         df = df.sort_values("timestamp")
     if "station_id" in df.columns:
         grp = df.groupby("station_id")["precip_mm"]
@@ -535,6 +542,22 @@ def main():
     out = PROCESSED_DIR / "feature_store_enriched.parquet"
     df_enriched.to_parquet(out, index=False)
     log.info(f"Enriched feature store saved → {out}")
+
+    # Re-cut splits/{train,val,test}.parquet from the ENRICHED store. merge_pipeline.py's
+    # own make_splits() call (pipeline step 1) runs before this step and only sees the base
+    # feature store, so its splits/ files never carry is_sharks_game_window, precip_intensity,
+    # in_event_catchment, etc. — silently emptying ablation.py's and metrics.py's event/weather
+    # diagnostic slices whenever they read their default `splits/test.parquet`. Overwrite with
+    # the enriched cut here so the on-disk splits/ always match the enriched schema.
+    from machine_learning_files.merge_pipeline import load_configs, make_splits
+
+    _, model_cfg = load_configs()
+    make_splits(
+        df_enriched,
+        train_end=model_cfg["data"]["train_end"],
+        val_end=model_cfg["data"]["val_end"],
+        train_start=model_cfg["data"].get("train_start"),
+    )
 
     # Print feature summary
     print(f"\n{'─'*60}")
