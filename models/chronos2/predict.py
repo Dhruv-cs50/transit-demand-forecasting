@@ -481,15 +481,35 @@ class Predictor:
         if station_df.empty or forecast_df is None or forecast_df.empty:
             return {}
 
-        # Typical for this hour + day-of-week
+        # Typical for this hour + day-of-week — only meaningful when timestamps
+        # carry sub-daily resolution. At this pipeline's actual monthly cadence
+        # every timestamp sits at midnight (hour_of_day == 0 for all rows), so
+        # matching on hour/day-of-week degenerates into "same weekday the 1st
+        # of some other month happened to fall on" — an arbitrary ~1/7 slice
+        # of history that can easily leave zero matching rows (typical_median
+        # = NaN, silently propagating into lift_pct via `max(nan, 1) == nan`).
+        # Fall back to "same calendar month across other years" instead, same
+        # class of fix already applied to the hour-scale feature functions.
         now = forecast_df["timestamp"].iloc[0]
-        typical_mask = (
-            (station_df["hour_of_day"] == now.hour) &
-            (station_df["day_of_week"] == now.dayofweek) &
-            (~station_df.get("is_game_day", pd.Series(False, index=station_df.index)))
-        )
-        typical_median = station_df[typical_mask]["ridership"].median()
+        not_game_day = ~station_df.get("is_game_day", pd.Series(False, index=station_df.index))
+        if station_df["hour_of_day"].nunique() > 1:
+            typical_mask = (
+                (station_df["hour_of_day"] == now.hour) &
+                (station_df["day_of_week"] == now.dayofweek) &
+                not_game_day
+            )
+        else:
+            typical_mask = (station_df["timestamp"].dt.month == now.month) & not_game_day
+        typical_subset = station_df[typical_mask]
+        if typical_subset.empty:
+            # No matching history at all (e.g. brand-new station) — fall back
+            # to the station's overall non-game-day median rather than NaN.
+            typical_subset = station_df[not_game_day]
+        typical_median = typical_subset["ridership"].median()
         forecast_p50   = forecast_df["p50"].iloc[0]
+
+        if pd.isna(typical_median):
+            return {}
 
         lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
 
