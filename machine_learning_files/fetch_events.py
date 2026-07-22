@@ -178,8 +178,13 @@ class TicketmasterClient:
                     continue
 
                 try:
-                    ts_start = pd.to_datetime(dt_str).tz_convert("America/Los_Angeles") \
-                        if "T" in dt_str else pd.to_datetime(dt_str)
+                    if "T" in dt_str:
+                        ts_start = pd.to_datetime(dt_str).tz_convert("America/Los_Angeles")
+                    else:
+                        # TBD-time events only carry a date (no "T") — localize to LA
+                        # too, or concatenating with tz-aware rows elsewhere raises
+                        # "Cannot mix tz-aware with tz-naive values".
+                        ts_start = pd.to_datetime(dt_str).tz_localize("America/Los_Angeles")
                 except Exception:
                     continue
 

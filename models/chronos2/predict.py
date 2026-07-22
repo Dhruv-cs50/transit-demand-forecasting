@@ -352,6 +352,7 @@ class Predictor:
         context_df, future_df, station_id, horizon_steps, quantile_levels
     ) -> pd.DataFrame:
         from autogluon.timeseries import TimeSeriesDataFrame
+        from models.chronos2.finetune import KNOWN_FUTURE_COLS
 
         ctx = context_df.rename(columns={"station_id": "item_id", "ridership": "target"})
         ctx = ctx.sort_values("timestamp")
@@ -363,7 +364,25 @@ class Predictor:
             timestamp_column="timestamp",
         )
 
-        preds = self._predictor.predict(ts_df, prediction_length=horizon_steps)
+        # TimeSeriesPredictor.predict() has no prediction_length argument — the
+        # horizon is fixed when the predictor is built (finetune.py's
+        # build_predictor). What it does need, since the predictor was fit with
+        # known_covariates_names set, is `known_covariates` for the forecast
+        # horizon: the future weather-forecast/event-schedule rows this method
+        # received in `future_df` and never used.
+        known_covariates = None
+        if future_df is not None and not future_df.empty:
+            fut = future_df.rename(columns={"station_id": "item_id"}).sort_values("timestamp")
+            fut = fut.groupby("item_id", as_index=False, group_keys=False).head(horizon_steps)
+            cov_cols = [c for c in KNOWN_FUTURE_COLS if c in fut.columns]
+            if cov_cols:
+                known_covariates = TimeSeriesDataFrame.from_data_frame(
+                    fut[["item_id", "timestamp"] + cov_cols],
+                    id_column="item_id",
+                    timestamp_column="timestamp",
+                )
+
+        preds = self._predictor.predict(ts_df, known_covariates=known_covariates)
         preds_df = preds.reset_index()
 
         col_map = {}
@@ -462,15 +481,35 @@ class Predictor:
         if station_df.empty or forecast_df is None or forecast_df.empty:
             return {}
 
-        # Typical for this hour + day-of-week
+        # Typical for this hour + day-of-week — only meaningful when timestamps
+        # carry sub-daily resolution. At this pipeline's actual monthly cadence
+        # every timestamp sits at midnight (hour_of_day == 0 for all rows), so
+        # matching on hour/day-of-week degenerates into "same weekday the 1st
+        # of some other month happened to fall on" — an arbitrary ~1/7 slice
+        # of history that can easily leave zero matching rows (typical_median
+        # = NaN, silently propagating into lift_pct via `max(nan, 1) == nan`).
+        # Fall back to "same calendar month across other years" instead, same
+        # class of fix already applied to the hour-scale feature functions.
         now = forecast_df["timestamp"].iloc[0]
-        typical_mask = (
-            (station_df["hour_of_day"] == now.hour) &
-            (station_df["day_of_week"] == now.dayofweek) &
-            (~station_df.get("is_game_day", pd.Series(False, index=station_df.index)))
-        )
-        typical_median = station_df[typical_mask]["ridership"].median()
+        not_game_day = ~station_df.get("is_game_day", pd.Series(False, index=station_df.index))
+        if station_df["hour_of_day"].nunique() > 1:
+            typical_mask = (
+                (station_df["hour_of_day"] == now.hour) &
+                (station_df["day_of_week"] == now.dayofweek) &
+                not_game_day
+            )
+        else:
+            typical_mask = (station_df["timestamp"].dt.month == now.month) & not_game_day
+        typical_subset = station_df[typical_mask]
+        if typical_subset.empty:
+            # No matching history at all (e.g. brand-new station) — fall back
+            # to the station's overall non-game-day median rather than NaN.
+            typical_subset = station_df[not_game_day]
+        typical_median = typical_subset["ridership"].median()
         forecast_p50   = forecast_df["p50"].iloc[0]
+
+        if pd.isna(typical_median):
+            return {}
 
         lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
 
