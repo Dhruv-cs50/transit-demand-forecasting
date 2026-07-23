@@ -81,7 +81,7 @@ class Transit511Client:
     def get_lines(self, agency_id: str) -> pd.DataFrame:
         """Return all routes for an agency."""
         data = self._get("lines", {"operator_id": agency_id})
-        lines = data.get("Content", {}).get("dataObjects", {}).get("LineGroup", [])
+        lines = data.get("Contents", {}).get("dataObjects", {}).get("LineGroup", [])
         if isinstance(lines, dict):
             lines = [lines]
         return pd.DataFrame([
