@@ -149,7 +149,21 @@ class Predictor:
                 self._load_finetuned()
             elif force_mode == "zeroshot" and self._pipeline is None:
                 self._load_zeroshot()
-            self._mode = force_mode
+            # Only honor force_mode if the requested backend actually loaded —
+            # _load_finetuned()/_load_zeroshot() already set self._mode on success.
+            # Blindly setting self._mode = force_mode here regardless of load
+            # outcome left self._predictor/self._pipeline as None while forecast()
+            # dispatched into _finetuned_forecast/_zeroshot_forecast anyway,
+            # raising AttributeError on .predict()/.predict_df() instead of
+            # falling back to naive like the non-forced path below does.
+            if force_mode == "finetuned" and self._predictor is None:
+                self._mode = "naive"
+                log.warning("⚠️  force_mode='finetuned' requested but load failed — using seasonal naive fallback")
+            elif force_mode == "zeroshot" and self._pipeline is None:
+                self._mode = "naive"
+                log.warning("⚠️  force_mode='zeroshot' requested but load failed — using seasonal naive fallback")
+            else:
+                self._mode = force_mode
             return
         if self._mode is not None:
             return
