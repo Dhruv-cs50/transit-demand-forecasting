@@ -133,12 +133,36 @@ def load_transit(freq: str) -> pd.DataFrame:
 def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     """Load all weather parquet files and return combined hourly DataFrame."""
     log.info("Loading weather data …")
-    files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
+    weather_dir = RAW_DIR / "weather"
+    files = sorted(weather_dir.glob("weather_all_stations_*.parquet"))
     if not files:
         log.warning("No weather files found")
         return pd.DataFrame()
 
     df = pd.read_parquet(files[-1])  # use the most recent combined file
+
+    # The nightly scheduler's 7-day-ahead forecast fetch
+    # (fetch_weather_openmeteo.fetch_forecast_all_stations) writes
+    # weather_forecast_<timestamp>.parquet -- a filename pattern this glob
+    # never matched, so those rows silently never reached the feature store:
+    # every future timestamp's weather covariates stayed missing/stale no
+    # matter how often the nightly forecast step ran. Merge in the latest
+    # forecast file here, preferring the archive's rows for any overlapping
+    # (station, timestamp) since the archive is the observed ground truth.
+    forecast_files = sorted(weather_dir.glob("weather_forecast_*.parquet"))
+    if forecast_files:
+        fdf = pd.read_parquet(forecast_files[-1])
+        fdf["timestamp"] = pd.to_datetime(fdf["timestamp"])
+        before = len(df)
+        df = pd.concat([df, fdf], ignore_index=True)
+        dedup_cols = [c for c in ["station", "timestamp"] if c in df.columns]
+        if dedup_cols:
+            df = df.drop_duplicates(subset=dedup_cols, keep="first")
+        log.info(
+            f"  Merged {len(fdf):,} forecast rows from {forecast_files[-1].name} "
+            f"({len(df) - before:,} new rows after de-duplication)"
+        )
+
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
         df["timestamp"] = df["timestamp"].dt.tz_convert(None)
