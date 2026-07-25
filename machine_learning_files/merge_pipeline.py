@@ -309,7 +309,15 @@ def build_feature_store(
 
     # 2. Build a base time grid from transit data timestamps
     # (In production this would be the 511 stop-observation data at 15-min resolution)
-    base = transit_df.copy()
+    # load_transit() filters out non-station aggregate rows (e.g. "Exits") with a
+    # boolean mask and never re-indexes, so transit_df's index has gaps. The weather
+    # merge below relies on `matched`/`fallback`/`has_match` all lining up with base
+    # positionally — pd.merge() always returns a fresh 0..n-1 RangeIndex regardless of
+    # the left frame's index, so a gapped base index silently misaligns .where()'s
+    # label-based join (cross-contaminating rows with a different station's weather,
+    # or introducing NaN for rows past the truncated range). Reset to a clean 0..n-1
+    # index here so every downstream positional frame lines up by label too.
+    base = transit_df.reset_index(drop=True).copy()
 
     # 3. Merge weather — aggregate hourly weather to monthly, join per-station
     # where a BART station maps to a dedicated weather-monitoring location,
