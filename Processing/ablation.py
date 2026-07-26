@@ -73,8 +73,7 @@ COVARIATE_GROUPS = {
         "is_game_day", "is_sharks_game_window", "game_start_hour",
         "is_pre_event_window", "is_post_event_window", "is_playoff",
         "is_any_event_day", "nearest_event_attendance_tier",
-        "hours_to_next_event", "hours_since_last_event",
-        "event_proximity_score",
+        "hours_to_event", "event_proximity_score",
     ],
     "station": [
         "is_hub_station", "capacity_tier", "in_event_catchment",

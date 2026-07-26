@@ -191,7 +191,7 @@ const Method = () => {
 /* ── Dataset ───────────────────────────────────────────────────── */
 const Dataset = () => {
   const splits = [
-    { nm:'Train (2019 + Jan–Dec 2022)', v:1200, w:0.667 },
+    { nm:'Train (Jan 2021–Dec 2022)', v:1200, w:0.667 },
     { nm:'Validation (Jan–Jun 2023)', v:300, w:0.167 },
     { nm:'Test (Jul–Dec 2023)', v:300, w:0.167 },
   ];
