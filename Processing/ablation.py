@@ -64,16 +64,16 @@ COVARIATE_GROUPS = {
     ],
     "weather": [
         "temp_f", "precip_mm", "precip_in", "windspeed_mph", "is_raining",
-        "precip_intensity", "weather_discomfort", "is_very_cold", "is_very_hot",
-        "is_windy", "temp_deviation", "precip_3hr_sum", "precip_6hr_sum",
-        "precip_24hr_sum", "is_rain_onset", "cloud_cover_pct", "humidity_pct",
+        "weather_code", "precip_intensity", "weather_discomfort", "is_very_cold",
+        "is_very_hot", "is_windy", "temp_deviation", "precip_3hr_sum",
+        "precip_6hr_sum", "precip_24hr_sum", "is_rain_onset", "cloud_cover_pct",
+        "humidity_pct",
     ],
     "events": [
         "is_game_day", "is_sharks_game_window", "game_start_hour",
         "is_pre_event_window", "is_post_event_window", "is_playoff",
         "is_any_event_day", "nearest_event_attendance_tier",
-        "hours_to_next_event", "hours_since_last_event",
-        "event_proximity_score",
+        "hours_to_event", "event_proximity_score",
     ],
     "station": [
         "is_hub_station", "capacity_tier", "in_event_catchment",
@@ -137,8 +137,8 @@ def zero_out_groups(
 def run_inference_with_config(
     model_dir: Path,
     feature_store: pd.DataFrame,
+    test_df: pd.DataFrame,
     include_groups: list[str],
-    cfg: dict,
 ) -> pd.DataFrame:
     """
     Run inference using the fine-tuned predictor with only the specified
@@ -150,6 +150,7 @@ def run_inference_with_config(
         from autogluon.timeseries import TimeSeriesPredictor, TimeSeriesDataFrame
     except ImportError:
         raise ImportError("Install AutoGluon: pip install autogluon.timeseries")
+    from models.chronos2.finetune import KNOWN_FUTURE_COLS
 
     if not model_dir.exists():
         raise FileNotFoundError(
@@ -173,27 +174,37 @@ def run_inference_with_config(
     # the predictor a smaller, mismatched schema per config (e.g. "1_baseline"
     # got only "target", with none of the covariates the model expects).
     all_covariate_cols = [c for g in COVARIATE_GROUPS for c in COVARIATE_GROUPS[g] if c in ablated_df.columns]
+
+    # TimeSeriesPredictor.predict() forecasts starting after the *last*
+    # timestamp of each item in `data`. Passing the entire feature store here
+    # (which extends through the test period) pushed every forecast past the
+    # whole test window, so eval_on_slices()'s join against test_df was empty
+    # for every config. Split into a context window (at/before the test
+    # period's start) passed as `data`, and the (ablated) test-period
+    # known-future covariates passed via `known_covariates` — the only way
+    # predict() accepts future covariate values, matching how the predictor
+    # was fit with known_covariates_names set.
+    test_start = test_df["timestamp"].min()
+    context_df = ablated_df[ablated_df["timestamp"] < test_start]
+    future_df = ablated_df[ablated_df["timestamp"] >= test_start]
+
     ts_df = TimeSeriesDataFrame.from_data_frame(
-        ablated_df[["item_id", "timestamp", "target"] + all_covariate_cols],
+        context_df[["item_id", "timestamp", "target"] + all_covariate_cols],
         id_column="item_id",
         timestamp_column="timestamp",
     )
 
-    predictor = TimeSeriesPredictor.load(str(model_dir))
-    prediction_length = cfg["data"].get("forecast_horizon_steps") \
-        or cfg["chronos2"].get("prediction_length_steps")
-    if prediction_length is None:
-        freq = cfg["data"]["resample_freq"]
-        horizon_hours = cfg["data"]["forecast_horizon_hours"]
-        try:
-            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-            prediction_length = int(horizon_hours * steps_per_hour)
-        except ValueError:
-            # Non-fixed frequencies (e.g. "MS" for month-start) have no fixed
-            # nanosecond duration — approximate using a 30-day month.
-            prediction_length = max(1, round(horizon_hours / (30 * 24)))
+    known_covariates = None
+    known_cov_cols = [c for c in KNOWN_FUTURE_COLS if c in future_df.columns]
+    if known_cov_cols and not future_df.empty:
+        known_covariates = TimeSeriesDataFrame.from_data_frame(
+            future_df[["item_id", "timestamp"] + known_cov_cols],
+            id_column="item_id",
+            timestamp_column="timestamp",
+        )
 
-    preds = predictor.predict(ts_df, prediction_length=prediction_length)
+    predictor = TimeSeriesPredictor.load(str(model_dir))
+    preds = predictor.predict(ts_df, known_covariates=known_covariates)
 
     # Convert AutoGluon output to flat DataFrame
     preds_df = preds.reset_index()
@@ -325,7 +336,7 @@ def run_ablation(
 
         try:
             preds = run_inference_with_config(
-                model_dir, feature_store, include_groups, cfg
+                model_dir, feature_store, test_df, include_groups
             )
             rows = eval_on_slices(test_df, preds, config_name)
             all_rows.extend(rows)
