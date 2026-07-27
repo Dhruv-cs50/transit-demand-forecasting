@@ -584,7 +584,14 @@ def main():
             print(f"Station  : {args.station}")
             print(f"Horizon  : {args.horizon}h | Steps: {len(preds)}")
             print(f"Mode     : {preds['model_mode'].iloc[0]}")
-            print(f"Lift     : {lift.get('lift_pct', 'N/A'):+.1f}% vs typical")
+            # lift_pct is absent (not "N/A") whenever ridership_lift() returns {} --
+            # e.g. no non-game-day history to compare against. Applying the ":+.1f"
+            # format spec to the "N/A" fallback string crashed with
+            # "Unknown format code 'f' for object of type 'str'"; format the
+            # percent sign only when a numeric value is actually present.
+            lift_pct = lift.get("lift_pct")
+            lift_str = f"{lift_pct:+.1f}% vs typical" if lift_pct is not None else "N/A"
+            print(f"Lift     : {lift_str}")
             print(f"Reason   : {lift.get('reason', 'N/A')}")
             print(f"\n{preds[['timestamp','p10','p50','p90']].head(12).to_string(index=False)}")
 
