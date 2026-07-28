@@ -133,12 +133,36 @@ def load_transit(freq: str) -> pd.DataFrame:
 def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     """Load all weather parquet files and return combined hourly DataFrame."""
     log.info("Loading weather data …")
-    files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
+    weather_dir = RAW_DIR / "weather"
+    files = sorted(weather_dir.glob("weather_all_stations_*.parquet"))
     if not files:
         log.warning("No weather files found")
         return pd.DataFrame()
 
     df = pd.read_parquet(files[-1])  # use the most recent combined file
+
+    # The nightly scheduler's 7-day-ahead forecast fetch
+    # (fetch_weather_openmeteo.fetch_forecast_all_stations) writes
+    # weather_forecast_<timestamp>.parquet -- a filename pattern this glob
+    # never matched, so those rows silently never reached the feature store:
+    # every future timestamp's weather covariates stayed missing/stale no
+    # matter how often the nightly forecast step ran. Merge in the latest
+    # forecast file here, preferring the archive's rows for any overlapping
+    # (station, timestamp) since the archive is the observed ground truth.
+    forecast_files = sorted(weather_dir.glob("weather_forecast_*.parquet"))
+    if forecast_files:
+        fdf = pd.read_parquet(forecast_files[-1])
+        fdf["timestamp"] = pd.to_datetime(fdf["timestamp"])
+        before = len(df)
+        df = pd.concat([df, fdf], ignore_index=True)
+        dedup_cols = [c for c in ["station", "timestamp"] if c in df.columns]
+        if dedup_cols:
+            df = df.drop_duplicates(subset=dedup_cols, keep="first")
+        log.info(
+            f"  Merged {len(fdf):,} forecast rows from {forecast_files[-1].name} "
+            f"({len(df) - before:,} new rows after de-duplication)"
+        )
+
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
         df["timestamp"] = df["timestamp"].dt.tz_convert(None)
@@ -285,7 +309,15 @@ def build_feature_store(
 
     # 2. Build a base time grid from transit data timestamps
     # (In production this would be the 511 stop-observation data at 15-min resolution)
-    base = transit_df.copy()
+    # load_transit() filters out non-station aggregate rows (e.g. "Exits") with a
+    # boolean mask and never re-indexes, so transit_df's index has gaps. The weather
+    # merge below relies on `matched`/`fallback`/`has_match` all lining up with base
+    # positionally — pd.merge() always returns a fresh 0..n-1 RangeIndex regardless of
+    # the left frame's index, so a gapped base index silently misaligns .where()'s
+    # label-based join (cross-contaminating rows with a different station's weather,
+    # or introducing NaN for rows past the truncated range). Reset to a clean 0..n-1
+    # index here so every downstream positional frame lines up by label too.
+    base = transit_df.reset_index(drop=True).copy()
 
     # 3. Merge weather — aggregate hourly weather to monthly, join per-station
     # where a BART station maps to a dedicated weather-monitoring location,
@@ -303,7 +335,9 @@ def build_feature_store(
             temp_f=("temp_f", "mean"),
             precip_mm=("precip_mm", "mean"),
             windspeed_mph=("windspeed_mph", "mean"),
-            is_raining=("is_raining", "mean"),
+            # is_raining is a boolean — averaging it produces a fraction instead
+            # of a bool, silently breaking every downstream ==True/==False filter.
+            is_raining=("is_raining", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
             # weather_code is a categorical WMO code — averaging it produces a
             # meaningless fractional value, so take the most common code instead.
             weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
