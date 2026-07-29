@@ -91,11 +91,18 @@ def add_time_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.DataFra
     df["is_monday"]      = df["day_of_week"] == 0   # Mondays often anomalous post-weekend
     df["is_friday"]      = df["day_of_week"] == 4   # Fridays have early PM peak
 
-    # Commute windows (Bay Area-specific timing)
-    df["is_am_peak"]     = df["hour_of_day"].between(7, 9)    # 7–9am
-    df["is_pm_peak"]     = df["hour_of_day"].between(16, 19)  # 4–7pm
-    df["is_midday"]      = df["hour_of_day"].between(10, 15)
-    df["is_late_night"]  = (df["hour_of_day"] >= 22) | (df["hour_of_day"] <= 5)
+    # Commute windows (Bay Area-specific timing) — only meaningful when
+    # timestamps actually carry sub-daily resolution. At this pipeline's
+    # monthly cadence every timestamp sits at midnight, so hour_of_day is
+    # always 0 and these would be constant (is_late_night permanently True,
+    # the rest permanently False) — a dead signal fed straight into
+    # training/ablation rather than a real reading. Same class of bug
+    # already fixed for merge_pipeline.py's is_am_peak/is_pm_peak.
+    if df["hour_of_day"].nunique() > 1:
+        df["is_am_peak"]     = df["hour_of_day"].between(7, 9)    # 7–9am
+        df["is_pm_peak"]     = df["hour_of_day"].between(16, 19)  # 4–7pm
+        df["is_midday"]      = df["hour_of_day"].between(10, 15)
+        df["is_late_night"]  = (df["hour_of_day"] >= 22) | (df["hour_of_day"] <= 5)
 
     # Holidays
     df["is_holiday"] = ts.dt.date.map(lambda d: d in CA_HOLIDAYS).astype(bool)
@@ -136,22 +143,31 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
         labels=[0, 1, 2, 3, 4],
     ).astype(float)
 
-    # Rolling precipitation: has it been raining consistently?
-    if df["timestamp"].is_monotonic_increasing:
-        df = df.sort_values("timestamp")
-    if "station_id" in df.columns:
-        grp = df.groupby("station_id")["precip_mm"]
-    else:
-        grp = df["precip_mm"]
+    # Rolling precipitation: has it been raining consistently? Only meaningful
+    # when timestamps actually carry sub-daily resolution — at this
+    # pipeline's monthly cadence every row is already a one-month aggregate,
+    # so a "3hr/6hr/24hr sum" over monthly rows would actually accumulate
+    # 3/6/24 *months* of precipitation while still being labeled (and fed to
+    # the model) as an hour-scale feature. Same class of fix already applied
+    # to is_am_peak/is_pm_peak/is_midday/is_late_night above — skip entirely
+    # rather than silently mislabeling the units; finetune.py/ablation.py
+    # already filter their covariate lists down to columns actually present.
+    if df["hour_of_day"].nunique() > 1:
+        if not df["timestamp"].is_monotonic_increasing:
+            df = df.sort_values("timestamp")
+        if "station_id" in df.columns:
+            grp = df.groupby("station_id")["precip_mm"]
+        else:
+            grp = df["precip_mm"]
 
-    df["precip_3hr_sum"]  = grp.transform(lambda x: x.rolling(3,  min_periods=1).sum())
-    df["precip_6hr_sum"]  = grp.transform(lambda x: x.rolling(6,  min_periods=1).sum())
-    df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
+        df["precip_3hr_sum"]  = grp.transform(lambda x: x.rolling(3,  min_periods=1).sum())
+        df["precip_6hr_sum"]  = grp.transform(lambda x: x.rolling(6,  min_periods=1).sum())
+        df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
 
-    # Is it the FIRST hour of rain after a dry spell? (commuters unprepared)
-    df["is_rain_onset"] = df["is_raining"] & ~df.groupby(
-        "station_id" if "station_id" in df.columns else [True] * len(df)
-    )["is_raining"].transform(lambda x: x.shift(1).fillna(False))
+        # Is it the FIRST hour of rain after a dry spell? (commuters unprepared)
+        df["is_rain_onset"] = df["is_raining"] & ~df.groupby(
+            "station_id" if "station_id" in df.columns else [True] * len(df)
+        )["is_raining"].transform(lambda x: x.shift(1).fillna(False))
 
     # ── Temperature ───────────────────────────────────────────────────────────
     if "temp_f" in df.columns:
@@ -535,6 +551,22 @@ def main():
     out = PROCESSED_DIR / "feature_store_enriched.parquet"
     df_enriched.to_parquet(out, index=False)
     log.info(f"Enriched feature store saved → {out}")
+
+    # Re-cut splits/{train,val,test}.parquet from the ENRICHED store. merge_pipeline.py's
+    # own make_splits() call (pipeline step 1) runs before this step and only sees the base
+    # feature store, so its splits/ files never carry is_sharks_game_window, precip_intensity,
+    # in_event_catchment, etc. — silently emptying ablation.py's and metrics.py's event/weather
+    # diagnostic slices whenever they read their default `splits/test.parquet`. Overwrite with
+    # the enriched cut here so the on-disk splits/ always match the enriched schema.
+    from machine_learning_files.merge_pipeline import load_configs, make_splits
+
+    _, model_cfg = load_configs()
+    make_splits(
+        df_enriched,
+        train_end=model_cfg["data"]["train_end"],
+        val_end=model_cfg["data"]["val_end"],
+        train_start=model_cfg["data"].get("train_start"),
+    )
 
     # Print feature summary
     print(f"\n{'─'*60}")

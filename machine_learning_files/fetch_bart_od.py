@@ -125,8 +125,15 @@ def download_month(year: int, month: int) -> pd.DataFrame | None:
             log.debug(f"  Trying {url}")
             resp = requests.get(url, timeout=60)
             if resp.status_code == 200:
+                try:
+                    parsed = parse_bart_od_excel(resp.content, year, month)
+                except Exception as e:
+                    # A 200 with a non-Excel body (e.g. bart.gov soft-404 HTML)
+                    # would otherwise blow up the whole multi-year batch job.
+                    log.debug(f"  {url} returned 200 but failed to parse: {e}")
+                    continue
                 log.info(f"  ✓ {url}")
-                return parse_bart_od_excel(resp.content, year, month)
+                return parsed
         except requests.RequestException:
             continue
     log.warning(f"  No file found for {year}-{month:02d}")
@@ -146,6 +153,20 @@ def parse_bart_od_excel(content: bytes, year: int, month: int) -> pd.DataFrame:
     frames = []
 
     for sheet_name in xl.sheet_names:
+        # BART's OD workbooks include a "Total Trips"/"Total Trips OD" sheet
+        # alongside the Weekday/Saturday/Sunday averages — it holds the
+        # monthly TOTAL across all day types, not another day type to add on
+        # top of them. transit_eda/notebooks/eda_complete.py hit this same
+        # sheet in real downloaded files and explicitly excludes it before
+        # any cross-day-type analysis. This loop had no such exclusion, so
+        # merge_pipeline.py::load_transit()'s groupby(...)["riders"].sum()
+        # (which collapses all day_types together) would add the "Total"
+        # sheet's already-aggregated monthly figure on top of the
+        # Weekday+Saturday+Sunday sums for the same station-month, inflating
+        # the ridership target the whole pipeline trains against.
+        if "total trips" in sheet_name.strip().lower():
+            log.debug(f"  Skipping monthly-total sheet '{sheet_name}'")
+            continue
         try:
             df = xl.parse(sheet_name, header=0, index_col=0)
             # Drop summary rows/cols (BART includes totals)
