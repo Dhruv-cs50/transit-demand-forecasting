@@ -143,22 +143,31 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
         labels=[0, 1, 2, 3, 4],
     ).astype(float)
 
-    # Rolling precipitation: has it been raining consistently?
-    if not df["timestamp"].is_monotonic_increasing:
-        df = df.sort_values("timestamp")
-    if "station_id" in df.columns:
-        grp = df.groupby("station_id")["precip_mm"]
-    else:
-        grp = df["precip_mm"]
+    # Rolling precipitation: has it been raining consistently? Only meaningful
+    # when timestamps actually carry sub-daily resolution — at this
+    # pipeline's monthly cadence every row is already a one-month aggregate,
+    # so a "3hr/6hr/24hr sum" over monthly rows would actually accumulate
+    # 3/6/24 *months* of precipitation while still being labeled (and fed to
+    # the model) as an hour-scale feature. Same class of fix already applied
+    # to is_am_peak/is_pm_peak/is_midday/is_late_night above — skip entirely
+    # rather than silently mislabeling the units; finetune.py/ablation.py
+    # already filter their covariate lists down to columns actually present.
+    if df["hour_of_day"].nunique() > 1:
+        if not df["timestamp"].is_monotonic_increasing:
+            df = df.sort_values("timestamp")
+        if "station_id" in df.columns:
+            grp = df.groupby("station_id")["precip_mm"]
+        else:
+            grp = df["precip_mm"]
 
-    df["precip_3hr_sum"]  = grp.transform(lambda x: x.rolling(3,  min_periods=1).sum())
-    df["precip_6hr_sum"]  = grp.transform(lambda x: x.rolling(6,  min_periods=1).sum())
-    df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
+        df["precip_3hr_sum"]  = grp.transform(lambda x: x.rolling(3,  min_periods=1).sum())
+        df["precip_6hr_sum"]  = grp.transform(lambda x: x.rolling(6,  min_periods=1).sum())
+        df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
 
-    # Is it the FIRST hour of rain after a dry spell? (commuters unprepared)
-    df["is_rain_onset"] = df["is_raining"] & ~df.groupby(
-        "station_id" if "station_id" in df.columns else [True] * len(df)
-    )["is_raining"].transform(lambda x: x.shift(1).fillna(False))
+        # Is it the FIRST hour of rain after a dry spell? (commuters unprepared)
+        df["is_rain_onset"] = df["is_raining"] & ~df.groupby(
+            "station_id" if "station_id" in df.columns else [True] * len(df)
+        )["is_raining"].transform(lambda x: x.shift(1).fillna(False))
 
     # ── Temperature ───────────────────────────────────────────────────────────
     if "temp_f" in df.columns:
