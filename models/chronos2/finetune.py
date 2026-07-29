@@ -160,7 +160,7 @@ KNOWN_FUTURE_COLS = [
     "is_game_day", "is_sharks_game_window", "game_start_hour",
     "is_pre_event_window", "is_post_event_window", "is_playoff",
     "is_any_event_day", "nearest_event_attendance_tier",
-    "hours_to_next_event",
+    "hours_to_event",
     # Station static (never changes)
     "is_hub_station", "capacity_tier", "in_event_catchment",
     "dist_from_diridon_km",

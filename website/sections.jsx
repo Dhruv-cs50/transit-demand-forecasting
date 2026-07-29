@@ -191,7 +191,7 @@ const Method = () => {
 /* ── Dataset ───────────────────────────────────────────────────── */
 const Dataset = () => {
   const splits = [
-    { nm:'Train (2019 + Jan–Dec 2022)', v:1200, w:0.667 },
+    { nm:'Train (Jan 2021–Dec 2022)', v:1200, w:0.667 },
     { nm:'Validation (Jan–Jun 2023)', v:300, w:0.167 },
     { nm:'Test (Jul–Dec 2023)', v:300, w:0.167 },
   ];
@@ -418,7 +418,7 @@ const Benchmarks = () => {
   const fmtN = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n));
 
   const MODEL_LABELS = {
-    'AutoETS (AutoGluon)': 'AutoETS / AutoGluon (best baseline)',
+    'AutoGluon_Ensemble': 'AutoETS / AutoGluon (best baseline)',
     'SARIMA': 'SARIMA(2,1,2)',
     'Prophet': 'Prophet (per-station)',
   };
@@ -430,7 +430,7 @@ const Benchmarks = () => {
       mape: r.MAPE_pct != null ? r.MAPE_pct.toFixed(1)+'%' : '—',
       mae:  r.MAE  != null ? fmtN(r.MAE) : '—',
       relW: r.WAPE_pct,
-      best: r.model === 'AutoETS (AutoGluon)',
+      best: r.model === 'AutoGluon_Ensemble',
     })),
     { m:'Chronos-2 zero-shot', wape:'—', mape:'—', mae:'—', relW:null, note:'Forecasting Jan–Jun 2024 — beyond available actuals' },
   ] : [];
