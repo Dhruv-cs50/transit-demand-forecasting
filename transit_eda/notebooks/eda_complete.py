@@ -420,8 +420,16 @@ section("SECTION 3: DESCRIPTIVE STATISTICS")
 print("\n── 3.1 BART: Station Exit Statistics (Weekday 2023) ──")
 bart_2023_wd = bart_clean[(bart_clean['year']==2023) & (bart_clean['day_type']=='Weekday')]
 station_2023 = (
-    bart_2023_wd.groupby('destination')['riders']
+    # Sum across origins within each month first, then average across the
+    # 12 months of 2023 — summing straight across (month, origin) as before
+    # produced an annual total ~12x too large for a metric labeled/printed
+    # as "exits/month" below (mirrors the correctly-computed but unused
+    # station_annual pattern above).
+    bart_2023_wd.groupby(['month','destination'])['riders']
     .sum()
+    .reset_index()
+    .groupby('destination')['riders']
+    .mean()
     .sort_values(ascending=False)
     .reset_index()
     .rename(columns={'destination':'station','riders':'avg_daily_exits'})
@@ -670,10 +678,14 @@ stations_pct = np.arange(1, len(sorted_exits)+1) / len(sorted_exits) * 100
 axes[1,1].plot(stations_pct, cumulative*100, color=BART_BLUE, linewidth=2.5)
 axes[1,1].plot([0,100],[0,100], 'k--', linewidth=1, alpha=0.5, label='Equal distribution')
 top20_idx = np.searchsorted(stations_pct, 80)
+# `cumulative` is built from `sorted_exits` (ascending, low→high), so
+# cumulative[top20_idx] is the share held by the lowest-volume 80% of
+# stations, not the top 20%. The top 20%'s share is the complement.
+top20_share = 100 - cumulative[top20_idx] * 100
 axes[1,1].axvline(80, color='red', linestyle=':', linewidth=1.2)
 axes[1,1].axhline(cumulative[top20_idx]*100, color='red', linestyle=':', linewidth=1.2)
 axes[1,1].annotate(
-    f'Top 20% of stations\n= {cumulative[top20_idx]*100:.0f}% of exits',
+    f'Top 20% of stations\n= {top20_share:.0f}% of exits',
     xy=(80, cumulative[top20_idx]*100), xytext=(50, 60),
     arrowprops=dict(arrowstyle='->', color='red'),
     fontsize=9, color='red'
