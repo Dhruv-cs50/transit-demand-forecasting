@@ -133,12 +133,24 @@ def load_transit(freq: str) -> pd.DataFrame:
 def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     """Load all weather parquet files and return combined hourly DataFrame."""
     log.info("Loading weather data …")
-    files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
-    if not files:
+    hist_files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
+    if not hist_files:
         log.warning("No weather files found")
         return pd.DataFrame()
 
-    df = pd.read_parquet(files[-1])  # use the most recent combined file
+    frames = [pd.read_parquet(hist_files[-1])]  # most recent combined historical file
+
+    # fetch_weather_openmeteo.py's fetch_forecast_all_stations() (run nightly by
+    # scheduler.py's "weather" step) writes the 7-day-ahead forecast separately
+    # under weather_forecast_*.parquet with the same schema as the historical
+    # combined file. Without merging it in here, that nightly fetch is silently
+    # write-only: future known-covariate rows past the historical archive's
+    # coverage never reach the feature store this function feeds.
+    forecast_files = sorted((RAW_DIR / "weather").glob("weather_forecast_*.parquet"))
+    if forecast_files:
+        frames.append(pd.read_parquet(forecast_files[-1]))
+
+    df = pd.concat(frames, ignore_index=True)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
         df["timestamp"] = df["timestamp"].dt.tz_convert(None)
@@ -146,6 +158,7 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     # Skip resample — resampling 5 years of hourly data to 15min creates millions
     # of intermediate rows. Monthly aggregation is done downstream in build_feature_store.
     df = df.dropna(subset=["timestamp"])
+    df = df.drop_duplicates(subset=["station", "timestamp"], keep="last")
 
     log.info(f"  Loaded {len(df):,} weather rows")
     return df
