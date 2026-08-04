@@ -37,7 +37,15 @@ def load_model_config() -> dict:
 
 
 def load_feature_store(station_id: str = None) -> pd.DataFrame:
-    path = PROCESSED_DIR / "feature_store.parquet"
+    # Prefer the enriched store (adds event/lag/station features via
+    # feature_engineering.py) — same fallback pattern used by every other
+    # feature-store consumer (arima.py, benchmarks.py, prophet_baseline.py,
+    # scheduler.py, chronos2/predict.py). Without it, zero-shot ran on a
+    # materially weaker feature set than the models it's meant to be a
+    # performance-floor baseline for.
+    path = PROCESSED_DIR / "feature_store_enriched.parquet"
+    if not path.exists():
+        path = PROCESSED_DIR / "feature_store.parquet"
     if not path.exists():
         raise FileNotFoundError(
             "Feature store not found. Run: python processing/merge_pipeline.py"

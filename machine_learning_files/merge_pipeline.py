@@ -96,7 +96,12 @@ def load_transit(freq: str) -> pd.DataFrame:
     """
     log.info("Loading transit ridership data …")
     bart_dir = RAW_DIR / "transit" / "bart"
-    files = list(bart_dir.glob("bart_od_*.parquet"))
+    # fetch_bart_od.py's fetch_all() writes both the per-month files (e.g.
+    # bart_od_2023_01.parquet) AND a consolidated bart_od_all.parquet — built
+    # from those same months — into this same directory. Both match this
+    # glob, so without excluding the consolidated file every row gets
+    # counted twice before the groupby(...).sum() below.
+    files = [f for f in bart_dir.glob("bart_od_*.parquet") if f.name != "bart_od_all.parquet"]
     if not files:
         log.warning("No BART OD files found — transit column will be NaN")
         return pd.DataFrame()
