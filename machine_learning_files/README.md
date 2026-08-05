@@ -76,7 +76,7 @@ python machine_learning_files/zero_shot.py
 Run Chronos zero-shot for one station:
 
 ```bash
-python machine_learning_files/zero_shot.py --station EM --as-of 2023-06-01
+python machine_learning_files/zero_shot.py --station EMBR --as-of 2023-06-01
 ```
 
 Start the forecast API:
@@ -90,7 +90,7 @@ Example request:
 ```bash
 curl -X POST http://localhost:8000/forecast \
   -H "Content-Type: application/json" \
-  -d '{"station_id": "EM", "horizon_hours": 6}'
+  -d '{"station_id": "EMBR", "horizon_hours": 6}'
 ```
 
 ## Configuration Notes
