@@ -109,7 +109,6 @@ class Predictor:
         try:
             from autogluon.timeseries import TimeSeriesPredictor
             self._predictor = TimeSeriesPredictor.load(str(MODEL_DIR))
-            self._mode = "finetuned"
             log.info("✅ Loaded fine-tuned AutoGluon predictor")
             return True
         except Exception as e:
@@ -131,32 +130,38 @@ class Predictor:
             self._pipeline = ChronosPipeline.from_pretrained(
                 model_id, device_map=device
             )
-            self._mode = "zeroshot"
             log.info("✅ Zero-shot Chronos ready")
             return True
         except Exception as e:
             log.warning(f"Chronos load failed: {e}")
             return False
 
-    def _ensure_loaded(self, force_mode: str = None):
+    def _ensure_loaded(self, force_mode: str = None) -> str:
         # force_mode bypasses the cached auto-selected mode to explicitly load
-        # a specific backend (e.g. benchmarks.py comparing zero-shot vs.
-        # fine-tuned head-to-head needs an actual zero-shot run even when
-        # fine-tuned weights exist and would otherwise always win the
-        # finetuned-first fallback below).
+        # a specific backend for this call only (e.g. benchmarks.py comparing
+        # zero-shot vs. fine-tuned head-to-head needs an actual zero-shot run
+        # even when fine-tuned weights exist and would otherwise always win
+        # the finetuned-first fallback below). It must NOT overwrite
+        # self._mode — that field caches the auto-selected mode across calls,
+        # and a forced call is scoped to this call only; writing force_mode
+        # into it would make every later unforced call silently inherit the
+        # last forced backend instead of ever re-running auto-select.
         if force_mode is not None:
             if force_mode == "finetuned" and self._predictor is None:
                 self._load_finetuned()
             elif force_mode == "zeroshot" and self._pipeline is None:
                 self._load_zeroshot()
-            self._mode = force_mode
-            return
+            return force_mode
         if self._mode is not None:
-            return
-        if not self._load_finetuned():
-            if not self._load_zeroshot():
-                self._mode = "naive"
-                log.warning("⚠️  Using seasonal naive fallback — install chronos-forecasting")
+            return self._mode
+        if self._load_finetuned():
+            self._mode = "finetuned"
+        elif self._load_zeroshot():
+            self._mode = "zeroshot"
+        else:
+            self._mode = "naive"
+            log.warning("⚠️  Using seasonal naive fallback — install chronos-forecasting")
+        return self._mode
 
     # ── Context builder ────────────────────────────────────────────────────────
 
@@ -268,7 +273,7 @@ class Predictor:
         Returns:
             DataFrame with columns: timestamp, p10, p50, p90, station_id
         """
-        self._ensure_loaded(force_mode=force_mode)
+        mode = self._ensure_loaded(force_mode=force_mode)
 
         cfg             = self.cfg
         freq            = cfg["data"].get("resample_freq", "MS")
@@ -311,18 +316,18 @@ class Predictor:
         )
 
         log.info(
-            f"Forecasting {station_id} | mode={self._mode} | "
+            f"Forecasting {station_id} | mode={mode} | "
             f"horizon={horizon_steps} steps at {freq} | context={len(context_df)} rows"
         )
 
         # ── Fine-tuned AutoGluon ───────────────────────────────────────────────
-        if self._mode == "finetuned":
+        if mode == "finetuned":
             preds = self._finetuned_forecast(
                 context_df, future_df, station_id, horizon_steps, quantile_levels
             )
 
         # ── Zero-shot Chronos-2 ───────────────────────────────────────────────
-        elif self._mode == "zeroshot":
+        elif mode == "zeroshot":
             preds = self._zeroshot_forecast(
                 context_df, future_df, station_id, horizon_steps, quantile_levels
             )
@@ -337,7 +342,7 @@ class Predictor:
 
         preds["station_id"] = station_id
         preds["generated_at"] = datetime.utcnow().isoformat()
-        preds["model_mode"] = self._mode
+        preds["model_mode"] = mode
 
         # Clip negatives
         for col in ["p10", "p50", "p90"]:
