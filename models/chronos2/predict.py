@@ -368,7 +368,33 @@ class Predictor:
             timestamp_column="timestamp",
         )
 
-        preds = self._predictor.predict(ts_df, prediction_length=horizon_steps)
+        # finetune.py fits this predictor with known_covariates_names set (weather
+        # forecast / event schedule / calendar columns), so AutoGluon requires a
+        # matching known_covariates argument at predict time — omitting it (as this
+        # used to) makes every finetuned-mode forecast fail, since `future_df` was
+        # sliced out by _build_context specifically to supply these values.
+        known_covariates = None
+        known_cols = [
+            c for c in getattr(self._predictor, "known_covariates_names", [])
+            if c in future_df.columns
+        ]
+        if known_cols and len(future_df) >= horizon_steps:
+            fut = future_df.rename(columns={"station_id": "item_id"}).sort_values("timestamp")
+            fut = fut.head(horizon_steps)
+            known_covariates = TimeSeriesDataFrame.from_data_frame(
+                fut[["item_id", "timestamp"] + known_cols],
+                id_column="item_id",
+                timestamp_column="timestamp",
+            )
+        elif known_cols:
+            log.warning(
+                f"{station_id}: only {len(future_df)} future known-covariate rows "
+                f"available, need {horizon_steps} — forecasting without known_covariates"
+            )
+
+        preds = self._predictor.predict(
+            ts_df, known_covariates=known_covariates, prediction_length=horizon_steps
+        )
         preds_df = preds.reset_index()
 
         col_map = {}
