@@ -139,6 +139,7 @@ def run_inference_with_config(
     feature_store: pd.DataFrame,
     include_groups: list[str],
     cfg: dict,
+    test_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """
     Run inference using the fine-tuned predictor with only the specified
@@ -173,11 +174,6 @@ def run_inference_with_config(
     # the predictor a smaller, mismatched schema per config (e.g. "1_baseline"
     # got only "target", with none of the covariates the model expects).
     all_covariate_cols = [c for g in COVARIATE_GROUPS for c in COVARIATE_GROUPS[g] if c in ablated_df.columns]
-    ts_df = TimeSeriesDataFrame.from_data_frame(
-        ablated_df[["item_id", "timestamp", "target"] + all_covariate_cols],
-        id_column="item_id",
-        timestamp_column="timestamp",
-    )
 
     predictor = TimeSeriesPredictor.load(str(model_dir))
     prediction_length = cfg["data"].get("forecast_horizon_steps") \
@@ -193,7 +189,46 @@ def run_inference_with_config(
             # nanosecond duration — approximate using a 30-day month.
             prediction_length = max(1, round(horizon_hours / (30 * 24)))
 
-    preds = predictor.predict(ts_df, prediction_length=prediction_length)
+    # feature_store carries every timestamp through the end of the test period
+    # (make_splits() only *masks* train/val/test by timestamp -- it never
+    # trims the underlying store), so feeding the whole thing to predict() as
+    # "history" put the test period's own timestamps on the wrong side of the
+    # forecast origin and left AutoGluon nothing to forecast, while also
+    # omitting known_covariates entirely even though finetune.py fits this
+    # predictor with known_covariates_names set. Mirror predict.py's
+    # _finetuned_forecast(): split at the test period's start, forecast from
+    # the history cutoff, and supply the (ablated) test-period covariates as
+    # known_covariates.
+    test_start = test_df["timestamp"].min()
+    history_df = ablated_df[ablated_df["timestamp"] < test_start]
+    future_df = ablated_df[ablated_df["timestamp"] >= test_start]
+
+    ts_df = TimeSeriesDataFrame.from_data_frame(
+        history_df[["item_id", "timestamp", "target"] + all_covariate_cols],
+        id_column="item_id",
+        timestamp_column="timestamp",
+    )
+
+    known_covariates = None
+    known_cols = [
+        c for c in getattr(predictor, "known_covariates_names", []) if c in future_df.columns
+    ]
+    if known_cols and len(future_df) >= prediction_length:
+        fut = future_df.sort_values(["item_id", "timestamp"]).groupby("item_id").head(prediction_length)
+        known_covariates = TimeSeriesDataFrame.from_data_frame(
+            fut[["item_id", "timestamp"] + known_cols],
+            id_column="item_id",
+            timestamp_column="timestamp",
+        )
+    elif known_cols:
+        log.warning(
+            f"Only {len(future_df)} future known-covariate rows available, "
+            f"need {prediction_length} per station -- forecasting without known_covariates"
+        )
+
+    preds = predictor.predict(
+        ts_df, known_covariates=known_covariates, prediction_length=prediction_length
+    )
 
     # Convert AutoGluon output to flat DataFrame
     preds_df = preds.reset_index()
@@ -325,7 +360,7 @@ def run_ablation(
 
         try:
             preds = run_inference_with_config(
-                model_dir, feature_store, include_groups, cfg
+                model_dir, feature_store, include_groups, cfg, test_df
             )
             rows = eval_on_slices(test_df, preds, config_name)
             all_rows.extend(rows)
