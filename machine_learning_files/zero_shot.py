@@ -37,7 +37,15 @@ def load_model_config() -> dict:
 
 
 def load_feature_store(station_id: str = None) -> pd.DataFrame:
-    path = PROCESSED_DIR / "feature_store.parquet"
+    # Prefer the enriched store (adds event/lag/station features via
+    # feature_engineering.py) — same fallback pattern used by every other
+    # feature-store consumer (arima.py, benchmarks.py, prophet_baseline.py,
+    # scheduler.py, chronos2/predict.py). Without it, zero-shot ran on a
+    # materially weaker feature set than the models it's meant to be a
+    # performance-floor baseline for.
+    path = PROCESSED_DIR / "feature_store_enriched.parquet"
+    if not path.exists():
+        path = PROCESSED_DIR / "feature_store.parquet"
     if not path.exists():
         raise FileNotFoundError(
             "Feature store not found. Run: python processing/merge_pipeline.py"
@@ -336,7 +344,11 @@ def main():
         if df["timestamp"].dt.tz is not None:
             as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
         elif as_of.tzinfo is not None:
-            as_of = as_of.tz_localize(None)
+            # Convert to LA wall-clock time before dropping the tz label — stripping
+            # a non-LA offset directly would keep the wrong wall-clock digits (e.g.
+            # 08:00 UTC silently becomes "08:00 naive" instead of the correct 01:00 PDT).
+            # Same pattern already fixed in api.py and predict.py.
+            as_of = as_of.tz_convert("America/Los_Angeles").tz_localize(None)
     output_dir = Path("models/chronos2/outputs")
 
     if args.station:
