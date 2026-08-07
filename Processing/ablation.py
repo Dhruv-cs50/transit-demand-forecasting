@@ -64,9 +64,10 @@ COVARIATE_GROUPS = {
     ],
     "weather": [
         "temp_f", "precip_mm", "precip_in", "windspeed_mph", "is_raining",
-        "precip_intensity", "weather_discomfort", "is_very_cold", "is_very_hot",
-        "is_windy", "temp_deviation", "precip_3hr_sum", "precip_6hr_sum",
-        "precip_24hr_sum", "is_rain_onset", "cloud_cover_pct", "humidity_pct",
+        "weather_code", "precip_intensity", "weather_discomfort", "is_very_cold",
+        "is_very_hot", "is_windy", "temp_deviation", "precip_3hr_sum",
+        "precip_6hr_sum", "precip_24hr_sum", "is_rain_onset", "cloud_cover_pct",
+        "humidity_pct",
     ],
     "events": [
         "is_game_day", "is_sharks_game_window", "game_start_hour",
@@ -213,7 +214,14 @@ def run_inference_with_config(
     known_cols = [
         c for c in getattr(predictor, "known_covariates_names", []) if c in future_df.columns
     ]
-    if known_cols and len(future_df) >= prediction_length:
+    # Checking len(future_df) alone (total rows across all stations) can pass
+    # even when an individual station has fewer than prediction_length future
+    # rows -- e.g. a station added partway through the feature store's
+    # history. AutoGluon requires known_covariates to cover every item in
+    # ts_df for the full prediction_length, so a per-station shortfall must
+    # be checked directly rather than inferred from the aggregate row count.
+    per_item_counts = future_df.groupby("item_id").size()
+    if known_cols and not per_item_counts.empty and per_item_counts.min() >= prediction_length:
         fut = future_df.sort_values(["item_id", "timestamp"]).groupby("item_id").head(prediction_length)
         known_covariates = TimeSeriesDataFrame.from_data_frame(
             fut[["item_id", "timestamp"] + known_cols],
@@ -221,8 +229,9 @@ def run_inference_with_config(
             timestamp_column="timestamp",
         )
     elif known_cols:
+        shortfall = int(per_item_counts.min()) if not per_item_counts.empty else 0
         log.warning(
-            f"Only {len(future_df)} future known-covariate rows available, "
+            f"At least one station has only {shortfall} future known-covariate rows, "
             f"need {prediction_length} per station -- forecasting without known_covariates"
         )
 

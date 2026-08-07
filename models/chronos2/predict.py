@@ -148,9 +148,21 @@ class Predictor:
         # last forced backend instead of ever re-running auto-select.
         if force_mode is not None:
             if force_mode == "finetuned" and self._predictor is None:
-                self._load_finetuned()
+                if not self._load_finetuned():
+                    log.warning(
+                        "force_mode='finetuned' requested but fine-tuned weights "
+                        "failed to load -- falling back to naive rather than "
+                        "returning a mode whose backend never loaded"
+                    )
+                    return "naive"
             elif force_mode == "zeroshot" and self._pipeline is None:
-                self._load_zeroshot()
+                if not self._load_zeroshot():
+                    log.warning(
+                        "force_mode='zeroshot' requested but zero-shot Chronos "
+                        "failed to load -- falling back to naive rather than "
+                        "returning a mode whose backend never loaded"
+                    )
+                    return "naive"
             return force_mode
         if self._mode is not None:
             return self._mode
