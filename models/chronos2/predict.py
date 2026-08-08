@@ -505,13 +505,27 @@ class Predictor:
         if station_df.empty or forecast_df is None or forecast_df.empty:
             return {}
 
-        # Typical for this hour + day-of-week
+        # Typical for this hour + day-of-week -- but that combination is only
+        # meaningful when timestamps carry sub-daily resolution. At the monthly
+        # cadence this pipeline currently runs at, every timestamp sits at
+        # midnight-of-month, so hour_of_day == now.hour is a no-op and
+        # day_of_week == now.dayofweek filters "typical" down to whichever
+        # ~1/7 of history happened to start on the same weekday -- a
+        # coincidence with no seasonal meaning. Same bug class already fixed
+        # for is_am_peak/is_pm_peak in merge_pipeline.py/feature_engineering.py
+        # and the event-proximity windows in add_event_features.
         now = forecast_df["timestamp"].iloc[0]
-        typical_mask = (
-            (station_df["hour_of_day"] == now.hour) &
-            (station_df["day_of_week"] == now.dayofweek) &
-            (~station_df.get("is_game_day", pd.Series(False, index=station_df.index)))
-        )
+        if station_df["timestamp"].dt.hour.nunique() > 1:
+            typical_mask = (
+                (station_df["hour_of_day"] == now.hour) &
+                (station_df["day_of_week"] == now.dayofweek) &
+                (~station_df.get("is_game_day", pd.Series(False, index=station_df.index)))
+            )
+        else:
+            typical_mask = (
+                (station_df["month"] == now.month) &
+                (~station_df.get("is_game_day", pd.Series(False, index=station_df.index)))
+            )
         typical_median = station_df[typical_mask]["ridership"].median()
         forecast_p50   = forecast_df["p50"].iloc[0]
 

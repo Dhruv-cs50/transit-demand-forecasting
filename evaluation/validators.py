@@ -116,6 +116,38 @@ def check_required_columns(df: pd.DataFrame) -> List[ValidationResult]:
     return results
 
 
+def check_dtypes(df: pd.DataFrame) -> List[ValidationResult]:
+    """Flag columns whose dtype doesn't match the documented feature-store schema."""
+    results = []
+    mismatches = []
+    for col, expected in EXPECTED_DTYPES.items():
+        if col not in df.columns:
+            continue  # already covered by check_required_columns
+        if col == "timestamp":
+            if not pd.api.types.is_datetime64_any_dtype(df[col]):
+                mismatches.append((col, expected, str(df[col].dtype)))
+            continue
+        actual = str(df[col].dtype)
+        if actual != expected:
+            mismatches.append((col, expected, actual))
+
+    if mismatches:
+        results.append(ValidationResult(
+            check="dtypes",
+            severity=Severity.ERROR,
+            message=f"{len(mismatches)} column(s) have unexpected dtype: " +
+                    ", ".join(f"{c} (expected {e}, got {a})" for c, e, a in mismatches),
+            details={"mismatches": mismatches},
+        ))
+    else:
+        results.append(ValidationResult(
+            check="dtypes",
+            severity=Severity.INFO,
+            message=f"All {len(EXPECTED_DTYPES)} checked columns match expected dtypes",
+        ))
+    return results
+
+
 def check_timestamp_monotonic(df: pd.DataFrame) -> List[ValidationResult]:
     """Timestamps should be sorted and monotonically increasing per station."""
     results = []
@@ -474,6 +506,7 @@ def validate_feature_store(
 
     checks = [
         check_required_columns(df),
+        check_dtypes(df),
         check_timestamp_monotonic(df),
         check_missing_windows(df, freq),
         check_ridership_anomalies(df),
