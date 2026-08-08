@@ -245,7 +245,7 @@ Query example:
 ```sql
 SELECT station_id, month, ridership
 FROM `cs-163-final-project-tra-f1136.transit_data.feature_store`
-WHERE station_id = 'EM'
+WHERE station_id = 'EMBR'
 ORDER BY month;
 ```
 
@@ -333,18 +333,18 @@ Endpoints:
 
 **Input** (`POST /forecast`):
 ```json
-{ "station_id": "EM", "horizon_hours": 6 }
+{ "station_id": "EMBR", "horizon_hours": 6 }
 ```
 
 **Output** (`POST /forecast`):
 ```json
 {
-  "station_id": "EM",
-  "station_name": "Embarcadero",
+  "station_id": "EMBR",
+  "horizon_hours": 6,
+  "generated_at": "2024-01-01T00:00:00",
   "forecasts": [
-    { "date": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
-  ],
-  "source": "cache"
+    { "timestamp": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
+  ]
 }
 ```
 
@@ -363,7 +363,7 @@ Additional project documentation:
 - The active modeled target is monthly BART OD ridership. Some files describe future higher-frequency transit support, but the current reliable pipeline is monthly.
 - Weather and event data are currently aggregated to the monthly modeling cadence.
 - `scripts/run_pipeline.sh` assumes `.venv311/bin/python` exists.
-- Chronos defaults to `mps` in `configs/model.yaml`; change it to `cuda` or `cpu` on non-Apple-Silicon machines.
+- Chronos defaults to `cpu` in `configs/model.yaml` (for Cloud Run compatibility); change it to `mps` on Apple Silicon or `cuda` if a GPU is available.
 - Some source fetchers require external credentials or manual data access.
 
 ## Troubleshooting

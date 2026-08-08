@@ -114,7 +114,6 @@ def normalize_to_heat_scale(series: pd.Series, target_max: float = 2.4) -> pd.Se
 
 def build_ridership_json(agg: pd.DataFrame) -> dict:
     """Build the stations_ridership.json payload."""
-    max_ridership = agg["avg_monthly_ridership"].quantile(0.95)
     agg = agg.copy()
     agg["normalized"] = normalize_to_heat_scale(agg["avg_monthly_ridership"])
     agg["website_id"] = agg["station_id"].map(BART_CODE_TO_WEBSITE_ID)
