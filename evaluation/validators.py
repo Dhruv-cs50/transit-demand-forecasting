@@ -15,11 +15,11 @@ Every check emits structured ValidationResult objects that can be
 logged, stored, or used to halt the pipeline (strict mode).
 
 Usage:
-    from processing.validators import validate_feature_store, ValidationMode
+    from evaluation.validators import validate_feature_store, ValidationMode
     results = validate_feature_store(df, mode=ValidationMode.STRICT)
 
     # Or as a standalone script:
-    python processing/validators.py
+    python evaluation/validators.py
 """
 
 from __future__ import annotations
