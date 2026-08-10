@@ -181,7 +181,7 @@ def _run_forecast(
 
     pred_df = run_zero_shot_forecast(
         pipeline, context_df, future_df,
-        station_id, prediction_length,
+        station_id, min(prediction_length, horizon_hours),
         quantile_levels=[0.1, 0.5, 0.9],
     )
 

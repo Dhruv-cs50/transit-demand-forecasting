@@ -9,4 +9,8 @@ handlers:
   static_files: \1
   upload: .+
 
+error_handlers:
+- error_code: not_found
+  file: 404.html
+
 default_expiration: "1d"
