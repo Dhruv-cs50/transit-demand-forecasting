@@ -133,12 +133,21 @@ def load_transit(freq: str) -> pd.DataFrame:
 def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     """Load all weather parquet files and return combined hourly DataFrame."""
     log.info("Loading weather data …")
-    files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
-    if not files:
+    hist_files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
+    # fetch_forecast_all_stations() writes the nightly 7-day-ahead forecast under a
+    # separate "weather_forecast_*" prefix — it must be loaded too, or the pipeline's
+    # only source of future-known weather covariates is silently dropped.
+    forecast_files = sorted((RAW_DIR / "weather").glob("weather_forecast_*.parquet"))
+    if not hist_files and not forecast_files:
         log.warning("No weather files found")
         return pd.DataFrame()
 
-    df = pd.read_parquet(files[-1])  # use the most recent combined file
+    frames = []
+    if hist_files:
+        frames.append(pd.read_parquet(hist_files[-1]))  # most recent combined historical file
+    if forecast_files:
+        frames.append(pd.read_parquet(forecast_files[-1]))  # most recent forecast file
+    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
         df["timestamp"] = df["timestamp"].dt.tz_convert(None)

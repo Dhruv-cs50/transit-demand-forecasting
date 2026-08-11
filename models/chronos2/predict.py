@@ -145,11 +145,21 @@ class Predictor:
         # fine-tuned weights exist and would otherwise always win the
         # finetuned-first fallback below).
         if force_mode is not None:
+            loaded = True
             if force_mode == "finetuned" and self._predictor is None:
-                self._load_finetuned()
+                loaded = self._load_finetuned()
             elif force_mode == "zeroshot" and self._pipeline is None:
-                self._load_zeroshot()
-            self._mode = force_mode
+                loaded = self._load_zeroshot()
+            if loaded:
+                self._mode = force_mode
+            else:
+                # Forced backend failed to load (missing/incompatible weights,
+                # chronos-forecasting not installed, …) — fall back to naive
+                # instead of leaving self._mode pointed at a backend whose
+                # _predictor/_pipeline is still None, which would otherwise
+                # crash forecast() with an AttributeError on the next call.
+                self._mode = "naive"
+                log.warning(f"⚠️  force_mode={force_mode!r} failed to load — using seasonal naive fallback")
             return
         if self._mode is not None:
             return
