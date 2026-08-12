@@ -362,6 +362,7 @@ class Predictor:
         context_df, future_df, station_id, horizon_steps, quantile_levels
     ) -> pd.DataFrame:
         from autogluon.timeseries import TimeSeriesDataFrame
+        from models.chronos2.finetune import KNOWN_FUTURE_COLS
 
         ctx = context_df.rename(columns={"station_id": "item_id", "ridership": "target"})
         ctx = ctx.sort_values("timestamp")
@@ -373,7 +374,23 @@ class Predictor:
             timestamp_column="timestamp",
         )
 
-        preds = self._predictor.predict(ts_df, prediction_length=horizon_steps)
+        # The predictor was fit with known_covariates_names=KNOWN_FUTURE_COLS
+        # (see build_predictor in finetune.py), so .predict() needs those same
+        # columns supplied for the forecast horizon — otherwise AutoGluon either
+        # errors or silently ignores the weather/event signal fine-tuning relied on.
+        known_covariates = None
+        known_cols = [c for c in KNOWN_FUTURE_COLS if c in future_df.columns]
+        if known_cols and not future_df.empty:
+            fut = future_df.rename(columns={"station_id": "item_id"}).sort_values("timestamp").head(horizon_steps)
+            known_covariates = TimeSeriesDataFrame.from_data_frame(
+                fut[["item_id", "timestamp"] + known_cols],
+                id_column="item_id",
+                timestamp_column="timestamp",
+            )
+
+        preds = self._predictor.predict(
+            ts_df, known_covariates=known_covariates, prediction_length=horizon_steps
+        )
         preds_df = preds.reset_index()
 
         col_map = {}
@@ -472,13 +489,23 @@ class Predictor:
         if station_df.empty or forecast_df is None or forecast_df.empty:
             return {}
 
-        # Typical for this hour + day-of-week
+        # Typical for this hour + day-of-week — but at this pipeline's actual
+        # monthly cadence every timestamp is midnight-of-month, so hour_of_day
+        # is a no-op and day_of_week is just whichever weekday the 1st fell on
+        # (not a real seasonal signal), which can filter the comparison set
+        # down to 0-1 rows. Fall back to "same calendar month" when the data
+        # has no sub-daily resolution to compare hours/weekdays on.
         now = forecast_df["timestamp"].iloc[0]
-        typical_mask = (
-            (station_df["hour_of_day"] == now.hour) &
-            (station_df["day_of_week"] == now.dayofweek) &
-            (~station_df.get("is_game_day", pd.Series(False, index=station_df.index)))
-        )
+        sub_daily = station_df["timestamp"].dt.hour.nunique() > 1
+        not_game_day = ~station_df.get("is_game_day", pd.Series(False, index=station_df.index))
+        if sub_daily:
+            typical_mask = (
+                (station_df["hour_of_day"] == now.hour) &
+                (station_df["day_of_week"] == now.dayofweek) &
+                not_game_day
+            )
+        else:
+            typical_mask = (station_df["timestamp"].dt.month == now.month) & not_game_day
         typical_median = station_df[typical_mask]["ridership"].median()
         forecast_p50   = forecast_df["p50"].iloc[0]
 

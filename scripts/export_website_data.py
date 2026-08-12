@@ -205,9 +205,13 @@ def export_model_comparison(out_dir: Path) -> None:
         for _, row in leaderboard.iterrows():
             comparison.append({
                 "model": row["model"],
-                "MAE": round(float(row["MAE"]), 0),
-                "MAPE_pct": round(float(row["MAPE_%"]), 1),
-                "WAPE_pct": round(float(row["WAPE_%"]), 1),
+                # MAE/MAPE/WAPE can legitimately be NaN (e.g. metrics.py's wape()
+                # returns NaN on a zero denominator) — json.dump would serialize
+                # a bare `NaN` token, which isn't valid JSON and breaks every
+                # website consumer's JSON.parse() for the whole comparison table.
+                "MAE": round(float(row["MAE"]), 0) if pd.notna(row["MAE"]) else None,
+                "MAPE_pct": round(float(row["MAPE_%"]), 1) if pd.notna(row["MAPE_%"]) else None,
+                "WAPE_pct": round(float(row["WAPE_%"]), 1) if pd.notna(row["WAPE_%"]) else None,
                 "Coverage_pct": round(float(row["Coverage_%"]), 1) if "Coverage_%" in row and pd.notna(row["Coverage_%"]) else None,
                 "n_predictions": int(row["n"]) if "n" in row and pd.notna(row["n"]) else None,
             })

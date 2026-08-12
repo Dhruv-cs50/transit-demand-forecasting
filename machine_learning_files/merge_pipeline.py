@@ -96,7 +96,11 @@ def load_transit(freq: str) -> pd.DataFrame:
     """
     log.info("Loading transit ridership data …")
     bart_dir = RAW_DIR / "transit" / "bart"
-    files = list(bart_dir.glob("bart_od_*.parquet"))
+    # Match only the per-month files (bart_od_YYYY_MM.parquet). The broader
+    # "bart_od_*.parquet" pattern also matched fetch_bart_od.py's consolidated
+    # "bart_od_all.parquet" (all months already concatenated), which loaded
+    # every month's ridership twice and silently doubled the target column.
+    files = list(bart_dir.glob("bart_od_[0-9][0-9][0-9][0-9]_[0-9][0-9].parquet"))
     if not files:
         log.warning("No BART OD files found — transit column will be NaN")
         return pd.DataFrame()

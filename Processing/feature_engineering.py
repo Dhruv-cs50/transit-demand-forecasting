@@ -91,11 +91,19 @@ def add_time_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.DataFra
     df["is_monday"]      = df["day_of_week"] == 0   # Mondays often anomalous post-weekend
     df["is_friday"]      = df["day_of_week"] == 4   # Fridays have early PM peak
 
-    # Commute windows (Bay Area-specific timing)
-    df["is_am_peak"]     = df["hour_of_day"].between(7, 9)    # 7–9am
-    df["is_pm_peak"]     = df["hour_of_day"].between(16, 19)  # 4–7pm
-    df["is_midday"]      = df["hour_of_day"].between(10, 15)
-    df["is_late_night"]  = (df["hour_of_day"] >= 22) | (df["hour_of_day"] <= 5)
+    # Commute windows (Bay Area-specific timing) — only meaningful when
+    # timestamps actually carry sub-daily resolution. This pipeline runs at
+    # monthly cadence (every timestamp at midnight), where these would be
+    # constant dead signals (is_late_night permanently True, the rest always
+    # False) fed straight into training. merge_pipeline.py's calendar
+    # features already guard this the same way; this is the same function
+    # re-run standalone by Processing/feature_engineering.py's own __main__,
+    # which was overwriting the guarded columns with the unguarded ones.
+    if ts.dt.hour.nunique() > 1:
+        df["is_am_peak"]     = df["hour_of_day"].between(7, 9)    # 7–9am
+        df["is_pm_peak"]     = df["hour_of_day"].between(16, 19)  # 4–7pm
+        df["is_midday"]      = df["hour_of_day"].between(10, 15)
+        df["is_late_night"]  = (df["hour_of_day"] >= 22) | (df["hour_of_day"] <= 5)
 
     # Holidays
     df["is_holiday"] = ts.dt.date.map(lambda d: d in CA_HOLIDAYS).astype(bool)
@@ -136,17 +144,25 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
         labels=[0, 1, 2, 3, 4],
     ).astype(float)
 
-    # Rolling precipitation: has it been raining consistently?
-    if df["timestamp"].is_monotonic_increasing:
+    # Rolling precipitation: has it been raining consistently? Sort first —
+    # this condition was previously inverted (sorted only when already
+    # sorted), which would have corrupted these rolling calcs on unsorted input.
+    if not df["timestamp"].is_monotonic_increasing:
         df = df.sort_values("timestamp")
     if "station_id" in df.columns:
         grp = df.groupby("station_id")["precip_mm"]
     else:
         grp = df["precip_mm"]
 
-    df["precip_3hr_sum"]  = grp.transform(lambda x: x.rolling(3,  min_periods=1).sum())
-    df["precip_6hr_sum"]  = grp.transform(lambda x: x.rolling(6,  min_periods=1).sum())
-    df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
+    # rolling(N) counts N *rows*, not N hours. At this pipeline's actual
+    # monthly cadence that makes "precip_3hr_sum" a 3-month sum and
+    # "precip_24hr_sum" a 24-month (2-year) sum, not short-term rain
+    # accumulation — only meaningful when timestamps carry sub-daily
+    # resolution, matching the guard used for peak-hour/event-window features.
+    if df["timestamp"].dt.hour.nunique() > 1:
+        df["precip_3hr_sum"]  = grp.transform(lambda x: x.rolling(3,  min_periods=1).sum())
+        df["precip_6hr_sum"]  = grp.transform(lambda x: x.rolling(6,  min_periods=1).sum())
+        df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
 
     # Is it the FIRST hour of rain after a dry spell? (commuters unprepared)
     df["is_rain_onset"] = df["is_raining"] & ~df.groupby(

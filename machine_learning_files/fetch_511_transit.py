@@ -60,6 +60,15 @@ class Transit511Client:
                     time.sleep(2 ** attempt)
                 else:
                     raise
+            except requests.RequestException as e:
+                # Timeout/ConnectionError etc. aren't HTTPError subclasses —
+                # without this, a transient network failure skipped the
+                # retry/backoff entirely and raised on the very first attempt.
+                log.warning(f"{type(e).__name__} on {url} (attempt {attempt+1})")
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)
+                else:
+                    raise
 
     # ── GTFS static ──────────────────────────────────────────────────────────
 

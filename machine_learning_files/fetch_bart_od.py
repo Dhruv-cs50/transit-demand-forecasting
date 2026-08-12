@@ -129,6 +129,13 @@ def download_month(year: int, month: int) -> pd.DataFrame | None:
                 return parse_bart_od_excel(resp.content, year, month)
         except requests.RequestException:
             continue
+        except Exception as e:
+            # Catches parse failures too (e.g. a 200 response that's actually
+            # an HTML error/redirect page, not a real Excel file — status code
+            # alone isn't a reliable success check). One bad candidate URL
+            # must not abort the whole multi-year batch job.
+            log.debug(f"  Failed to parse {url}: {e}")
+            continue
     log.warning(f"  No file found for {year}-{month:02d}")
     return None
 

@@ -238,9 +238,16 @@ def check_ridership_anomalies(df: pd.DataFrame) -> List[ValidationResult]:
     # Sudden spikes vs rolling median (per station)
     spike_rows = []
     if "station_id" in df.columns:
+        # 96 rows = 24h at 15-min cadence. At this pipeline's actual monthly
+        # cadence a station never has 96 rows, so rolling(96) silently became
+        # an unbounded expanding median over the station's entire history
+        # (e.g. blending in the COVID-era crash) instead of a recent baseline.
+        # Infer the window from the data's own cadence instead of hardcoding it.
+        sub_daily = df["timestamp"].dt.hour.nunique() > 1
+        window = 96 if sub_daily else 12  # 12 = trailing year at monthly cadence
         for station, grp in df.groupby("station_id"):
             grp = grp.sort_values("timestamp")
-            rolling_med = grp["ridership"].rolling(96, min_periods=4).median()
+            rolling_med = grp["ridership"].rolling(window, min_periods=4).median()
             # Only flag where rolling median is meaningful (> 0)
             valid = rolling_med > 0
             ratio = grp.loc[valid, "ridership"] / rolling_med[valid]

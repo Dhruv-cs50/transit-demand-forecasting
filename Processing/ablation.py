@@ -67,6 +67,7 @@ COVARIATE_GROUPS = {
         "precip_intensity", "weather_discomfort", "is_very_cold", "is_very_hot",
         "is_windy", "temp_deviation", "precip_3hr_sum", "precip_6hr_sum",
         "precip_24hr_sum", "is_rain_onset", "cloud_cover_pct", "humidity_pct",
+        "weather_code",
     ],
     "events": [
         "is_game_day", "is_sharks_game_window", "game_start_hour",
