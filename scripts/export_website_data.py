@@ -18,6 +18,7 @@ Usage:
 import argparse
 import json
 import logging
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -249,11 +250,18 @@ def export_model_comparison(out_dir: Path) -> None:
         y_true = merged["actual"].values.astype(float)
         nonzero = y_true != 0
         mae  = float(abs(y_pred - y_true).mean())
+        # nonzero can legitimately be empty (all-zero actuals in this station/month
+        # slice) and abs(y_true).sum() can legitimately be zero — both produce a
+        # bare NaN/Infinity float here, same failure mode already guarded against
+        # in the leaderboard branch above. json.dump would emit an invalid `NaN`/
+        # `Infinity` token and break every website consumer's JSON.parse().
         mape = float(abs((y_pred[nonzero] - y_true[nonzero]) / y_true[nonzero]).mean() * 100)
         wape = float(abs(y_pred - y_true).sum() / abs(y_true).sum() * 100)
         comparison.append({
-            "model": model_name, "MAE": round(mae, 0),
-            "MAPE_pct": round(mape, 1), "WAPE_pct": round(wape, 1),
+            "model": model_name,
+            "MAE": round(mae, 0) if math.isfinite(mae) else None,
+            "MAPE_pct": round(mape, 1) if math.isfinite(mape) else None,
+            "WAPE_pct": round(wape, 1) if math.isfinite(wape) else None,
             "n_predictions": len(merged),
         })
     with open(out_dir / "model_comparison.json", "w") as f:

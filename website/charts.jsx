@@ -48,9 +48,10 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
       {/* bars */}
       {data.map((r, i) => {
         const isBest = r.model === 'AutoETS (AutoGluon)';
-        const disp = Math.min(r.WAPE_pct, DISPLAY_CAP);
+        const wape = r.WAPE_pct != null ? r.WAPE_pct : 0;
+        const disp = Math.min(wape, DISPLAY_CAP);
         const barW = (disp / DISPLAY_CAP) * W;
-        const overflow = r.WAPE_pct > DISPLAY_CAP;
+        const overflow = wape > DISPLAY_CAP;
         const y = pad.t + i * rowH + rowH * 0.18;
         const bH = rowH * 0.56;
         return (
@@ -71,7 +72,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
               fontSize="11" fontFamily="var(--mono)"
               fontWeight={isBest ? 700 : 400}
               fill={isBest ? 'var(--accent)' : 'var(--ink)'}
-            >{r.WAPE_pct.toFixed(1)}%{overflow ? ' ▶' : ''}</text>
+            >{r.WAPE_pct != null ? r.WAPE_pct.toFixed(1) + '%' : '—'}{overflow ? ' ▶' : ''}</text>
           </g>
         );
       })}
