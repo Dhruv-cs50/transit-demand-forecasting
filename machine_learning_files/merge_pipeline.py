@@ -298,7 +298,12 @@ def build_feature_store(
 
     # 2. Build a base time grid from transit data timestamps
     # (In production this would be the 511 stop-observation data at 15-min resolution)
-    base = transit_df.copy()
+    # reset_index: load_transit() filters rows (dropping "Exits"-style aggregate
+    # station codes), leaving a non-contiguous index. Section 3 below assigns
+    # `.merge(...)` results (always a fresh 0..n-1 RangeIndex) back onto `base`
+    # via `.where(...)`, which label-aligns on the index rather than position —
+    # a gappy index there silently scrambles/NaNs the per-row weather match.
+    base = transit_df.copy().reset_index(drop=True)
 
     # 3. Merge weather — aggregate hourly weather to monthly, join per-station
     # where a BART station maps to a dedicated weather-monitoring location,
