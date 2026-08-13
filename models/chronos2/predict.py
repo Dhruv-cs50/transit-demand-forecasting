@@ -393,11 +393,21 @@ class Predictor:
         )
         preds_df = preds.reset_index()
 
+        # AutoGluon's predict() output carries BOTH a "mean" column and a "0.5"
+        # quantile column (quantile_levels includes 0.5) — mapping "mean" to
+        # "p50" unconditionally, on top of the "0.5" match, produced two columns
+        # both named "p50" after rename(), which silently turned every
+        # downstream preds["p50"] access (ridership_lift, benchmarks.py's
+        # compute_metrics, evaluation/metrics.py) into a 2-column DataFrame
+        # instead of a Series. Only fall back to "mean" when no quantile
+        # column already claimed p50.
         col_map = {}
         for c in preds_df.columns:
             if "0.1" in str(c): col_map[c] = "p10"
-            elif "0.5" in str(c) or c == "mean": col_map[c] = "p50"
+            elif "0.5" in str(c): col_map[c] = "p50"
             elif "0.9" in str(c): col_map[c] = "p90"
+        if "p50" not in col_map.values() and "mean" in preds_df.columns:
+            col_map["mean"] = "p50"
         preds_df = preds_df.rename(columns=col_map)
 
         return preds_df[["timestamp", "p10", "p50", "p90"]]
@@ -413,11 +423,15 @@ class Predictor:
             station_id, horizon_steps, quantile_levels,
         )
 
+        # Same "mean" + "0.5" duplicate-p50 hazard as _finetuned_forecast —
+        # only use "mean" when no quantile column already mapped to p50.
         col_map = {}
         for c in preds_df.columns:
             if "0.1" in str(c): col_map[c] = "p10"
-            elif "0.5" in str(c) or c == "mean": col_map[c] = "p50"
+            elif "0.5" in str(c): col_map[c] = "p50"
             elif "0.9" in str(c): col_map[c] = "p90"
+        if "p50" not in col_map.values() and "mean" in preds_df.columns:
+            col_map["mean"] = "p50"
         preds_df = preds_df.rename(columns=col_map)
 
         keep = [c for c in ["timestamp","p10","p50","p90"] if c in preds_df.columns]
