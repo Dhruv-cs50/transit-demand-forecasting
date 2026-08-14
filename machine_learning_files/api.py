@@ -188,9 +188,17 @@ def _run_forecast(
         quantile_levels=[0.1, 0.5, 0.9],
     )
 
+    # Chronos/AutoGluon predict_df() output carries both a "mean" column and a
+    # "0.5" quantile column simultaneously — prefer the actual median quantile
+    # column and only fall back to "mean" when no quantile column claimed p50.
+    # (Same failure mode as models/chronos2/predict.py's quantile-column
+    # selection, fixed there 2026-08-13; unordered `or` matching here would
+    # silently substitute the mean forecast for the median whenever "mean"
+    # happens to sort before "0.5" in pred_df.columns.)
     q_cols = {
         "p10": next((c for c in pred_df.columns if "0.1" in str(c)), None),
-        "p50": next((c for c in pred_df.columns if "0.5" in str(c) or c == "mean"), None),
+        "p50": next((c for c in pred_df.columns if "0.5" in str(c)), None)
+               or next((c for c in pred_df.columns if c == "mean"), None),
         "p90": next((c for c in pred_df.columns if "0.9" in str(c)), None),
     }
 

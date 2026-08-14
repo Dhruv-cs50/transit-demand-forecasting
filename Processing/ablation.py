@@ -201,15 +201,23 @@ def run_inference_with_config(
     preds_df = preds_df.rename(columns={
         "item_id":  "station_id",
         "0.1":      "p10",
-        "mean":     "p50",
         "0.9":      "p90",
     })
 
-    # Handle alternate column naming
+    # Prefer the actual 0.5 quantile column for "p50" (the true median);
+    # only fall back to the separate "mean" point-forecast column when no
+    # quantile column claimed p50. Unconditionally mapping "mean" -> "p50"
+    # here (as this used to) made the "0.5" fallback below dead code, since
+    # AutoGluon's predict() output always includes "mean" alongside the
+    # configured quantile columns — every "p50" value silently became the
+    # point-forecast mean instead of the median, same class of bug already
+    # fixed in models/chronos2/predict.py's _finetuned_forecast/_zeroshot_forecast.
     if "p50" not in preds_df.columns:
         q50_col = [c for c in preds_df.columns if "0.5" in str(c)]
         if q50_col:
             preds_df = preds_df.rename(columns={q50_col[0]: "p50"})
+        elif "mean" in preds_df.columns:
+            preds_df = preds_df.rename(columns={"mean": "p50"})
 
     return preds_df[["timestamp", "station_id", "p10", "p50", "p90"]]
 
