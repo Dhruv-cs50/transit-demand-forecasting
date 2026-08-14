@@ -530,7 +530,14 @@ class Predictor:
         if "is_sharks_game_window" in station_df.columns:
             future_row = station_df[station_df["timestamp"] > now]
             if not future_row.empty and future_row.iloc[0].get("is_sharks_game_window"):
-                hour = int(future_row.iloc[0].get("game_start_hour", 19))
+                # game_start_hour is documented as "NaN if no game" (merge_pipeline.py)
+                # and can also be NaN even when is_sharks_game_window is True — e.g. the
+                # monthly mode-of-start-hour computation falls back to NaN when the
+                # matched games' start times are unknown. int(nan) raises ValueError,
+                # which would crash ridership_lift() (and the website's "+34%" card)
+                # for any month with a Sharks game lacking a recorded start hour.
+                raw_hour = future_row.iloc[0].get("game_start_hour", 19)
+                hour = int(raw_hour) if pd.notna(raw_hour) else 19
                 reason = f"Sharks home game · puck drop {hour}:00"
         if not reason and "is_raining" in station_df.columns:
             rain_row = station_df[station_df["timestamp"] > now]
