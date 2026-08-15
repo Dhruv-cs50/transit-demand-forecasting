@@ -182,6 +182,18 @@ def export_forecasts(out_dir: Path) -> None:
     q10_col = next((c for c in df.columns if "0.1" in str(c)), None)
     q50_col = next((c for c in df.columns if "0.5" in str(c)), None)
     q90_col = next((c for c in df.columns if "0.9" in str(c)), None)
+
+    def _finite_or_none(val) -> float | None:
+        # Quantile columns can legitimately be NaN (e.g. a station-month row
+        # the model couldn't produce a full-horizon prediction for) — unlike
+        # the other json.dump() calls in this file, this loop had no
+        # isfinite() guard, so json.dump would emit a bare `NaN` token here,
+        # which isn't valid JSON and breaks JSON.parse() for the whole file
+        # (charts.jsx's Calibration chart and the BARTForecasts table both
+        # silently render "no data" instead of just the affected station-month).
+        fv = float(val)
+        return round(fv, 0) if math.isfinite(fv) else None
+
     records = []
     for _, row in df.iterrows():
         ts = row.get("timestamp", "")
@@ -189,9 +201,9 @@ def export_forecasts(out_dir: Path) -> None:
         records.append({
             "station_id": row["station_id"],
             "month":  month_str,
-            "p10":    round(float(row[q10_col]), 0) if q10_col else None,
-            "p50":    round(float(row[q50_col]), 0) if q50_col else None,
-            "p90":    round(float(row[q90_col]), 0) if q90_col else None,
+            "p10":    _finite_or_none(row[q10_col]) if q10_col else None,
+            "p50":    _finite_or_none(row[q50_col]) if q50_col else None,
+            "p90":    _finite_or_none(row[q90_col]) if q90_col else None,
         })
     with open(out_dir / "forecasts.json", "w") as f:
         json.dump(records, f)
