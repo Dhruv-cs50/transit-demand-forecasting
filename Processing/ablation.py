@@ -509,7 +509,7 @@ def event_day_impact_table(
 
         if "is_game_day" in grp.columns:
             game_median = grp[grp["is_game_day"] == True][target_col].median()
-            if normal_median and normal_median > 0:
+            if normal_median and normal_median > 0 and pd.notna(game_median):
                 rows.append({
                     "station_id":       station,
                     "event_type":       "any_game_day",
@@ -520,7 +520,7 @@ def event_day_impact_table(
 
         if "is_sharks_game_window" in grp.columns:
             sharks_median = grp[grp["is_sharks_game_window"] == True][target_col].median()
-            if normal_median and normal_median > 0:
+            if normal_median and normal_median > 0 and pd.notna(sharks_median):
                 rows.append({
                     "station_id":       station,
                     "event_type":       "sharks_game_window",
