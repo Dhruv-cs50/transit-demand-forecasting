@@ -160,6 +160,14 @@ for year, folder, v in [
     else:
         print("⚠  No data loaded")
 
+if not bart_parts:
+    raise FileNotFoundError(
+        "No BART ridership .xlsx files found under any of "
+        f"{[BART19, BART22, BART23, BART24]}. This EDA script reads raw "
+        "BART OD ridership spreadsheets that must be downloaded manually "
+        "and placed in those folders — it does not use the parquet output "
+        "of machine_learning_files/fetch_bart_od.py."
+    )
 bart = pd.concat(bart_parts, ignore_index=True)
 
 print("\n  Loading VTA data...")

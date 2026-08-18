@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
-# Full ML pipeline — uses .venv311 (Python 3.11 + AutoGluon)
+# Full ML pipeline — uses .venv311 (Python 3.11 + AutoGluon) when present,
+# e.g. for local dev; falls back to the system python3 otherwise, e.g.
+# inside the Dockerfile image, which installs deps directly into the
+# container's system Python rather than a venv.
 # Run from repo root: bash scripts/run_pipeline.sh
 set -e
-PYTHON=".venv311/bin/python"
+if [ -x ".venv311/bin/python" ]; then
+  PYTHON=".venv311/bin/python"
+else
+  PYTHON="python3"
+fi
 
 echo "=== 1. Rebuild feature store + splits ==="
 $PYTHON machine_learning_files/merge_pipeline.py

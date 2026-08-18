@@ -49,9 +49,6 @@ flowchart TD
         subgraph GAE["App Engine Standard — website"]
             WEB[website/\nReact + Babel static site]
         end
-        subgraph BQ["BigQuery — cloud database"]
-            BQT[transit_data.feature_store\n1,800 rows · 50 stations]
-        end
     end
 
     USER[Browser]
@@ -67,8 +64,6 @@ flowchart TD
     P2 --> M1 & M2 & M3 & M4
     M1 & M2 & M3 & M4 --> O1
     O1 --> O2
-
-    P2 -->|bq load| BQT
 
     O2 -->|static JSON| WEB
     O1 -->|COPY into image| CB
@@ -113,7 +108,7 @@ Events APIs     ──► fetch_events.py  ──► data/raw/events/
                            │
                   feature_engineering.py
                            │
-                  feature_store_enriched.parquet ──► BigQuery
+                  feature_store_enriched.parquet
                            │
               ┌────────────┼────────────┐
               ▼            ▼            ▼
@@ -154,7 +149,7 @@ Events APIs     ──► fetch_events.py  ──► data/raw/events/
 | Method | Path | Input | Output |
 | --- | --- | --- | --- |
 | GET | `/health` | — | `{status, model_loaded, store_loaded}` |
-| GET | `/stations` | — | `[{station_id, station_name}]` |
+| GET | `/stations` | — | `{stations: [station_id, ...], count}` |
 | POST | `/forecast` | `{station_id, horizon_hours}` | `{station_id, forecasts: [{timestamp, p10, p50, p90}]}` |
 
 ### Chronological Splits
@@ -171,6 +166,5 @@ Events APIs     ──► fetch_events.py  ──► data/raw/events/
 | --- | --- |
 | App Engine Standard | Auto-scales instances; scales to zero when idle |
 | Cloud Run | Scales 0→N replicas per request concurrency; stateless |
-| BigQuery | Serverless; scales automatically for analytical queries |
 | Pre-computed cache | Parquet lookup in Cloud Run — sub-100 ms, no model load |
 | Live inference fallback | Chronos-T5-Small on CPU; upgrade path: GPU Cloud Run or Vertex AI |

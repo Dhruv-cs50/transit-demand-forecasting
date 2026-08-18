@@ -90,7 +90,17 @@ def _get_config() -> dict:
 def get_pipeline():
     global _pipeline
     if _pipeline is None:
-        from chronos import ChronosPipeline
+        try:
+            from chronos import ChronosPipeline
+        except ImportError as e:
+            # Dockerfile.api deliberately omits chronos-forecasting ("uses cached
+            # parquet files only") — a request that falls through to live inference
+            # (e.g. an explicit `as_of` with no matching cache) can't be served here.
+            raise RuntimeError(
+                "Live Chronos-2 inference is unavailable in this deployment "
+                "(chronos-forecasting not installed) — retry without `as_of`, "
+                "or use a deployment image that includes it."
+            ) from e
         cfg = _get_config()
         log.info("Loading Chronos-2 pipeline …")
         _pipeline = ChronosPipeline.from_pretrained(
@@ -262,6 +272,8 @@ if _FASTAPI_AVAILABLE:
             forecasts = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
             log.exception("Forecast failed")
             raise HTTPException(status_code=500, detail=str(e))
