@@ -658,12 +658,22 @@ const BARTForecasts = () => {
   const [liveFetching, setLiveFetching] = React.useState(false);
   const [liveError, setLiveError] = React.useState(null);
 
+  // `id` is the 4-letter BART code the live Cloud Run /forecast API expects
+  // (matches machine_learning_files/api.py's feature-store station_id
+  // convention). `dataId` is the short code actually used as `station_id`
+  // in the static website/data/*.json exports (forecasts.json,
+  // ridership_actuals.json) — a legacy scheme those files still carry
+  // (cross-checked against stations_meta.json's `bart_id` field, which maps
+  // these same short codes to the matching station names). The two never
+  // matched historically here, so the historical/forecast table below was
+  // always empty for every station — filter static-JSON lookups on
+  // `dataId`, keep `id` for the live API call and button identity.
   const KEY_STATIONS = [
-    { id:'EMBR', name:'Embarcadero' },
-    { id:'MONT', name:'Montgomery St' },
-    { id:'12TH', name:'12th St Oakland' },
-    { id:'BERY', name:'Berryessa' },
-    { id:'FRMT', name:'Fremont' },
+    { id:'EMBR', dataId:'EM', name:'Embarcadero' },
+    { id:'MONT', dataId:'MT', name:'Montgomery St' },
+    { id:'12TH', dataId:'12', name:'12th St Oakland' },
+    { id:'BERY', dataId:'BE', name:'Berryessa' },
+    { id:'FRMT', dataId:'FM', name:'Fremont' },
   ];
 
   React.useEffect(() => {
@@ -695,12 +705,14 @@ const BARTForecasts = () => {
 
   React.useEffect(() => { setLiveData(null); setLiveError(null); }, [station]);
 
+  const stationDataId = KEY_STATIONS.find(s => s.id === station)?.dataId || station;
+
   const stationActuals = actuals
-    .filter(r => r.station_id === station)
+    .filter(r => r.station_id === stationDataId)
     .sort((a, b) => a.month.localeCompare(b.month));
 
   const stationForecasts = forecasts
-    .filter(r => r.station_id === station)
+    .filter(r => r.station_id === stationDataId)
     .sort((a, b) => a.month.localeCompare(b.month));
 
   const fmt = n => n >= 1e6

@@ -113,6 +113,7 @@ def fetch_pems_bay_dataset() -> pd.DataFrame:
         df_long["speed_mph"],
         bins=[0, 15, 35, 55, 999],
         labels=["stop_and_go", "slow", "moderate", "free_flow"],
+        include_lowest=True,
     ).astype(str)
 
     out = RAW_DIR / "pems_bay_processed.parquet"

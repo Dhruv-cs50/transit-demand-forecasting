@@ -589,7 +589,14 @@ def main():
             print(f"Station  : {args.station}")
             print(f"Horizon  : {args.horizon}h | Steps: {len(preds)}")
             print(f"Mode     : {preds['model_mode'].iloc[0]}")
-            print(f"Lift     : {lift.get('lift_pct', 'N/A'):+.1f}% vs typical")
+            # lift.get(...) falls back to the string "N/A" when ridership_lift()
+            # returned {} (e.g. no station data) — feeding that straight into the
+            # ":+.1f" numeric format spec raises ValueError instead of printing
+            # "N/A" as intended. Same defeated-fallback class as the finetune.py
+            # summary-print fix (2026-08-18).
+            _lift_pct = lift.get("lift_pct")
+            _lift_str = f"{_lift_pct:+.1f}%" if _lift_pct is not None else "N/A"
+            print(f"Lift     : {_lift_str} vs typical")
             print(f"Reason   : {lift.get('reason', 'N/A')}")
             print(f"\n{preds[['timestamp','p10','p50','p90']].head(12).to_string(index=False)}")
 

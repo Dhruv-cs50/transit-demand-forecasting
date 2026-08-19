@@ -92,7 +92,11 @@ const Calibration = ({ width = 460, height = 260 }) => {
     fetch('data/forecasts.json')
       .then(r => r.json()).catch(() => [])
       .then(d => {
-        const em = d.filter(r => r.station_id === 'EMBR')
+        // website/data/forecasts.json's station_id values are the short
+        // codes stations_meta.json's `bart_id` uses (e.g. "EM" for
+        // Embarcadero), not the 4-letter feature-store/live-API convention
+        // ("EMBR") — filtering on "EMBR" here never matched a single row.
+        const em = d.filter(r => r.station_id === 'EM')
                     .sort((a, b) => a.month.localeCompare(b.month));
         setPts(em);
       });
