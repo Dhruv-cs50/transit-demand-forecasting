@@ -301,24 +301,24 @@ Endpoints:
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Service health, model/store load status |
-| `GET` | `/stations` | List of forecastable station IDs and names |
+| `GET` | `/stations` | List of forecastable station IDs |
 | `POST` | `/forecast` | Request P10/P50/P90 quantile forecasts |
 | `GET` | `/docs` | Swagger UI (interactive API explorer) |
 
 **Input** (`POST /forecast`):
 ```json
-{ "station_id": "EM", "horizon_hours": 6 }
+{ "station_id": "EMBR", "horizon_hours": 6 }
 ```
 
 **Output** (`POST /forecast`):
 ```json
 {
-  "station_id": "EM",
-  "station_name": "Embarcadero",
+  "station_id": "EMBR",
+  "horizon_hours": 6,
+  "generated_at": "2025-06-01T12:00:00",
   "forecasts": [
-    { "date": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
-  ],
-  "source": "cache"
+    { "timestamp": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
+  ]
 }
 ```
 
