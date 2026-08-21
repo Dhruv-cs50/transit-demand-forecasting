@@ -158,11 +158,21 @@ def build_meta_json(agg: pd.DataFrame) -> list:
 def export_ridership_actuals(df: pd.DataFrame, out_dir: Path) -> None:
     records = []
     for _, row in df.sort_values(["station_id", "timestamp"]).iterrows():
+        # Map the 4-letter BART code (this DataFrame's real station_id,
+        # per merge_pipeline.py) to the website_id convention that
+        # build_ridership_json()/build_meta_json() already use below —
+        # without this, this function wrote the raw 4-letter code through
+        # unmapped, which never matched any website station identifier.
+        # Stations with no website counterpart (see BART_CODE_TO_WEBSITE_ID's
+        # header comment) are skipped, matching build_ridership_json().
+        wid = BART_CODE_TO_WEBSITE_ID.get(row["station_id"])
+        if not wid:
+            continue
         ts = pd.to_datetime(row["timestamp"])
         if hasattr(ts, "tz") and ts.tz is not None:
             ts = ts.tz_localize(None)
         records.append({
-            "station_id": row["station_id"],
+            "station_id": wid,
             "month":      ts.strftime("%Y-%m"),
             "ridership":  int(row["ridership"]),
             "daily_est":  round(float(row.get("ridership_daily_est", row["ridership"] / 22)), 1),
@@ -196,10 +206,15 @@ def export_forecasts(out_dir: Path) -> None:
 
     records = []
     for _, row in df.iterrows():
+        # Same website_id mapping as export_ridership_actuals() above — this
+        # loop also wrote the raw 4-letter station_id through unmapped.
+        wid = BART_CODE_TO_WEBSITE_ID.get(row["station_id"])
+        if not wid:
+            continue
         ts = row.get("timestamp", "")
         month_str = ts.strftime("%Y-%m") if hasattr(ts, "strftime") else str(ts)[:7]
         records.append({
-            "station_id": row["station_id"],
+            "station_id": wid,
             "month":  month_str,
             "p10":    _finite_or_none(row[q10_col]) if q10_col else None,
             "p50":    _finite_or_none(row[q50_col]) if q50_col else None,
