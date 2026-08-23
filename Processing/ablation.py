@@ -140,6 +140,7 @@ def run_inference_with_config(
     feature_store: pd.DataFrame,
     include_groups: list[str],
     cfg: dict,
+    as_of: pd.Timestamp,
 ) -> pd.DataFrame:
     """
     Run inference using the fine-tuned predictor with only the specified
@@ -158,8 +159,19 @@ def run_inference_with_config(
             "Run: python models/chronos2/finetune.py first."
         )
 
+    # Clip to the context window ending at as_of (val_end) -- feeding the
+    # full feature_store (which also contains the test rows themselves)
+    # made predictor.predict() forecast prediction_length steps past the
+    # *last* timestamp in the store, i.e. past the test window entirely,
+    # so eval_on_slices()'s merge against test_df never found an
+    # overlapping timestamp and every ablation config silently produced
+    # zero results. Restricting to history up to as_of mirrors
+    # zero_shot.py's prepare_context()/predict.py's _build_context(),
+    # which forecast prediction_length steps starting right after as_of.
+    context_df = feature_store[feature_store["timestamp"] <= as_of]
+
     # Zero out excluded covariate groups
-    ablated_df = zero_out_groups(feature_store, include_groups)
+    ablated_df = zero_out_groups(context_df, include_groups)
 
     # Convert to AutoGluon format
     ablated_df = ablated_df.copy()
@@ -325,6 +337,15 @@ def run_ablation(
     if configs is None:
         configs = ABLATION_CONFIGS
 
+    # as_of = val_end: forecast prediction_length steps starting right after
+    # this, landing on the test window (ts > val_end) that test_df covers.
+    as_of = pd.Timestamp(cfg["data"]["val_end"])
+    if feature_store["timestamp"].dt.tz is not None:
+        as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None \
+            else as_of.tz_convert("America/Los_Angeles")
+    elif as_of.tzinfo is not None:
+        as_of = as_of.tz_localize(None)
+
     all_rows = []
 
     for config_name, include_groups in configs.items():
@@ -334,7 +355,7 @@ def run_ablation(
 
         try:
             preds = run_inference_with_config(
-                model_dir, feature_store, include_groups, cfg
+                model_dir, feature_store, include_groups, cfg, as_of
             )
             rows = eval_on_slices(test_df, preds, config_name)
             all_rows.extend(rows)
