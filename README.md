@@ -337,7 +337,7 @@ Additional project documentation:
 - The active modeled target is monthly BART OD ridership. Some files describe future higher-frequency transit support, but the current reliable pipeline is monthly.
 - Weather and event data are currently aggregated to the monthly modeling cadence.
 - `scripts/run_pipeline.sh` assumes `.venv311/bin/python` exists.
-- Chronos defaults to `mps` in `configs/model.yaml`; change it to `cuda` or `cpu` on non-Apple-Silicon machines.
+- Chronos defaults to `cpu` in `configs/model.yaml` (suitable for Cloud Run); change it to `mps` on Apple Silicon or `cuda` on a GPU machine for faster inference.
 - Some source fetchers require external credentials or manual data access.
 
 ## Troubleshooting
