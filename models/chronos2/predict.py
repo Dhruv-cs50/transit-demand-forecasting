@@ -526,9 +526,15 @@ class Predictor:
         lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
 
         # Build reason string
+        # `now` is forecast_df's own first timestamp, which exactly matches a row
+        # in station_df (future_df, built in _build_context as
+        # station_df[station_df["timestamp"] > as_of], is where forecast_df's
+        # timestamps come from). A strict `>` here skips that matching row and
+        # picks up the *next* month's is_sharks_game_window/is_raining instead of
+        # the forecasted month's own — misattributing the reason by one period.
         reason = ""
         if "is_sharks_game_window" in station_df.columns:
-            future_row = station_df[station_df["timestamp"] > now]
+            future_row = station_df[station_df["timestamp"] >= now]
             if not future_row.empty and future_row.iloc[0].get("is_sharks_game_window"):
                 # game_start_hour is documented as "NaN if no game" (merge_pipeline.py)
                 # and can also be NaN even when is_sharks_game_window is True — e.g. the
@@ -540,7 +546,7 @@ class Predictor:
                 hour = int(raw_hour) if pd.notna(raw_hour) else 19
                 reason = f"Sharks home game · puck drop {hour}:00"
         if not reason and "is_raining" in station_df.columns:
-            rain_row = station_df[station_df["timestamp"] > now]
+            rain_row = station_df[station_df["timestamp"] >= now]
             if not rain_row.empty and rain_row.iloc[0].get("is_raining"):
                 reason = "Rain in forecast · ridership shift expected"
 
