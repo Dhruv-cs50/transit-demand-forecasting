@@ -218,8 +218,10 @@ class MetricsReport:
             f"  WAPE    : {self.wape:>10.2f}  %",
             f"  sMAPE   : {self.smape:>10.2f}  %",
         ]
-        if self.mase is not None:
+        if self.mase is not None and not np.isnan(self.mase):
             lines.append(f"  MASE    : {self.mase:>10.4f}  ({'beats' if self.mase < 1 else 'trails'} naive)")
+        elif self.mase is not None:
+            lines.append(f"  MASE    : {'n/a':>10}  (undefined — insufficient seasonal history)")
         if self.coverage is not None:
             lines.append(f"  P10/P90 coverage: {self.coverage:.1f}%  (target: 80%)")
         if self.int_width is not None:
@@ -291,21 +293,25 @@ def _compute(
 def overall_metrics(
     merged: pd.DataFrame,
     train_df: pd.DataFrame = None,
+    pred_col: str = "p50",
+    actual_col: str = "ridership",
 ) -> MetricsReport:
-    return _compute("Overall", merged, train_df)
+    return _compute("Overall", merged, train_df, pred_col=pred_col, actual_col=actual_col)
 
 
 def per_station_metrics(
     merged: pd.DataFrame,
     train_df: pd.DataFrame = None,
     top_n: int = None,
+    pred_col: str = "p50",
+    actual_col: str = "ridership",
 ) -> pd.DataFrame:
     """Return a DataFrame with metrics for each station, sorted by WAPE."""
     rows = []
     for station, grp in merged.groupby("station_id"):
         train_grp = train_df[train_df["station_id"] == station] \
             if train_df is not None else None
-        r = _compute(f"Station: {station}", grp, train_grp)
+        r = _compute(f"Station: {station}", grp, train_grp, pred_col=pred_col, actual_col=actual_col)
         if r:
             d = r.to_dict()
             d["station_id"] = station
@@ -315,14 +321,18 @@ def per_station_metrics(
     return df.head(top_n) if top_n else df
 
 
-def per_hour_metrics(merged: pd.DataFrame) -> pd.DataFrame:
+def per_hour_metrics(
+    merged: pd.DataFrame,
+    pred_col: str = "p50",
+    actual_col: str = "ridership",
+) -> pd.DataFrame:
     """Metrics broken down by hour of day — reveals peak vs off-peak accuracy."""
     if "hour_of_day" not in merged.columns:
         merged["hour_of_day"] = pd.to_datetime(merged["timestamp"]).dt.hour
 
     rows = []
     for hour, grp in merged.groupby("hour_of_day"):
-        r = _compute(f"Hour {hour:02d}:00", grp)
+        r = _compute(f"Hour {hour:02d}:00", grp, pred_col=pred_col, actual_col=actual_col)
         if r:
             d = r.to_dict()
             d["hour"] = hour
@@ -330,7 +340,11 @@ def per_hour_metrics(merged: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("hour")
 
 
-def per_dow_metrics(merged: pd.DataFrame) -> pd.DataFrame:
+def per_dow_metrics(
+    merged: pd.DataFrame,
+    pred_col: str = "p50",
+    actual_col: str = "ridership",
+) -> pd.DataFrame:
     """Metrics by day of week — reveals Mon/Fri anomalies."""
     if "day_of_week" not in merged.columns:
         merged["day_of_week"] = pd.to_datetime(merged["timestamp"]).dt.dayofweek
@@ -338,7 +352,7 @@ def per_dow_metrics(merged: pd.DataFrame) -> pd.DataFrame:
     DOW_NAMES = {0:"Mon", 1:"Tue", 2:"Wed", 3:"Thu", 4:"Fri", 5:"Sat", 6:"Sun"}
     rows = []
     for dow, grp in merged.groupby("day_of_week"):
-        r = _compute(f"{DOW_NAMES[dow]}", grp)
+        r = _compute(f"{DOW_NAMES[dow]}", grp, pred_col=pred_col, actual_col=actual_col)
         if r:
             d = r.to_dict()
             d["dow"] = dow
@@ -347,7 +361,11 @@ def per_dow_metrics(merged: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("dow")
 
 
-def event_day_metrics(merged: pd.DataFrame) -> dict[str, MetricsReport]:
+def event_day_metrics(
+    merged: pd.DataFrame,
+    pred_col: str = "p50",
+    actual_col: str = "ridership",
+) -> dict[str, MetricsReport]:
     """
     Compare accuracy on game-day windows vs normal days.
     Key diagnostic: if game-day WAPE >> normal WAPE, the event features need work.
@@ -357,21 +375,25 @@ def event_day_metrics(merged: pd.DataFrame) -> dict[str, MetricsReport]:
     if "is_game_day" in merged.columns:
         game = merged[merged["is_game_day"] == True]
         normal = merged[merged["is_game_day"] == False]
-        results["game_day"]    = _compute("Game Days",    game)
-        results["normal_day"]  = _compute("Normal Days",  normal)
+        results["game_day"]    = _compute("Game Days",    game,   pred_col=pred_col, actual_col=actual_col)
+        results["normal_day"]  = _compute("Normal Days",  normal, pred_col=pred_col, actual_col=actual_col)
 
     if "is_sharks_game_window" in merged.columns:
         sharks = merged[merged["is_sharks_game_window"] == True]
-        results["sharks_game"] = _compute("Sharks Games", sharks)
+        results["sharks_game"] = _compute("Sharks Games", sharks, pred_col=pred_col, actual_col=actual_col)
 
     if "is_holiday" in merged.columns:
         holiday = merged[merged["is_holiday"] == True]
-        results["holiday"] = _compute("Holidays", holiday)
+        results["holiday"] = _compute("Holidays", holiday, pred_col=pred_col, actual_col=actual_col)
 
     return results
 
 
-def weather_day_metrics(merged: pd.DataFrame) -> dict[str, MetricsReport]:
+def weather_day_metrics(
+    merged: pd.DataFrame,
+    pred_col: str = "p50",
+    actual_col: str = "ridership",
+) -> dict[str, MetricsReport]:
     """
     Compare accuracy on rainy vs clear days.
     Key diagnostic: rain should improve accuracy if weather covariates are working.
@@ -381,24 +403,28 @@ def weather_day_metrics(merged: pd.DataFrame) -> dict[str, MetricsReport]:
     if "is_raining" in merged.columns:
         rainy = merged[merged["is_raining"] == True]
         clear = merged[merged["is_raining"] == False]
-        results["rainy"] = _compute("Rainy",   rainy)
-        results["clear"] = _compute("Clear",   clear)
+        results["rainy"] = _compute("Rainy",   rainy, pred_col=pred_col, actual_col=actual_col)
+        results["clear"] = _compute("Clear",   clear, pred_col=pred_col, actual_col=actual_col)
 
     if "precip_intensity" in merged.columns:
         heavy = merged[merged["precip_intensity"] >= 3]
-        results["heavy_rain"] = _compute("Heavy Rain", heavy)
+        results["heavy_rain"] = _compute("Heavy Rain", heavy, pred_col=pred_col, actual_col=actual_col)
 
     return results
 
 
-def transit_mode_metrics(merged: pd.DataFrame) -> pd.DataFrame:
+def transit_mode_metrics(
+    merged: pd.DataFrame,
+    pred_col: str = "p50",
+    actual_col: str = "ridership",
+) -> pd.DataFrame:
     """Metrics by transit mode — rail vs bus vs ferry."""
     if "transit_mode" not in merged.columns:
         return pd.DataFrame()
 
     rows = []
     for mode, grp in merged.groupby("transit_mode"):
-        r = _compute(f"Mode: {mode}", grp)
+        r = _compute(f"Mode: {mode}", grp, pred_col=pred_col, actual_col=actual_col)
         if r:
             d = r.to_dict()
             d["transit_mode"] = mode
@@ -450,31 +476,31 @@ def compute_all_metrics(
 
     # Overall
     log.info("Computing overall metrics …")
-    results["overall"] = overall_metrics(merged, train_df)
+    results["overall"] = overall_metrics(merged, train_df, pred_col=pred_col, actual_col=actual_col)
 
     # Per station
     log.info("Computing per-station metrics …")
-    results["per_station"] = per_station_metrics(merged, train_df)
+    results["per_station"] = per_station_metrics(merged, train_df, pred_col=pred_col, actual_col=actual_col)
 
     # Per hour
     log.info("Computing per-hour metrics …")
-    results["per_hour"] = per_hour_metrics(merged)
+    results["per_hour"] = per_hour_metrics(merged, pred_col=pred_col, actual_col=actual_col)
 
     # Per day of week
     log.info("Computing per-DOW metrics …")
-    results["per_dow"] = per_dow_metrics(merged)
+    results["per_dow"] = per_dow_metrics(merged, pred_col=pred_col, actual_col=actual_col)
 
     # Event days
     log.info("Computing event-day metrics …")
-    results["event_days"] = event_day_metrics(merged)
+    results["event_days"] = event_day_metrics(merged, pred_col=pred_col, actual_col=actual_col)
 
     # Weather days
     log.info("Computing weather-day metrics …")
-    results["weather_days"] = weather_day_metrics(merged)
+    results["weather_days"] = weather_day_metrics(merged, pred_col=pred_col, actual_col=actual_col)
 
     # Transit mode
     log.info("Computing transit-mode metrics …")
-    results["transit_mode"] = transit_mode_metrics(merged)
+    results["transit_mode"] = transit_mode_metrics(merged, pred_col=pred_col, actual_col=actual_col)
 
     return results
 

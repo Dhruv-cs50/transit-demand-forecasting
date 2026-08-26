@@ -168,7 +168,10 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
-        df["timestamp"] = df["timestamp"].dt.tz_convert(None)
+        # tz_convert(None) would shift to UTC before stripping the tz label; use
+        # tz_convert to LA first, then tz_localize(None), matching every other
+        # tz-stripping site in this file (see the comment at line ~437).
+        df["timestamp"] = df["timestamp"].dt.tz_convert("America/Los_Angeles").dt.tz_localize(None)
 
     # Skip resample — resampling 5 years of hourly data to 15min creates millions
     # of intermediate rows. Monthly aggregation is done downstream in build_feature_store.
@@ -368,9 +371,12 @@ def build_feature_store(
 
         matched  = base.merge(station_weather, on=["weather_station", "_year", "_month"], how="left")
         fallback = base.merge(regional_weather, on=["_year", "_month"], how="left")
-        has_match = base["weather_station"].notna()
+        # has_match alone only tells us the station *name* mapping exists, not that
+        # station_weather actually has a row for it (e.g. that location's fetch
+        # failed for a given month) — .where(has_match, ...) would then keep a NaN
+        # from `matched` instead of falling back. fillna() catches both cases.
         for col in weather_cols:
-            base[col] = matched[col].where(has_match, fallback[col])
+            base[col] = matched[col].fillna(fallback[col])
 
         base = base.drop(columns=["_year", "_month", "weather_station"])
 

@@ -1,5 +1,5 @@
 """
-serving/api.py
+machine_learning_files/api.py
 ───────────────
 FastAPI service exposing the Chronos-2 forecast as a REST API.
 
@@ -9,7 +9,7 @@ Endpoints:
     GET  /health     — liveness check
 
 Run locally:
-    uvicorn serving.api:app --reload --port 8000
+    uvicorn machine_learning_files.api:app --reload --port 8000
 
 Example request:
     curl -X POST http://localhost:8000/forecast \\
@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-log = logging.getLogger("serving.api")
+log = logging.getLogger("machine_learning_files.api")
 
 # ── Lazy imports so the module loads even without ML deps installed ─────────────
 try:

@@ -100,10 +100,14 @@ Expected outputs:
 ### 7. Deploy website
 
 ```bash
-firebase deploy --only hosting
+gcloud app deploy website/app.yaml --quiet
 ```
 
-Firebase Hosting serves files from `website/` according to `firebase.json`.
+The live site (https://cs-163-final-project-tra-f1136.wl.r.appspot.com) is served
+by App Engine Standard, configured via `website/app.yaml` — not Firebase
+Hosting. `firebase deploy --only hosting` will succeed without error but
+publishes to an unused Firebase Hosting site, leaving the real production URL
+unchanged.
 
 ## One-command Pipeline
 
