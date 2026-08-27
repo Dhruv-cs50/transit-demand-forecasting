@@ -1,6 +1,6 @@
 """
-ingestion/fetch_weather_openmeteo.py
-─────────────────────────────────────
+machine_learning_files/fetch_weather_openmeteo.py
+───────────────────────────────────────────────────
 Fetches historical and forecast weather data from Open-Meteo for each
 transit station defined in configs/sources.yaml.
 
@@ -12,9 +12,9 @@ Open-Meteo is free, requires no API key, and provides:
 Output: data/raw/weather/weather_{station}_{start}_{end}.parquet
 
 Usage:
-    python ingestion/fetch_weather_openmeteo.py
-    python ingestion/fetch_weather_openmeteo.py --start 2020-01-01 --end 2024-12-31
-    python ingestion/fetch_weather_openmeteo.py --forecast   # next 7 days
+    python machine_learning_files/fetch_weather_openmeteo.py
+    python machine_learning_files/fetch_weather_openmeteo.py --start 2020-01-01 --end 2024-12-31
+    python machine_learning_files/fetch_weather_openmeteo.py --forecast   # next 7 days
 """
 
 import argparse

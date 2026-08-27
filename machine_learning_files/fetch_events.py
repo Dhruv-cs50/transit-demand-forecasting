@@ -1,6 +1,6 @@
 """
-ingestion/fetch_events.py
-─────────────────────────
+machine_learning_files/fetch_events.py
+─────────────────────────────────────────
 Fetches Bay Area event schedules from:
   1. NHL API  — San Jose Sharks games (free, no key required)
   2. Ticketmaster Discovery API — concerts, sports at SAP Center,
@@ -13,8 +13,8 @@ Produces a unified events DataFrame:
 Output: data/raw/events/events_{start}_{end}.parquet
 
 Usage:
-    python ingestion/fetch_events.py
-    python ingestion/fetch_events.py --start 2020-01-01 --end 2024-12-31
+    python machine_learning_files/fetch_events.py
+    python machine_learning_files/fetch_events.py --start 2020-01-01 --end 2024-12-31
 """
 
 import argparse

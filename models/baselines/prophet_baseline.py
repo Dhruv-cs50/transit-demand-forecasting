@@ -1,6 +1,6 @@
 """
-models/baselines/prophet.py
-────────────────────────────
+models/baselines/prophet_baseline.py
+─────────────────────────────────────
 Prophet baseline for Bay Area transit ridership forecasting.
 
 Prophet handles three things natively that matter for this project:
@@ -13,8 +13,8 @@ Prophet on game nights and rainy days, the neural model isn't earning
 its complexity — and we need to know that.
 
 Usage:
-    python models/baselines/prophet.py
-    python models/baselines/prophet.py --station EMBR --horizon 24
+    python models/baselines/prophet_baseline.py
+    python models/baselines/prophet_baseline.py --station EMBR --horizon 24
 """
 
 from __future__ import annotations
