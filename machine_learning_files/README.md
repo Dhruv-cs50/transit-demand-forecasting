@@ -76,7 +76,7 @@ python machine_learning_files/zero_shot.py
 Run Chronos zero-shot for one station:
 
 ```bash
-python machine_learning_files/zero_shot.py --station EM --as-of 2023-06-01
+python machine_learning_files/zero_shot.py --station EMBR --as-of 2023-06-01
 ```
 
 Start the forecast API:
@@ -90,7 +90,7 @@ Example request:
 ```bash
 curl -X POST http://localhost:8000/forecast \
   -H "Content-Type: application/json" \
-  -d '{"station_id": "EM", "horizon_hours": 6}'
+  -d '{"station_id": "EMBR", "horizon_hours": 6}'
 ```
 
 ## Configuration Notes
@@ -104,6 +104,6 @@ curl -X POST http://localhost:8000/forecast \
 
 - `FileNotFoundError: feature_store.parquet`: run `python machine_learning_files/merge_pipeline.py`.
 - `No BART OD files found`: run `python machine_learning_files/fetch_bart_od.py` or place parsed BART parquet files in `data/raw/transit/bart/`.
-- Chronos device errors on non-Apple machines: change `chronos2.device` in `configs/model.yaml` from `mps` to `cuda` or `cpu` as appropriate.
+- Chronos device errors: `chronos2.device` in `configs/model.yaml` defaults to `cpu`; set it to `mps` on Apple Silicon or `cuda` on a GPU machine as appropriate.
 - AutoGluon errors with newer Python versions: recreate the environment with Python 3.11.
 - Empty API responses for a station: confirm the station ID exists with `GET /stations` and check the latest cached forecast parquet.

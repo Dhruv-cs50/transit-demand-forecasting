@@ -67,6 +67,7 @@ COVARIATE_GROUPS = {
         "precip_intensity", "weather_discomfort", "is_very_cold", "is_very_hot",
         "is_windy", "temp_deviation", "precip_3hr_sum", "precip_6hr_sum",
         "precip_24hr_sum", "is_rain_onset", "cloud_cover_pct", "humidity_pct",
+        "weather_code",
     ],
     "events": [
         "is_game_day", "is_sharks_game_window", "game_start_hour",
@@ -139,6 +140,7 @@ def run_inference_with_config(
     feature_store: pd.DataFrame,
     include_groups: list[str],
     cfg: dict,
+    as_of: pd.Timestamp,
 ) -> pd.DataFrame:
     """
     Run inference using the fine-tuned predictor with only the specified
@@ -157,8 +159,19 @@ def run_inference_with_config(
             "Run: python models/chronos2/finetune.py first."
         )
 
+    # Clip to the context window ending at as_of (val_end) -- feeding the
+    # full feature_store (which also contains the test rows themselves)
+    # made predictor.predict() forecast prediction_length steps past the
+    # *last* timestamp in the store, i.e. past the test window entirely,
+    # so eval_on_slices()'s merge against test_df never found an
+    # overlapping timestamp and every ablation config silently produced
+    # zero results. Restricting to history up to as_of mirrors
+    # zero_shot.py's prepare_context()/predict.py's _build_context(),
+    # which forecast prediction_length steps starting right after as_of.
+    context_df = feature_store[feature_store["timestamp"] <= as_of]
+
     # Zero out excluded covariate groups
-    ablated_df = zero_out_groups(feature_store, include_groups)
+    ablated_df = zero_out_groups(context_df, include_groups)
 
     # Convert to AutoGluon format
     ablated_df = ablated_df.copy()
@@ -200,15 +213,23 @@ def run_inference_with_config(
     preds_df = preds_df.rename(columns={
         "item_id":  "station_id",
         "0.1":      "p10",
-        "mean":     "p50",
         "0.9":      "p90",
     })
 
-    # Handle alternate column naming
+    # Prefer the actual 0.5 quantile column for "p50" (the true median);
+    # only fall back to the separate "mean" point-forecast column when no
+    # quantile column claimed p50. Unconditionally mapping "mean" -> "p50"
+    # here (as this used to) made the "0.5" fallback below dead code, since
+    # AutoGluon's predict() output always includes "mean" alongside the
+    # configured quantile columns — every "p50" value silently became the
+    # point-forecast mean instead of the median, same class of bug already
+    # fixed in models/chronos2/predict.py's _finetuned_forecast/_zeroshot_forecast.
     if "p50" not in preds_df.columns:
         q50_col = [c for c in preds_df.columns if "0.5" in str(c)]
         if q50_col:
             preds_df = preds_df.rename(columns={q50_col[0]: "p50"})
+        elif "mean" in preds_df.columns:
+            preds_df = preds_df.rename(columns={"mean": "p50"})
 
     return preds_df[["timestamp", "station_id", "p10", "p50", "p90"]]
 
@@ -316,6 +337,15 @@ def run_ablation(
     if configs is None:
         configs = ABLATION_CONFIGS
 
+    # as_of = val_end: forecast prediction_length steps starting right after
+    # this, landing on the test window (ts > val_end) that test_df covers.
+    as_of = pd.Timestamp(cfg["data"]["val_end"])
+    if feature_store["timestamp"].dt.tz is not None:
+        as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None \
+            else as_of.tz_convert("America/Los_Angeles")
+    elif as_of.tzinfo is not None:
+        as_of = as_of.tz_localize(None)
+
     all_rows = []
 
     for config_name, include_groups in configs.items():
@@ -325,7 +355,7 @@ def run_ablation(
 
         try:
             preds = run_inference_with_config(
-                model_dir, feature_store, include_groups, cfg
+                model_dir, feature_store, include_groups, cfg, as_of
             )
             rows = eval_on_slices(test_df, preds, config_name)
             all_rows.extend(rows)
@@ -500,7 +530,7 @@ def event_day_impact_table(
 
         if "is_game_day" in grp.columns:
             game_median = grp[grp["is_game_day"] == True][target_col].median()
-            if normal_median and normal_median > 0:
+            if normal_median and normal_median > 0 and pd.notna(game_median):
                 rows.append({
                     "station_id":       station,
                     "event_type":       "any_game_day",
@@ -511,7 +541,7 @@ def event_day_impact_table(
 
         if "is_sharks_game_window" in grp.columns:
             sharks_median = grp[grp["is_sharks_game_window"] == True][target_col].median()
-            if normal_median and normal_median > 0:
+            if normal_median and normal_median > 0 and pd.notna(sharks_median):
                 rows.append({
                     "station_id":       station,
                     "event_type":       "sharks_game_window",

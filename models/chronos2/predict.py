@@ -145,11 +145,21 @@ class Predictor:
         # fine-tuned weights exist and would otherwise always win the
         # finetuned-first fallback below).
         if force_mode is not None:
+            loaded = True
             if force_mode == "finetuned" and self._predictor is None:
-                self._load_finetuned()
+                loaded = self._load_finetuned()
             elif force_mode == "zeroshot" and self._pipeline is None:
-                self._load_zeroshot()
-            self._mode = force_mode
+                loaded = self._load_zeroshot()
+            if loaded:
+                self._mode = force_mode
+            else:
+                # Forced backend failed to load (missing/incompatible weights,
+                # chronos-forecasting not installed, …) — fall back to naive
+                # instead of leaving self._mode pointed at a backend whose
+                # _predictor/_pipeline is still None, which would otherwise
+                # crash forecast() with an AttributeError on the next call.
+                self._mode = "naive"
+                log.warning(f"⚠️  force_mode={force_mode!r} failed to load — using seasonal naive fallback")
             return
         if self._mode is not None:
             return
@@ -352,6 +362,7 @@ class Predictor:
         context_df, future_df, station_id, horizon_steps, quantile_levels
     ) -> pd.DataFrame:
         from autogluon.timeseries import TimeSeriesDataFrame
+        from models.chronos2.finetune import KNOWN_FUTURE_COLS
 
         ctx = context_df.rename(columns={"station_id": "item_id", "ridership": "target"})
         ctx = ctx.sort_values("timestamp")
@@ -363,14 +374,40 @@ class Predictor:
             timestamp_column="timestamp",
         )
 
-        preds = self._predictor.predict(ts_df, prediction_length=horizon_steps)
+        # The predictor was fit with known_covariates_names=KNOWN_FUTURE_COLS
+        # (see build_predictor in finetune.py), so .predict() needs those same
+        # columns supplied for the forecast horizon — otherwise AutoGluon either
+        # errors or silently ignores the weather/event signal fine-tuning relied on.
+        known_covariates = None
+        known_cols = [c for c in KNOWN_FUTURE_COLS if c in future_df.columns]
+        if known_cols and not future_df.empty:
+            fut = future_df.rename(columns={"station_id": "item_id"}).sort_values("timestamp").head(horizon_steps)
+            known_covariates = TimeSeriesDataFrame.from_data_frame(
+                fut[["item_id", "timestamp"] + known_cols],
+                id_column="item_id",
+                timestamp_column="timestamp",
+            )
+
+        preds = self._predictor.predict(
+            ts_df, known_covariates=known_covariates, prediction_length=horizon_steps
+        )
         preds_df = preds.reset_index()
 
+        # AutoGluon's predict() output carries BOTH a "mean" column and a "0.5"
+        # quantile column (quantile_levels includes 0.5) — mapping "mean" to
+        # "p50" unconditionally, on top of the "0.5" match, produced two columns
+        # both named "p50" after rename(), which silently turned every
+        # downstream preds["p50"] access (ridership_lift, benchmarks.py's
+        # compute_metrics, evaluation/metrics.py) into a 2-column DataFrame
+        # instead of a Series. Only fall back to "mean" when no quantile
+        # column already claimed p50.
         col_map = {}
         for c in preds_df.columns:
             if "0.1" in str(c): col_map[c] = "p10"
-            elif "0.5" in str(c) or c == "mean": col_map[c] = "p50"
+            elif "0.5" in str(c): col_map[c] = "p50"
             elif "0.9" in str(c): col_map[c] = "p90"
+        if "p50" not in col_map.values() and "mean" in preds_df.columns:
+            col_map["mean"] = "p50"
         preds_df = preds_df.rename(columns=col_map)
 
         return preds_df[["timestamp", "p10", "p50", "p90"]]
@@ -386,11 +423,15 @@ class Predictor:
             station_id, horizon_steps, quantile_levels,
         )
 
+        # Same "mean" + "0.5" duplicate-p50 hazard as _finetuned_forecast —
+        # only use "mean" when no quantile column already mapped to p50.
         col_map = {}
         for c in preds_df.columns:
             if "0.1" in str(c): col_map[c] = "p10"
-            elif "0.5" in str(c) or c == "mean": col_map[c] = "p50"
+            elif "0.5" in str(c): col_map[c] = "p50"
             elif "0.9" in str(c): col_map[c] = "p90"
+        if "p50" not in col_map.values() and "mean" in preds_df.columns:
+            col_map["mean"] = "p50"
         preds_df = preds_df.rename(columns=col_map)
 
         keep = [c for c in ["timestamp","p10","p50","p90"] if c in preds_df.columns]
@@ -462,27 +503,50 @@ class Predictor:
         if station_df.empty or forecast_df is None or forecast_df.empty:
             return {}
 
-        # Typical for this hour + day-of-week
+        # Typical for this hour + day-of-week — but at this pipeline's actual
+        # monthly cadence every timestamp is midnight-of-month, so hour_of_day
+        # is a no-op and day_of_week is just whichever weekday the 1st fell on
+        # (not a real seasonal signal), which can filter the comparison set
+        # down to 0-1 rows. Fall back to "same calendar month" when the data
+        # has no sub-daily resolution to compare hours/weekdays on.
         now = forecast_df["timestamp"].iloc[0]
-        typical_mask = (
-            (station_df["hour_of_day"] == now.hour) &
-            (station_df["day_of_week"] == now.dayofweek) &
-            (~station_df.get("is_game_day", pd.Series(False, index=station_df.index)))
-        )
+        sub_daily = station_df["timestamp"].dt.hour.nunique() > 1
+        not_game_day = ~station_df.get("is_game_day", pd.Series(False, index=station_df.index))
+        if sub_daily:
+            typical_mask = (
+                (station_df["hour_of_day"] == now.hour) &
+                (station_df["day_of_week"] == now.dayofweek) &
+                not_game_day
+            )
+        else:
+            typical_mask = (station_df["timestamp"].dt.month == now.month) & not_game_day
         typical_median = station_df[typical_mask]["ridership"].median()
         forecast_p50   = forecast_df["p50"].iloc[0]
 
         lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
 
         # Build reason string
+        # `now` is forecast_df's own first timestamp, which exactly matches a row
+        # in station_df (future_df, built in _build_context as
+        # station_df[station_df["timestamp"] > as_of], is where forecast_df's
+        # timestamps come from). A strict `>` here skips that matching row and
+        # picks up the *next* month's is_sharks_game_window/is_raining instead of
+        # the forecasted month's own — misattributing the reason by one period.
         reason = ""
         if "is_sharks_game_window" in station_df.columns:
-            future_row = station_df[station_df["timestamp"] > now]
+            future_row = station_df[station_df["timestamp"] >= now]
             if not future_row.empty and future_row.iloc[0].get("is_sharks_game_window"):
-                hour = int(future_row.iloc[0].get("game_start_hour", 19))
+                # game_start_hour is documented as "NaN if no game" (merge_pipeline.py)
+                # and can also be NaN even when is_sharks_game_window is True — e.g. the
+                # monthly mode-of-start-hour computation falls back to NaN when the
+                # matched games' start times are unknown. int(nan) raises ValueError,
+                # which would crash ridership_lift() (and the website's "+34%" card)
+                # for any month with a Sharks game lacking a recorded start hour.
+                raw_hour = future_row.iloc[0].get("game_start_hour", 19)
+                hour = int(raw_hour) if pd.notna(raw_hour) else 19
                 reason = f"Sharks home game · puck drop {hour}:00"
         if not reason and "is_raining" in station_df.columns:
-            rain_row = station_df[station_df["timestamp"] > now]
+            rain_row = station_df[station_df["timestamp"] >= now]
             if not rain_row.empty and rain_row.iloc[0].get("is_raining"):
                 reason = "Rain in forecast · ridership shift expected"
 
@@ -531,7 +595,14 @@ def main():
             print(f"Station  : {args.station}")
             print(f"Horizon  : {args.horizon}h | Steps: {len(preds)}")
             print(f"Mode     : {preds['model_mode'].iloc[0]}")
-            print(f"Lift     : {lift.get('lift_pct', 'N/A'):+.1f}% vs typical")
+            # lift.get(...) falls back to the string "N/A" when ridership_lift()
+            # returned {} (e.g. no station data) — feeding that straight into the
+            # ":+.1f" numeric format spec raises ValueError instead of printing
+            # "N/A" as intended. Same defeated-fallback class as the finetune.py
+            # summary-print fix (2026-08-18).
+            _lift_pct = lift.get("lift_pct")
+            _lift_str = f"{_lift_pct:+.1f}%" if _lift_pct is not None else "N/A"
+            print(f"Lift     : {_lift_str} vs typical")
             print(f"Reason   : {lift.get('reason', 'N/A')}")
             print(f"\n{preds[['timestamp','p10','p50','p90']].head(12).to_string(index=False)}")
 

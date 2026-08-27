@@ -111,7 +111,10 @@ class NHLClient:
     def _seasons_in_range(start: date, end: date) -> list[str]:
         """NHL seasons span two calendar years (e.g. 20232024 = 2023-24 season)."""
         seasons = set()
-        year = start.year
+        # A season starting Oct(year-1) runs through Jun/Jul(year), so it can
+        # still be in progress during the first months of `start.year` — start
+        # one year earlier or that season is never checked/included.
+        year = start.year - 1
         while year <= end.year + 1:
             season = f"{year}{year+1}"
             # This season starts ~Oct of year and ends ~June of year+1

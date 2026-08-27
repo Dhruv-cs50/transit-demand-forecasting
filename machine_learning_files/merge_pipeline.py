@@ -96,7 +96,11 @@ def load_transit(freq: str) -> pd.DataFrame:
     """
     log.info("Loading transit ridership data …")
     bart_dir = RAW_DIR / "transit" / "bart"
-    files = list(bart_dir.glob("bart_od_*.parquet"))
+    # Match only the per-month files (bart_od_YYYY_MM.parquet). The broader
+    # "bart_od_*.parquet" pattern also matched fetch_bart_od.py's consolidated
+    # "bart_od_all.parquet" (all months already concatenated), which loaded
+    # every month's ridership twice and silently doubled the target column.
+    files = list(bart_dir.glob("bart_od_[0-9][0-9][0-9][0-9]_[0-9][0-9].parquet"))
     if not files:
         log.warning("No BART OD files found — transit column will be NaN")
         return pd.DataFrame()
@@ -107,6 +111,20 @@ def load_transit(freq: str) -> pd.DataFrame:
         frames.append(df)
 
     combined = pd.concat(frames, ignore_index=True)
+
+    # BART's OD workbooks include a "Total Trips" sheet alongside the
+    # "Weekday"/"Saturday"/"Sunday" sheets -- fetch_bart_od.py's
+    # parse_bart_od_excel() tags every sheet as its own day_type without
+    # distinguishing it (see transit_eda/notebooks/eda_complete.py's
+    # sheet_map, which explicitly maps a "Total Trips (OD)" sheet to
+    # day_type "Total" and excludes it before aggregating). Summing riders
+    # across day_type below without dropping it would sum the Weekday +
+    # Saturday + Sunday sheets *and* the sheet that is already their
+    # monthly total on top, roughly doubling every station-month's
+    # ridership -- the same double-counting failure mode as the
+    # glob-collision bug fixed 2026-08-12, via a different mechanism.
+    if "day_type" in combined.columns:
+        combined = combined[~combined["day_type"].str.contains("total", case=False, na=False)]
 
     # Aggregate total riders per station per period (collapse day_types & destinations)
     # For forecasting we want total inbound ridership per station per time window
@@ -133,15 +151,27 @@ def load_transit(freq: str) -> pd.DataFrame:
 def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     """Load all weather parquet files and return combined hourly DataFrame."""
     log.info("Loading weather data …")
-    files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
-    if not files:
+    hist_files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
+    # fetch_forecast_all_stations() writes the nightly 7-day-ahead forecast under a
+    # separate "weather_forecast_*" prefix — it must be loaded too, or the pipeline's
+    # only source of future-known weather covariates is silently dropped.
+    forecast_files = sorted((RAW_DIR / "weather").glob("weather_forecast_*.parquet"))
+    if not hist_files and not forecast_files:
         log.warning("No weather files found")
         return pd.DataFrame()
 
-    df = pd.read_parquet(files[-1])  # use the most recent combined file
+    frames = []
+    if hist_files:
+        frames.append(pd.read_parquet(hist_files[-1]))  # most recent combined historical file
+    if forecast_files:
+        frames.append(pd.read_parquet(forecast_files[-1]))  # most recent forecast file
+    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
-        df["timestamp"] = df["timestamp"].dt.tz_convert(None)
+        # tz_convert(None) would shift to UTC before stripping the tz label; use
+        # tz_convert to LA first, then tz_localize(None), matching every other
+        # tz-stripping site in this file (see the comment at line ~437).
+        df["timestamp"] = df["timestamp"].dt.tz_convert("America/Los_Angeles").dt.tz_localize(None)
 
     # Skip resample — resampling 5 years of hourly data to 15min creates millions
     # of intermediate rows. Monthly aggregation is done downstream in build_feature_store.
@@ -285,7 +315,12 @@ def build_feature_store(
 
     # 2. Build a base time grid from transit data timestamps
     # (In production this would be the 511 stop-observation data at 15-min resolution)
-    base = transit_df.copy()
+    # reset_index: load_transit() filters rows (dropping "Exits"-style aggregate
+    # station codes), leaving a non-contiguous index. Section 3 below assigns
+    # `.merge(...)` results (always a fresh 0..n-1 RangeIndex) back onto `base`
+    # via `.where(...)`, which label-aligns on the index rather than position —
+    # a gappy index there silently scrambles/NaNs the per-row weather match.
+    base = transit_df.copy().reset_index(drop=True)
 
     # 3. Merge weather — aggregate hourly weather to monthly, join per-station
     # where a BART station maps to a dedicated weather-monitoring location,
@@ -336,9 +371,12 @@ def build_feature_store(
 
         matched  = base.merge(station_weather, on=["weather_station", "_year", "_month"], how="left")
         fallback = base.merge(regional_weather, on=["_year", "_month"], how="left")
-        has_match = base["weather_station"].notna()
+        # has_match alone only tells us the station *name* mapping exists, not that
+        # station_weather actually has a row for it (e.g. that location's fetch
+        # failed for a given month) — .where(has_match, ...) would then keep a NaN
+        # from `matched` instead of falling back. fillna() catches both cases.
         for col in weather_cols:
-            base[col] = matched[col].where(has_match, fallback[col])
+            base[col] = matched[col].fillna(fallback[col])
 
         base = base.drop(columns=["_year", "_month", "weather_station"])
 
@@ -400,7 +438,14 @@ def make_splits(df: pd.DataFrame, train_end: str, val_end: str, train_start: str
     if ts.dt.tz is not None:
         ts = ts.dt.tz_localize(None)
 
-    def _ts(s): return pd.Timestamp(s).tz_localize(None) if pd.Timestamp(s).tzinfo is None else pd.Timestamp(s).tz_convert(None)
+    # tz_convert(None) would shift to UTC before stripping the tz label (same
+    # wrong-month hazard already fixed in compute_event_features above);
+    # tz_convert to LA first, then tz_localize(None) to drop the label in
+    # place and preserve the LA wall-clock value the date-string boundaries
+    # (train_end/val_end) are meant to compare against.
+    def _ts(s):
+        ts = pd.Timestamp(s)
+        return ts if ts.tzinfo is None else ts.tz_convert("America/Los_Angeles").tz_localize(None)
 
     train_ts = _ts(train_end)
     val_ts   = _ts(val_end)

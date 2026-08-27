@@ -1,5 +1,5 @@
 """
-serving/api.py
+machine_learning_files/api.py
 ───────────────
 FastAPI service exposing the Chronos-2 forecast as a REST API.
 
@@ -9,7 +9,7 @@ Endpoints:
     GET  /health     — liveness check
 
 Run locally:
-    uvicorn serving.api:app --reload --port 8000
+    uvicorn machine_learning_files.api:app --reload --port 8000
 
 Example request:
     curl -X POST http://localhost:8000/forecast \\
@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-log = logging.getLogger("serving.api")
+log = logging.getLogger("machine_learning_files.api")
 
 # ── Lazy imports so the module loads even without ML deps installed ─────────────
 try:
@@ -90,7 +90,17 @@ def _get_config() -> dict:
 def get_pipeline():
     global _pipeline
     if _pipeline is None:
-        from chronos import ChronosPipeline
+        try:
+            from chronos import ChronosPipeline
+        except ImportError as e:
+            # Dockerfile.api deliberately omits chronos-forecasting ("uses cached
+            # parquet files only") — a request that falls through to live inference
+            # (e.g. an explicit `as_of` with no matching cache) can't be served here.
+            raise RuntimeError(
+                "Live Chronos-2 inference is unavailable in this deployment "
+                "(chronos-forecasting not installed) — retry without `as_of`, "
+                "or use a deployment image that includes it."
+            ) from e
         cfg = _get_config()
         log.info("Loading Chronos-2 pipeline …")
         _pipeline = ChronosPipeline.from_pretrained(
@@ -123,10 +133,13 @@ def _run_forecast(
     """Core forecast logic — loads pre-computed parquet first, falls back to live Chronos."""
     cfg = _get_config()
 
-    # Fast path: serve from pre-computed zero-shot forecast parquet
+    # Fast path: serve from pre-computed zero-shot forecast parquet. Only valid
+    # when the caller wants "now" — an explicit as_of (e.g. a backtest request)
+    # must go through the slow path below, since the cached batch was anchored
+    # at whatever time it was last generated, not the caller's requested as_of.
     cached_dir = Path("models/chronos2/outputs")
     cached_files = sorted(cached_dir.glob("zero_shot_forecasts_*.parquet")) if cached_dir.exists() else []
-    if cached_files:
+    if cached_files and as_of is None:
         cached = pd.read_parquet(cached_files[-1])
         station_cache = cached[cached["station_id"] == station_id]
         if not station_cache.empty:
@@ -181,13 +194,21 @@ def _run_forecast(
 
     pred_df = run_zero_shot_forecast(
         pipeline, context_df, future_df,
-        station_id, prediction_length,
+        station_id, min(prediction_length, horizon_hours),
         quantile_levels=[0.1, 0.5, 0.9],
     )
 
+    # Chronos/AutoGluon predict_df() output carries both a "mean" column and a
+    # "0.5" quantile column simultaneously — prefer the actual median quantile
+    # column and only fall back to "mean" when no quantile column claimed p50.
+    # (Same failure mode as models/chronos2/predict.py's quantile-column
+    # selection, fixed there 2026-08-13; unordered `or` matching here would
+    # silently substitute the mean forecast for the median whenever "mean"
+    # happens to sort before "0.5" in pred_df.columns.)
     q_cols = {
         "p10": next((c for c in pred_df.columns if "0.1" in str(c)), None),
-        "p50": next((c for c in pred_df.columns if "0.5" in str(c) or c == "mean"), None),
+        "p50": next((c for c in pred_df.columns if "0.5" in str(c)), None)
+               or next((c for c in pred_df.columns if c == "mean"), None),
         "p90": next((c for c in pred_df.columns if "0.9" in str(c)), None),
     }
 
@@ -251,6 +272,8 @@ if _FASTAPI_AVAILABLE:
             forecasts = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
             log.exception("Forecast failed")
             raise HTTPException(status_code=500, detail=str(e))

@@ -185,12 +185,19 @@ def diebold_mariano_test(
     except ImportError:
         return {"error": "scipy not installed"}
 
-    merged_a = actuals.merge(preds_a[["timestamp","station_id","p50"]],
-                              on=["timestamp","station_id"], how="inner")
-    merged_b = actuals.merge(preds_b[["timestamp","station_id","p50"]],
-                              on=["timestamp","station_id"], how="inner")
-    common = merged_a.merge(merged_b, on=["timestamp","station_id"],
-                            suffixes=("_a","_b"))
+    # Merge the two prediction sets together first, then join actuals once —
+    # merging actuals into each side separately (the old approach) carried
+    # "ridership" into both merged_a and merged_b, so the final merge's
+    # suffixes turned it into ridership_a/ridership_b and left no plain
+    # "ridership" column, raising KeyError below.
+    preds_merged = preds_a[["timestamp","station_id","p50"]].merge(
+        preds_b[["timestamp","station_id","p50"]],
+        on=["timestamp","station_id"], suffixes=("_a","_b"),
+    )
+    common = preds_merged.merge(
+        actuals[["timestamp","station_id","ridership"]],
+        on=["timestamp","station_id"], how="inner",
+    )
     if common.empty:
         return {}
 

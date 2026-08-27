@@ -18,6 +18,7 @@ Usage:
 import argparse
 import json
 import logging
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -157,11 +158,21 @@ def build_meta_json(agg: pd.DataFrame) -> list:
 def export_ridership_actuals(df: pd.DataFrame, out_dir: Path) -> None:
     records = []
     for _, row in df.sort_values(["station_id", "timestamp"]).iterrows():
+        # Map the 4-letter BART code (this DataFrame's real station_id,
+        # per merge_pipeline.py) to the website_id convention that
+        # build_ridership_json()/build_meta_json() already use below —
+        # without this, this function wrote the raw 4-letter code through
+        # unmapped, which never matched any website station identifier.
+        # Stations with no website counterpart (see BART_CODE_TO_WEBSITE_ID's
+        # header comment) are skipped, matching build_ridership_json().
+        wid = BART_CODE_TO_WEBSITE_ID.get(row["station_id"])
+        if not wid:
+            continue
         ts = pd.to_datetime(row["timestamp"])
         if hasattr(ts, "tz") and ts.tz is not None:
             ts = ts.tz_localize(None)
         records.append({
-            "station_id": row["station_id"],
+            "station_id": wid,
             "month":      ts.strftime("%Y-%m"),
             "ridership":  int(row["ridership"]),
             "daily_est":  round(float(row.get("ridership_daily_est", row["ridership"] / 22)), 1),
@@ -181,16 +192,33 @@ def export_forecasts(out_dir: Path) -> None:
     q10_col = next((c for c in df.columns if "0.1" in str(c)), None)
     q50_col = next((c for c in df.columns if "0.5" in str(c)), None)
     q90_col = next((c for c in df.columns if "0.9" in str(c)), None)
+
+    def _finite_or_none(val) -> float | None:
+        # Quantile columns can legitimately be NaN (e.g. a station-month row
+        # the model couldn't produce a full-horizon prediction for) — unlike
+        # the other json.dump() calls in this file, this loop had no
+        # isfinite() guard, so json.dump would emit a bare `NaN` token here,
+        # which isn't valid JSON and breaks JSON.parse() for the whole file
+        # (charts.jsx's Calibration chart and the BARTForecasts table both
+        # silently render "no data" instead of just the affected station-month).
+        fv = float(val)
+        return round(fv, 0) if math.isfinite(fv) else None
+
     records = []
     for _, row in df.iterrows():
+        # Same website_id mapping as export_ridership_actuals() above — this
+        # loop also wrote the raw 4-letter station_id through unmapped.
+        wid = BART_CODE_TO_WEBSITE_ID.get(row["station_id"])
+        if not wid:
+            continue
         ts = row.get("timestamp", "")
         month_str = ts.strftime("%Y-%m") if hasattr(ts, "strftime") else str(ts)[:7]
         records.append({
-            "station_id": row["station_id"],
+            "station_id": wid,
             "month":  month_str,
-            "p10":    round(float(row[q10_col]), 0) if q10_col else None,
-            "p50":    round(float(row[q50_col]), 0) if q50_col else None,
-            "p90":    round(float(row[q90_col]), 0) if q90_col else None,
+            "p10":    _finite_or_none(row[q10_col]) if q10_col else None,
+            "p50":    _finite_or_none(row[q50_col]) if q50_col else None,
+            "p90":    _finite_or_none(row[q90_col]) if q90_col else None,
         })
     with open(out_dir / "forecasts.json", "w") as f:
         json.dump(records, f)
@@ -205,9 +233,13 @@ def export_model_comparison(out_dir: Path) -> None:
         for _, row in leaderboard.iterrows():
             comparison.append({
                 "model": row["model"],
-                "MAE": round(float(row["MAE"]), 0),
-                "MAPE_pct": round(float(row["MAPE_%"]), 1),
-                "WAPE_pct": round(float(row["WAPE_%"]), 1),
+                # MAE/MAPE/WAPE can legitimately be NaN (e.g. metrics.py's wape()
+                # returns NaN on a zero denominator) — json.dump would serialize
+                # a bare `NaN` token, which isn't valid JSON and breaks every
+                # website consumer's JSON.parse() for the whole comparison table.
+                "MAE": round(float(row["MAE"]), 0) if pd.notna(row["MAE"]) else None,
+                "MAPE_pct": round(float(row["MAPE_%"]), 1) if pd.notna(row["MAPE_%"]) else None,
+                "WAPE_pct": round(float(row["WAPE_%"]), 1) if pd.notna(row["WAPE_%"]) else None,
                 "Coverage_pct": round(float(row["Coverage_%"]), 1) if "Coverage_%" in row and pd.notna(row["Coverage_%"]) else None,
                 "n_predictions": int(row["n"]) if "n" in row and pd.notna(row["n"]) else None,
             })
@@ -245,11 +277,18 @@ def export_model_comparison(out_dir: Path) -> None:
         y_true = merged["actual"].values.astype(float)
         nonzero = y_true != 0
         mae  = float(abs(y_pred - y_true).mean())
+        # nonzero can legitimately be empty (all-zero actuals in this station/month
+        # slice) and abs(y_true).sum() can legitimately be zero — both produce a
+        # bare NaN/Infinity float here, same failure mode already guarded against
+        # in the leaderboard branch above. json.dump would emit an invalid `NaN`/
+        # `Infinity` token and break every website consumer's JSON.parse().
         mape = float(abs((y_pred[nonzero] - y_true[nonzero]) / y_true[nonzero]).mean() * 100)
         wape = float(abs(y_pred - y_true).sum() / abs(y_true).sum() * 100)
         comparison.append({
-            "model": model_name, "MAE": round(mae, 0),
-            "MAPE_pct": round(mape, 1), "WAPE_pct": round(wape, 1),
+            "model": model_name,
+            "MAE": round(mae, 0) if math.isfinite(mae) else None,
+            "MAPE_pct": round(mape, 1) if math.isfinite(mape) else None,
+            "WAPE_pct": round(wape, 1) if math.isfinite(wape) else None,
             "n_predictions": len(merged),
         })
     with open(out_dir / "model_comparison.json", "w") as f:

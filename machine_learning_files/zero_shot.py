@@ -196,10 +196,20 @@ def evaluate_predictions(
         return {}
 
     # Merge predictions with actuals on timestamp
-    median_col = f"mean"  # Chronos calls it mean, or use the 0.5 quantile col
-    if median_col not in pred_df.columns:
-        q50_col = [c for c in pred_df.columns if "0.5" in str(c)]
-        median_col = q50_col[0] if q50_col else pred_df.columns[-1]
+    # pipeline.predict_df() output can carry both a "mean" column and a "0.5"
+    # quantile column simultaneously — prefer the actual median quantile
+    # column and only fall back to "mean" when no quantile column claimed
+    # p50 (same failure mode already fixed in models/chronos2/predict.py's
+    # _zeroshot_forecast/_finetuned_forecast: mean-first here silently
+    # substituted the point-forecast mean for the true median whenever both
+    # columns were present).
+    q50_col = [c for c in pred_df.columns if "0.5" in str(c)]
+    if q50_col:
+        median_col = q50_col[0]
+    elif "mean" in pred_df.columns:
+        median_col = "mean"
+    else:
+        median_col = pred_df.columns[-1]
 
     merged = pred_df.merge(
         actuals_df[["timestamp", "ridership"]].rename(columns={"ridership": "actual"}),
@@ -336,7 +346,10 @@ def main():
         if df["timestamp"].dt.tz is not None:
             as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
         elif as_of.tzinfo is not None:
-            as_of = as_of.tz_localize(None)
+            # Convert to LA wall-clock time before dropping the tz label — stripping
+            # a non-LA offset directly would keep the wrong wall-clock digits (e.g.
+            # 08:00 UTC silently becomes "08:00 naive" instead of the correct 01:00 PDT).
+            as_of = as_of.tz_convert("America/Los_Angeles").tz_localize(None)
     output_dir = Path("models/chronos2/outputs")
 
     if args.station:

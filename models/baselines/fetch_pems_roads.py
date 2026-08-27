@@ -113,6 +113,7 @@ def fetch_pems_bay_dataset() -> pd.DataFrame:
         df_long["speed_mph"],
         bins=[0, 15, 35, 55, 999],
         labels=["stop_and_go", "slow", "moderate", "free_flow"],
+        include_lowest=True,
     ).astype(str)
 
     out = RAW_DIR / "pems_bay_processed.parquet"
@@ -242,6 +243,13 @@ class PeMSClient:
         rename = {}
         for col in df.columns:
             lc = col.lower()
+            if "lane" in lc:
+                # Per-lane columns (e.g. "Lane 1 Flow", "Lane 2 Avg Speed") also
+                # match the flow/speed/occ substrings below — skip them so only
+                # the aggregate station-level columns get renamed, avoiding
+                # duplicate target column names (same collision class as the
+                # "station"/"station length" fix below).
+                continue
             if "flow" in lc or "volume" in lc:
                 rename[col] = "flow_veh_5min"
             elif "speed" in lc:

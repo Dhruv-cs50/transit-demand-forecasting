@@ -228,33 +228,10 @@ gcloud run deploy transit-api \
 
 | Data | Location | Notes |
 | --- | --- | --- |
-| Feature store dataset | BigQuery `transit_data.feature_store` | 1,800 rows × 50 stations, station-month ridership + covariates |
+| Feature store parquet | `data/processed/feature_store_enriched.parquet` | Station-month ridership + covariates |
 | Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API |
 | Website assets | App Engine Standard | HTML/CSS/JSX/JSON, served via static file handlers |
 | Pre-computed forecasts | Baked into Docker image | `models/chronos2/outputs/*.parquet` copied at build time |
-
-#### BigQuery Dataset
-
-Project: `cs-163-final-project-tra-f1136`  
-Dataset: `transit_data`  
-Table: `feature_store` — 1,800 rows, 50 stations, monthly granularity
-
-Schema includes: `station_id`, `month`, `ridership`, weather covariates (temperature, precipitation), event indicators (NHL game days, concert events), and calendar features (month-of-year, year, is_holiday).
-
-Query example:
-```sql
-SELECT station_id, month, ridership
-FROM `cs-163-final-project-tra-f1136.transit_data.feature_store`
-WHERE station_id = 'EM'
-ORDER BY month;
-```
-
-Load from parquet:
-```bash
-bq load --source_format=PARQUET \
-  cs-163-final-project-tra-f1136:transit_data.feature_store \
-  data/processed/feature_store_enriched.parquet
-```
 
 ### System Design and Scalability
 
@@ -266,11 +243,9 @@ flowchart LR
         FC[Forecast\n*.parquet]
         JSON[website/data\n*.json]
         RAW --> FS --> FC --> JSON
-        FS -->|bq load| BQ
     end
 
     subgraph GCP["Google Cloud Platform"]
-        BQ[(BigQuery\ntransit_data.feature_store)]
         AR[Artifact Registry\nDocker image]
         CR[Cloud Run\ntransit-api]
         GAE[App Engine\nwebsite]
@@ -287,7 +262,6 @@ flowchart LR
 - **App Engine Standard** — auto-scales instances, zero when idle, no server management
 - **Cloud Run** — scales 0→N replicas per concurrency, each replica stateless
 - **Pre-computed parquet cache** — >99% of API requests are sub-100ms parquet lookups, no model load
-- **BigQuery** — serverless, auto-scales for analytical queries
 - **Upgrade path** — live inference (cache miss) currently runs Chronos-T5-Small on CPU; swap to GPU Cloud Run or Vertex AI for higher throughput
 
 Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
@@ -327,24 +301,24 @@ Endpoints:
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Service health, model/store load status |
-| `GET` | `/stations` | List of forecastable station IDs and names |
+| `GET` | `/stations` | List of forecastable station IDs |
 | `POST` | `/forecast` | Request P10/P50/P90 quantile forecasts |
 | `GET` | `/docs` | Swagger UI (interactive API explorer) |
 
 **Input** (`POST /forecast`):
 ```json
-{ "station_id": "EM", "horizon_hours": 6 }
+{ "station_id": "EMBR", "horizon_hours": 6 }
 ```
 
 **Output** (`POST /forecast`):
 ```json
 {
-  "station_id": "EM",
-  "station_name": "Embarcadero",
+  "station_id": "EMBR",
+  "horizon_hours": 6,
+  "generated_at": "2025-06-01T12:00:00",
   "forecasts": [
-    { "date": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
-  ],
-  "source": "cache"
+    { "timestamp": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
+  ]
 }
 ```
 
@@ -363,7 +337,7 @@ Additional project documentation:
 - The active modeled target is monthly BART OD ridership. Some files describe future higher-frequency transit support, but the current reliable pipeline is monthly.
 - Weather and event data are currently aggregated to the monthly modeling cadence.
 - `scripts/run_pipeline.sh` assumes `.venv311/bin/python` exists.
-- Chronos defaults to `mps` in `configs/model.yaml`; change it to `cuda` or `cpu` on non-Apple-Silicon machines.
+- Chronos defaults to `cpu` in `configs/model.yaml` (suitable for Cloud Run); change it to `mps` on Apple Silicon or `cuda` on a GPU machine for faster inference.
 - Some source fetchers require external credentials or manual data access.
 
 ## Troubleshooting

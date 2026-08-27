@@ -658,12 +658,22 @@ const BARTForecasts = () => {
   const [liveFetching, setLiveFetching] = React.useState(false);
   const [liveError, setLiveError] = React.useState(null);
 
+  // `id` is the 4-letter BART code the live Cloud Run /forecast API expects
+  // (matches machine_learning_files/api.py's feature-store station_id
+  // convention). `dataId` is the short code actually used as `station_id`
+  // in the static website/data/*.json exports (forecasts.json,
+  // ridership_actuals.json) — a legacy scheme those files still carry
+  // (cross-checked against stations_meta.json's `bart_id` field, which maps
+  // these same short codes to the matching station names). The two never
+  // matched historically here, so the historical/forecast table below was
+  // always empty for every station — filter static-JSON lookups on
+  // `dataId`, keep `id` for the live API call and button identity.
   const KEY_STATIONS = [
-    { id:'EMBR', name:'Embarcadero' },
-    { id:'MONT', name:'Montgomery St' },
-    { id:'12TH', name:'12th St Oakland' },
-    { id:'BERY', name:'Berryessa' },
-    { id:'FRMT', name:'Fremont' },
+    { id:'EMBR', dataId:'EM', name:'Embarcadero' },
+    { id:'MONT', dataId:'MT', name:'Montgomery St' },
+    { id:'12TH', dataId:'12', name:'12th St Oakland' },
+    { id:'BERY', dataId:'BE', name:'Berryessa' },
+    { id:'FRMT', dataId:'FM', name:'Fremont' },
   ];
 
   React.useEffect(() => {
@@ -695,12 +705,14 @@ const BARTForecasts = () => {
 
   React.useEffect(() => { setLiveData(null); setLiveError(null); }, [station]);
 
+  const stationDataId = KEY_STATIONS.find(s => s.id === station)?.dataId || station;
+
   const stationActuals = actuals
-    .filter(r => r.station_id === station)
+    .filter(r => r.station_id === stationDataId)
     .sort((a, b) => a.month.localeCompare(b.month));
 
   const stationForecasts = forecasts
-    .filter(r => r.station_id === station)
+    .filter(r => r.station_id === stationDataId)
     .sort((a, b) => a.month.localeCompare(b.month));
 
   const fmt = n => n >= 1e6
@@ -809,9 +821,9 @@ const BARTForecasts = () => {
                     <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', background:'rgba(42,47,143,0.04)' }}>
                       <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12, color:'var(--primary)' }}>{row.month} ▶</td>
                       <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p10 ? fmt(row.p10) : '—'}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--primary)', fontWeight:700, fontFamily:'var(--mono)' }}>{row.p50 ? fmt(row.p50) : '—'}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p90 ? fmt(row.p90) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p10 != null ? fmt(row.p10) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--primary)', fontWeight:700, fontFamily:'var(--mono)' }}>{row.p50 != null ? fmt(row.p50) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p90 != null ? fmt(row.p90) : '—'}</td>
                       <td style={{ padding:'5px 10px' }}>
                         <div style={{ background:'var(--accent)', opacity:0.7, height:6, borderRadius:3, width: `${Math.round(100*(row.p50||0)/maxRiders)}%`, minWidth:4 }} />
                       </td>
@@ -845,8 +857,8 @@ const BARTForecasts = () => {
                   <tr key={i} style={{ borderBottom:'1px solid var(--line)', background: i===0 ? 'rgba(42,47,143,0.04)' : 'transparent' }}>
                     <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.model}</td>
                     <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.MAPE_pct != null ? r.MAPE_pct.toFixed(1)+'%' : '—'}</td>
-                    <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.WAPE_pct.toFixed(1)}%</td>
-                    <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{fmt(r.MAE)}</td>
+                    <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.WAPE_pct != null ? r.WAPE_pct.toFixed(1)+'%' : '—'}</td>
+                    <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.MAE != null ? fmt(r.MAE) : '—'}</td>
                     <td style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>{r.n_predictions}</td>
                   </tr>
                 ))}
