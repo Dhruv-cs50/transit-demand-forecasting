@@ -1,5 +1,5 @@
 """
-processing/feature_engineering.py
+Processing/feature_engineering.py
 ───────────────────────────────────
 Transforms the raw merged dataset into a rich, model-ready feature matrix.
 
@@ -15,11 +15,11 @@ The output of this file feeds directly into Chronos-2 as:
   - Static features  : things that never change per station (mode, location)
 
 Usage:
-    from processing.feature_engineering import build_features
+    from Processing.feature_engineering import build_features
     df = build_features(raw_df)
 
     # Or as a standalone script:
-    python processing/feature_engineering.py
+    python Processing/feature_engineering.py
 """
 
 from __future__ import annotations
