@@ -97,9 +97,9 @@ flowchart TD
 ## Data Flow
 
 ```
-BART OD reports ──► fetch_bart_od.py ──► data/raw/transit/bart/
-Open-Meteo API  ──► fetch_weather.py ──► data/raw/weather/
-Events APIs     ──► fetch_events.py  ──► data/raw/events/
+BART OD reports ──► fetch_bart_od.py           ──► data/raw/transit/bart/
+Open-Meteo API  ──► fetch_weather_openmeteo.py ──► data/raw/weather/
+Events APIs     ──► fetch_events.py            ──► data/raw/events/
                            │
                            ▼
                   merge_pipeline.py
@@ -112,7 +112,7 @@ Events APIs     ──► fetch_events.py  ──► data/raw/events/
                            │
               ┌────────────┼────────────┐
               ▼            ▼            ▼
-         zero_shot     finetune.py   arima.py / prophet.py
+         zero_shot     finetune.py   arima.py / prophet_baseline.py
               │            │            │
               └────────────┴────────────┘
                            │

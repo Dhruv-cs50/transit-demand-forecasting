@@ -181,8 +181,16 @@ class TicketmasterClient:
                     continue
 
                 try:
-                    ts_start = pd.to_datetime(dt_str).tz_convert("America/Los_Angeles") \
-                        if "T" in dt_str else pd.to_datetime(dt_str)
+                    ts_start = pd.to_datetime(dt_str)
+                    # Ticketmaster returns a full dateTime (tz-aware after
+                    # parsing) for most events, but falls back to a
+                    # date-only localDate (tz-naive) for TBD-time events.
+                    # Normalize both to tz-aware so downstream concat with
+                    # other tz-aware sources (e.g. NHLClient) never mixes
+                    # tz-aware/tz-naive values in one column.
+                    ts_start = ts_start.tz_convert("America/Los_Angeles") \
+                        if ts_start.tzinfo is not None \
+                        else ts_start.tz_localize("America/Los_Angeles")
                 except Exception:
                     continue
 

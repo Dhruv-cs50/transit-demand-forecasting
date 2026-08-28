@@ -531,7 +531,7 @@ def main():
     events_path        = Path("data/raw/events")
 
     if not feature_store_path.exists():
-        log.error("Feature store not found. Run: python processing/merge_pipeline.py")
+        log.error("Feature store not found. Run: python machine_learning_files/merge_pipeline.py")
         return
 
     log.info("Loading feature store …")

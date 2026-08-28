@@ -165,12 +165,14 @@ class OpenMeteoClient:
             "relativehumidity_2m":  "humidity_pct",
         })
 
-        # Decode weather codes
+        # Decode weather codes. Open-Meteo's hourly arrays can contain a
+        # null weathercode for a documented data gap (especially near the
+        # forecast horizon boundary); guard against int(NaN) raising.
         df["weather_desc"] = df["weather_code"].map(
-            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[0]
+            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[0] if pd.notna(c) else "Unknown"
         )
         df["is_raining"] = df["weather_code"].map(
-            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[1]
+            lambda c: WEATHER_CODE_MAP.get(int(c), ("Unknown", False))[1] if pd.notna(c) else False
         )
 
         # Convert inches to mm as well (useful for model features)

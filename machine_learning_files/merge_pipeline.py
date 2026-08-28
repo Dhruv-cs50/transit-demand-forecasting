@@ -16,7 +16,7 @@ otherwise.
 
 Output: data/processed/feature_store.parquet
 Schema:
-    timestamp       datetime64[ns, America/Los_Angeles]
+    timestamp       datetime64[ns]  (tz-naive, wall-clock America/Los_Angeles)
     station_id      str
     agency_id       str
     transit_mode    str      (rail / bus / ferry / road)
@@ -40,8 +40,8 @@ Schema:
     is_pm_peak      bool     (only present when timestamps carry sub-daily resolution)
 
 Usage:
-    python processing/merge_pipeline.py
-    python processing/merge_pipeline.py --freq 15min --start 2020-01-01
+    python machine_learning_files/merge_pipeline.py
+    python machine_learning_files/merge_pipeline.py --freq 15min --start 2020-01-01
 """
 
 import argparse

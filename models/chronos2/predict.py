@@ -4,9 +4,9 @@ models/chronos2/predict.py
 Production inference wrapper for the fine-tuned Chronos-2 model.
 
 This is the single entry point called by:
-  - serving/api.py        (FastAPI endpoint → Live demo on website)
-  - serving/scheduler.py  (nightly batch forecast run)
-  - evaluation scripts    (metrics, ablation)
+  - machine_learning_files/api.py  (FastAPI endpoint → Live demo on website)
+  - models/baselines/scheduler.py  (nightly batch forecast run)
+  - evaluation scripts             (metrics, ablation)
 
 It handles:
   - Loading the fine-tuned model (cached after first load)
@@ -97,7 +97,7 @@ class Predictor:
                 return self._store
 
         raise FileNotFoundError(
-            "No feature store found. Run: python processing/merge_pipeline.py"
+            "No feature store found. Run: python machine_learning_files/merge_pipeline.py"
         )
 
     # ── Model loading ──────────────────────────────────────────────────────────
@@ -448,7 +448,7 @@ class Predictor:
     ) -> pd.DataFrame:
         """
         Run forecasts for every station in the feature store.
-        Used by serving/scheduler.py for nightly batch runs.
+        Used by models/baselines/scheduler.py for nightly batch runs.
         """
         df = self.get_feature_store()
         stations = df["station_id"].unique()
