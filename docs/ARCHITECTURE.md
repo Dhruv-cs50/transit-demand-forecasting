@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TD
     subgraph SRC["Data Sources"]
-        S1[BART OD Reports\nbartlink.com]
+        S1[BART OD Reports\nbart.gov]
         S2[Open-Meteo\nWeather API]
         S3[NHL / Ticketmaster\nEvents API]
         S4[511 SF Bay\nTransit Feed]

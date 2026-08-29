@@ -227,8 +227,13 @@ class Predictor:
         if freq.upper() in {"MS", "M", "ME"} or "month" in freq.lower():
             period = min(12, len(context_df))
         else:
-            # 168 hours = 1 week at hourly; at 15min → 672 steps
-            period = int(pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)) * 168
+            # 168 hours = 1 week. Steps-per-week = 168 / hours-per-step, not
+            # hours-per-step * 168 — the old formula truncated hours-per-step
+            # to int() *before* multiplying, so any sub-hourly freq (e.g.
+            # 15min, hours_per_step=0.25) rounded down to 0 and produced
+            # period=0, making `i % period` below raise ZeroDivisionError.
+            hours_per_step = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+            period = max(1, int(round(168 / hours_per_step)))
         series = context_df.set_index("timestamp")["ridership"]
 
         last_ts  = series.index.max()

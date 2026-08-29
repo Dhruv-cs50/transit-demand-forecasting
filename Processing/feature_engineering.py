@@ -270,8 +270,19 @@ def add_event_features(
     df = df.copy()
     events = events.copy()
 
-    # Ensure timestamps are timezone-aware
-    for frame, col in [(df, "timestamp"), (events, "timestamp_start")]:
+    # Ensure timestamps are timezone-aware. timestamp_end must be normalized
+    # alongside timestamp_start -- fetch_events.py currently always writes
+    # both tz-aware, so this is dormant today, but skipping timestamp_end
+    # here would leave it naive next to a tz-aware timestamp_start/df
+    # timestamp. `.values` below then UTC-converts the tz-aware columns
+    # while leaving a naive timestamp_end untouched, silently offsetting
+    # every delta_end-based calculation (is_post_event_window,
+    # hours_since_last_event, the post-event proximity score) by the LA
+    # UTC offset -- the same tz-mixing bug class fixed repeatedly elsewhere.
+    cols_to_normalize = [(df, "timestamp"), (events, "timestamp_start")]
+    if "timestamp_end" in events.columns:
+        cols_to_normalize.append((events, "timestamp_end"))
+    for frame, col in cols_to_normalize:
         if frame[col].dt.tz is None:
             frame[col] = frame[col].dt.tz_localize("America/Los_Angeles")
 
