@@ -257,7 +257,7 @@ def add_event_features(
       event_proximity_score : continuous 0→1 score peaking at event time
       is_sharks_game_window : specifically Sharks game window (Diridon/VTA spike)
     """
-    if events.empty or "timestamp" not in df.columns:
+    if events.empty or df.empty or "timestamp" not in df.columns:
         for col in [
             "hours_to_next_event", "hours_since_last_event",
             "is_pre_event_window", "is_post_event_window",
