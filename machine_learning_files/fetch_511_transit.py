@@ -1,5 +1,5 @@
 """
-ingestion/fetch_511_transit.py
+machine_learning_files/fetch_511_transit.py
 ─────────────────────────────
 Pulls GTFS-RT and historical stop-observation data from the 511 SF Bay API
 for all major Bay Area transit agencies and saves to data/raw/transit/.
@@ -7,8 +7,8 @@ for all major Bay Area transit agencies and saves to data/raw/transit/.
 Covers: BART, Caltrain, VTA, Muni, AC Transit, SamTrans, WETA, Golden Gate Transit.
 
 Usage:
-    python ingestion/fetch_511_transit.py
-    python ingestion/fetch_511_transit.py --agency VTA --start 2024-01-01 --end 2024-12-31
+    python machine_learning_files/fetch_511_transit.py
+    python machine_learning_files/fetch_511_transit.py --agency VTA --start 2024-01-01 --end 2024-12-31
 """
 
 import argparse

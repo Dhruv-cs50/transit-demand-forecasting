@@ -55,7 +55,7 @@ def load_config() -> dict:
 def load_train_val(cfg: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Load the chronological train and val splits from the feature store.
-    These were created by processing/merge_pipeline.py.
+    These were created by machine_learning_files/merge_pipeline.py.
 
     Returns (train_df, val_df) — both in AutoGluon TimeSeriesDataFrame format.
     """
@@ -66,7 +66,7 @@ def load_train_val(cfg: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     if not train_path.exists():
         raise FileNotFoundError(
-            "Train split not found. Run: python processing/merge_pipeline.py"
+            "Train split not found. Run: python machine_learning_files/merge_pipeline.py"
         )
 
     log.info("Loading train split …")
@@ -160,7 +160,7 @@ KNOWN_FUTURE_COLS = [
     "is_game_day", "is_sharks_game_window", "game_start_hour",
     "is_pre_event_window", "is_post_event_window", "is_playoff",
     "is_any_event_day", "nearest_event_attendance_tier",
-    "hours_to_next_event",
+    "hours_to_next_event", "hours_to_event", "event_proximity_score",
     # Station static (never changes)
     "is_hub_station", "capacity_tier", "in_event_catchment",
     "dist_from_diridon_km",
@@ -372,7 +372,7 @@ def evaluate_event_days(
 
     # This is a simplified slice — in production you'd build proper
     # game-day/non-game-day TimeSeriesDataFrame subsets
-    log.info("  (Full event-day slice evaluation available in evaluation/ablation.py)")
+    log.info("  (Full event-day slice evaluation available in Processing/ablation.py)")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
