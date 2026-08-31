@@ -153,7 +153,7 @@ KNOWN_FUTURE_COLS = [
     "hour_sin", "hour_cos", "dow_sin", "dow_cos", "month_sin", "month_cos",
     # Weather forecast (7-day ahead from Open-Meteo)
     "temp_f", "precip_mm", "precip_in", "windspeed_mph",
-    "is_raining", "weather_code", "cloud_cover_pct",
+    "is_raining", "weather_code", "cloud_cover_pct", "humidity_pct",
     "precip_intensity", "weather_discomfort",
     "is_very_cold", "is_very_hot", "is_windy", "temp_deviation",
     # Event schedule (known from NHL/Ticketmaster calendar)
@@ -163,7 +163,7 @@ KNOWN_FUTURE_COLS = [
     "hours_to_next_event", "hours_to_event", "event_proximity_score",
     # Station static (never changes)
     "is_hub_station", "capacity_tier", "in_event_catchment",
-    "dist_from_diridon_km",
+    "dist_from_diridon_km", "transit_mode",
 ]
 
 
@@ -197,6 +197,9 @@ def _default_covariate_cols(df: pd.DataFrame) -> list[str]:
         # Rolling weather — cumulative rain over past N hours
         "precip_3hr_sum", "precip_6hr_sum", "precip_24hr_sum",
         "is_rain_onset",
+        # Event recency — only knowable after the fact (how long ago the
+        # last event ended), not a forecastable future value.
+        "hours_since_last_event",
     ]
 
     present_known   = [c for c in known_future if c in df.columns]

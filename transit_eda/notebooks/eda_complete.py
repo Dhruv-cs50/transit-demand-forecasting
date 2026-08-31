@@ -312,7 +312,13 @@ bart_dups = bart.duplicated().sum()
 vta_dups  = vta_yr.duplicated().sum()
 print(f"  BART duplicates  : {bart_dups}")
 print(f"  VTA  duplicates  : {vta_dups}")
-print("  → No duplicate rows found in either dataset.")
+if bart_dups == 0 and vta_dups == 0:
+    print("  → No duplicate rows found in either dataset.")
+else:
+    dup_msg = []
+    if bart_dups: dup_msg.append(f"{bart_dups} in BART")
+    if vta_dups: dup_msg.append(f"{vta_dups} in VTA")
+    print(f"  → Duplicate rows found: {', '.join(dup_msg)}. Investigate before modeling.")
 
 print("\n── 2.3 Inconsistent / Anomalous Data ──")
 
