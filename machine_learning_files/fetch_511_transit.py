@@ -1,5 +1,5 @@
 """
-ingestion/fetch_511_transit.py
+machine_learning_files/fetch_511_transit.py
 ─────────────────────────────
 Pulls GTFS-RT and historical stop-observation data from the 511 SF Bay API
 for all major Bay Area transit agencies and saves to data/raw/transit/.
@@ -7,8 +7,8 @@ for all major Bay Area transit agencies and saves to data/raw/transit/.
 Covers: BART, Caltrain, VTA, Muni, AC Transit, SamTrans, WETA, Golden Gate Transit.
 
 Usage:
-    python ingestion/fetch_511_transit.py
-    python ingestion/fetch_511_transit.py --agency VTA --start 2024-01-01 --end 2024-12-31
+    python machine_learning_files/fetch_511_transit.py
+    python machine_learning_files/fetch_511_transit.py --agency VTA --start 2024-01-01 --end 2024-12-31
 """
 
 import argparse
@@ -74,7 +74,11 @@ class Transit511Client:
 
     def get_stops(self, agency_id: str) -> pd.DataFrame:
         """Return all stops for an agency as a DataFrame."""
-        data = self._get("stops", {"operator_id": agency_id})
+        # Without format=json the 511 API returns XML (SIRI) by default —
+        # json.loads() in _get() would then raise JSONDecodeError on every
+        # call. get_stop_monitoring() below already passes this; stops/lines
+        # didn't, so they never actually returned data.
+        data = self._get("stops", {"operator_id": agency_id, "format": "json"})
         stops = data.get("Contents", {}).get("dataObjects", {}).get("ScheduledStopPoint", [])
         return pd.DataFrame([
             {
@@ -89,7 +93,8 @@ class Transit511Client:
 
     def get_lines(self, agency_id: str) -> pd.DataFrame:
         """Return all routes for an agency."""
-        data = self._get("lines", {"operator_id": agency_id})
+        # Same missing format=json as get_stops() above — see comment there.
+        data = self._get("lines", {"operator_id": agency_id, "format": "json"})
         lines = data.get("Content", {}).get("dataObjects", {}).get("LineGroup", [])
         if isinstance(lines, dict):
             lines = [lines]

@@ -4,9 +4,9 @@ models/chronos2/predict.py
 Production inference wrapper for the fine-tuned Chronos-2 model.
 
 This is the single entry point called by:
-  - serving/api.py        (FastAPI endpoint → Live demo on website)
-  - serving/scheduler.py  (nightly batch forecast run)
-  - evaluation scripts    (metrics, ablation)
+  - machine_learning_files/api.py  (FastAPI endpoint → Live demo on website)
+  - models/baselines/scheduler.py  (nightly batch forecast run)
+  - evaluation scripts             (metrics, ablation)
 
 It handles:
   - Loading the fine-tuned model (cached after first load)
@@ -97,7 +97,7 @@ class Predictor:
                 return self._store
 
         raise FileNotFoundError(
-            "No feature store found. Run: python processing/merge_pipeline.py"
+            "No feature store found. Run: python machine_learning_files/merge_pipeline.py"
         )
 
     # ── Model loading ──────────────────────────────────────────────────────────
@@ -227,8 +227,13 @@ class Predictor:
         if freq.upper() in {"MS", "M", "ME"} or "month" in freq.lower():
             period = min(12, len(context_df))
         else:
-            # 168 hours = 1 week at hourly; at 15min → 672 steps
-            period = int(pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)) * 168
+            # 168 hours = 1 week. Steps-per-week = 168 / hours-per-step, not
+            # hours-per-step * 168 — the old formula truncated hours-per-step
+            # to int() *before* multiplying, so any sub-hourly freq (e.g.
+            # 15min, hours_per_step=0.25) rounded down to 0 and produced
+            # period=0, making `i % period` below raise ZeroDivisionError.
+            hours_per_step = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+            period = max(1, int(round(168 / hours_per_step)))
         series = context_df.set_index("timestamp")["ridership"]
 
         last_ts  = series.index.max()
@@ -448,7 +453,7 @@ class Predictor:
     ) -> pd.DataFrame:
         """
         Run forecasts for every station in the feature store.
-        Used by serving/scheduler.py for nightly batch runs.
+        Used by models/baselines/scheduler.py for nightly batch runs.
         """
         df = self.get_feature_store()
         stations = df["station_id"].unique()
