@@ -1,5 +1,5 @@
 """
-evaluation/ablation.py
+Processing/ablation.py
 ───────────────────────
 Ablation study — measures the accuracy impact of each covariate group
 by systematically zeroing out feature groups and re-evaluating.
@@ -20,8 +20,8 @@ For each group we measure WAPE and MAE overall AND specifically on:
 This tells you exactly which data sources are earning their keep.
 
 Usage:
-    python evaluation/ablation.py
-    python evaluation/ablation.py --model-dir models/chronos2/weights
+    python Processing/ablation.py
+    python Processing/ablation.py --model-dir models/chronos2/weights
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ COVARIATE_GROUPS = {
         "is_game_day", "is_sharks_game_window", "game_start_hour",
         "is_pre_event_window", "is_post_event_window", "is_playoff",
         "is_any_event_day", "nearest_event_attendance_tier",
-        "hours_to_next_event", "hours_since_last_event",
+        "hours_to_next_event", "hours_to_event", "hours_since_last_event",
         "event_proximity_score",
     ],
     "station": [
