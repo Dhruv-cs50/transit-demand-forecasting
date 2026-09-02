@@ -80,16 +80,24 @@ class Transit511Client:
         # didn't, so they never actually returned data.
         data = self._get("stops", {"operator_id": agency_id, "format": "json"})
         stops = data.get("Contents", {}).get("dataObjects", {}).get("ScheduledStopPoint", [])
-        return pd.DataFrame([
-            {
+        rows = []
+        for s in stops:
+            # dict.get(key, default) only substitutes when the key is absent
+            # -- a stop with a pending/unassigned location can carry
+            # "Latitude"/"Longitude": null, and float(None) raises TypeError,
+            # silently dropping this agency's whole stop list (caught by the
+            # outer try/except in fetch_stops_all_agencies()).
+            loc = s.get("Location", {}) or {}
+            lat = loc.get("Latitude")
+            lng = loc.get("Longitude")
+            rows.append({
                 "stop_id":   s["id"],
                 "stop_name": s.get("Name", ""),
-                "lat":       float(s.get("Location", {}).get("Latitude", 0)),
-                "lng":       float(s.get("Location", {}).get("Longitude", 0)),
+                "lat":       float(lat) if lat is not None else 0.0,
+                "lng":       float(lng) if lng is not None else 0.0,
                 "agency_id": agency_id,
-            }
-            for s in stops
-        ])
+            })
+        return pd.DataFrame(rows)
 
     def get_lines(self, agency_id: str) -> pd.DataFrame:
         """Return all routes for an agency."""

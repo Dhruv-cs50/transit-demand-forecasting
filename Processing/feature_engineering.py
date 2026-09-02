@@ -258,13 +258,18 @@ def add_event_features(
       is_sharks_game_window : specifically Sharks game window (Diridon/VTA spike)
     """
     if events.empty or df.empty or "timestamp" not in df.columns:
+        # hours_to_next_event/hours_since_last_event use NaN for "no event
+        # data available" everywhere else in this module (the main loop
+        # below and _add_monthly_event_features()) -- 0.0 here would instead
+        # read as "an event is starting/ended this exact hour" for every row.
+        for col in ["hours_to_next_event", "hours_since_last_event"]:
+            df[col] = np.nan
         for col in [
-            "hours_to_next_event", "hours_since_last_event",
             "is_pre_event_window", "is_post_event_window",
             "event_proximity_score", "is_sharks_game_window",
             "is_any_event_day", "nearest_event_attendance_tier",
         ]:
-            df[col] = 0.0 if "hours" in col or "score" in col or "tier" in col else False
+            df[col] = 0.0 if "score" in col or "tier" in col else False
         return df
 
     df = df.copy()

@@ -3,10 +3,14 @@ models/chronos2/predict.py
 ───────────────────────────
 Production inference wrapper for the fine-tuned Chronos-2 model.
 
-This is the single entry point called by:
-  - machine_learning_files/api.py  (FastAPI endpoint → Live demo on website)
+This is the entry point called by:
   - models/baselines/scheduler.py  (nightly batch forecast run)
   - evaluation scripts             (metrics, ablation)
+
+Note: machine_learning_files/api.py's live FastAPI endpoint does NOT call
+this module -- it runs its own independent zero-shot-only path via
+machine_learning_files/zero_shot.py (prepare_context/run_zero_shot_forecast),
+never touching the fine-tuned AutoGluon model or the Predictor class below.
 
 It handles:
   - Loading the fine-tuned model (cached after first load)
@@ -248,7 +252,12 @@ class Predictor:
         for i, ts in enumerate(future_ts):
             lag_idx = len(series) - period + (i % period)
             lag_val = float(series.iloc[max(0, lag_idx)]) if len(series) > 0 else 0.0
-            noise   = np.random.normal(0, lag_val * 0.05)
+            # np.random.normal's scale must be >= 0. lag_val can legitimately
+            # be negative (e.g. a sensor-error row that validators.py flags
+            # but doesn't strip before this emergency fallback ever sees it),
+            # and this is the last-resort path that's supposed to always
+            # succeed -- abs() so a negative lag still produces a scale.
+            noise   = np.random.normal(0, abs(lag_val) * 0.05)
             rows.append({
                 "timestamp":  ts,
                 "p10": max(0, lag_val * 0.80),
@@ -528,7 +537,18 @@ class Predictor:
         typical_median = station_df[typical_mask]["ridership"].median()
         forecast_p50   = forecast_df["p50"].iloc[0]
 
-        lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
+        # typical_mask can match zero rows (e.g. a station whose every
+        # historical occurrence of this calendar month had a Sharks game,
+        # so not_game_day excludes all of them), making typical_median NaN.
+        # max(typical_median, 1) does NOT guard against this -- max(nan, 1)
+        # returns nan, since nan compares False against everything -- so the
+        # NaN would silently propagate into lift_pct and print as "+nan%"
+        # (the caller's `is not None` guard doesn't catch NaN). Guard here
+        # instead of relying on max()'s argument order.
+        if pd.isna(typical_median):
+            lift_pct = None
+        else:
+            lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
 
         # Build reason string
         # `now` is forecast_df's own first timestamp, which exactly matches a row
@@ -556,8 +576,8 @@ class Predictor:
                 reason = "Rain in forecast · ridership shift expected"
 
         return {
-            "lift_pct":       round(lift_pct, 1),
-            "typical_median": round(float(typical_median), 1),
+            "lift_pct":       round(lift_pct, 1) if lift_pct is not None else None,
+            "typical_median": round(float(typical_median), 1) if pd.notna(typical_median) else None,
             "forecast_p50":   round(float(forecast_p50), 1),
             "reason":         reason,
         }
