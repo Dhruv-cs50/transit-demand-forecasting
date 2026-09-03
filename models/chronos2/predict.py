@@ -363,10 +363,15 @@ class Predictor:
         preds["generated_at"] = datetime.utcnow().isoformat()
         preds["model_mode"] = self._mode
 
-        # Clip negatives
+        # Clip negatives; ensure all three quantile columns exist even when
+        # _zeroshot_forecast()'s `keep = [c for c in [...] if c in preds_df.columns]`
+        # dropped one (e.g. Chronos returned no column matching "0.1"/"0.9") —
+        # otherwise the unconditional column selection below raises KeyError.
         for col in ["p10", "p50", "p90"]:
             if col in preds.columns:
                 preds[col] = preds[col].clip(lower=0)
+            else:
+                preds[col] = np.nan
 
         return preds[["timestamp", "station_id", "p10", "p50", "p90",
                        "generated_at", "model_mode"]]

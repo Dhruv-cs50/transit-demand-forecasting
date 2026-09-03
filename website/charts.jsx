@@ -22,7 +22,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
   const gridLines = [0, 10, 20, 30];
 
   const labelFor = m => ({
-    'AutoETS (AutoGluon)': 'AutoETS / AutoGluon',
+    'AutoGluon_Ensemble': 'AutoETS / AutoGluon',
     'SARIMA': 'SARIMA(2,1,2)',
     'Prophet': 'Prophet',
   }[m] || m);
@@ -47,7 +47,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
 
       {/* bars */}
       {data.map((r, i) => {
-        const isBest = r.model === 'AutoETS (AutoGluon)';
+        const isBest = r.model === 'AutoGluon_Ensemble';
         const wape = r.WAPE_pct != null ? r.WAPE_pct : 0;
         const disp = Math.min(wape, DISPLAY_CAP);
         const barW = (disp / DISPLAY_CAP) * W;

@@ -23,9 +23,12 @@ Schema:
     ridership       float64  ← TARGET
     temp_f          float64
     precip_mm       float64
+    precip_in       float64
     is_raining      bool
     weather_code    int
     windspeed_mph   float64
+    cloud_cover_pct float64
+    humidity_pct    float64
     is_game_day     bool
     game_start_hour int      (NaN if no game)
     hours_to_event  float64  (hours until next event at a nearby venue)
@@ -337,12 +340,14 @@ def build_feature_store(
         agg_kwargs = dict(
             temp_f=("temp_f", "mean"),
             precip_mm=("precip_mm", "mean"),
+            precip_in=("precip_in", "mean"),
             windspeed_mph=("windspeed_mph", "mean"),
             is_raining=("is_raining", "mean"),
             # weather_code is a categorical WMO code — averaging it produces a
             # meaningless fractional value, so take the most common code instead.
             weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
             cloud_cover_pct=("cloud_cover_pct", "mean"),
+            humidity_pct=("humidity_pct", "mean"),
         )
         weather_cols = list(agg_kwargs.keys())
 
