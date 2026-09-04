@@ -337,6 +337,29 @@ def run_ablation(
     if configs is None:
         configs = ABLATION_CONFIGS
 
+    # test_df (--test, defaults to data/processed/splits/test.parquet) is
+    # written by merge_pipeline.py's make_splits() from the RAW feature
+    # store -- it never goes through feature_engineering.py's build_features(),
+    # so it carries none of is_sharks_game_window/is_game_day/is_raining/
+    # precip_intensity/is_am_peak/is_pm_peak/in_event_catchment. Every one of
+    # eval_on_slices()'s `if <col> in merged.columns` guards then silently
+    # skips that slice on every config, every day -- only "overall" ever
+    # printed, even though feature_store (--feature-store, the enriched
+    # store used for inference above) has these columns for the exact same
+    # (timestamp, station_id) rows. Backfill them from feature_store so the
+    # diagnostic slices this module exists for actually run.
+    diagnostic_cols = [
+        "is_sharks_game_window", "is_game_day", "is_raining",
+        "precip_intensity", "is_am_peak", "is_pm_peak", "in_event_catchment",
+    ]
+    missing = [c for c in diagnostic_cols if c not in test_df.columns and c in feature_store.columns]
+    if missing:
+        test_df = test_df.merge(
+            feature_store[["timestamp", "station_id"] + missing],
+            on=["timestamp", "station_id"],
+            how="left",
+        )
+
     # as_of = val_end: forecast prediction_length steps starting right after
     # this, landing on the test window (ts > val_end) that test_df covers.
     as_of = pd.Timestamp(cfg["data"]["val_end"])

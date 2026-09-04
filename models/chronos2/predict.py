@@ -615,8 +615,17 @@ def main():
             horizon_hours=args.horizon,
             output_path=output,
         )
-        print(f"\nBatch complete: {len(combined):,} rows across "
-              f"{combined['station_id'].nunique()} stations")
+        # forecast_all_stations() returns a bare pd.DataFrame() (no columns)
+        # when every station's forecast came back empty -- indexing
+        # combined['station_id'] on that raised an unhandled KeyError right
+        # at the finish line instead of the clean message every other
+        # caller (scheduler.py, benchmarks.py, the single-station branch
+        # below) already gives this same empty-result case.
+        if combined.empty:
+            print("\nBatch complete: no forecasts generated")
+        else:
+            print(f"\nBatch complete: {len(combined):,} rows across "
+                  f"{combined['station_id'].nunique()} stations")
     else:
         preds = predictor.forecast(args.station, horizon_hours=args.horizon)
         if not preds.empty:
