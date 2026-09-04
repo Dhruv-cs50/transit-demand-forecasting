@@ -132,7 +132,7 @@ The minimum columns expected by validators and downstream scripts are:
 Common optional columns include:
 
 - Station and source: `station_name`, `agency_id`, `transit_mode`
-- Weather: `temp_f`, `precip_mm`, `is_raining`, `windspeed_mph`, `weather_code`, `cloud_cover_pct`
+- Weather: `temp_f`, `precip_mm`, `precip_in`, `is_raining`, `windspeed_mph`, `weather_code`, `cloud_cover_pct`, `humidity_pct`
 - Events: `is_game_day`, `hours_to_event`, `is_sharks_game`, `game_start_hour`, `is_playoff`
 - Calendar: `hour_of_day`, `day_of_week`, `month`, `week_of_year`, `is_weekend`, `is_holiday`
 - Engineered features: lags, rolling means/stds, cyclic encodings, precipitation intensity, event windows, and station static features
