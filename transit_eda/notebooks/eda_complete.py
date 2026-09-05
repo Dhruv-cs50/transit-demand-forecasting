@@ -312,7 +312,13 @@ bart_dups = bart.duplicated().sum()
 vta_dups  = vta_yr.duplicated().sum()
 print(f"  BART duplicates  : {bart_dups}")
 print(f"  VTA  duplicates  : {vta_dups}")
-print("  → No duplicate rows found in either dataset.")
+if bart_dups == 0 and vta_dups == 0:
+    print("  → No duplicate rows found in either dataset.")
+else:
+    dup_msg = []
+    if bart_dups: dup_msg.append(f"{bart_dups} in BART")
+    if vta_dups: dup_msg.append(f"{vta_dups} in VTA")
+    print(f"  → Duplicate rows found: {', '.join(dup_msg)}. Investigate before modeling.")
 
 print("\n── 2.3 Inconsistent / Anomalous Data ──")
 
@@ -678,11 +684,16 @@ stations_pct = np.arange(1, len(sorted_exits)+1) / len(sorted_exits) * 100
 axes[1,1].plot(stations_pct, cumulative*100, color=BART_BLUE, linewidth=2.5)
 axes[1,1].plot([0,100],[0,100], 'k--', linewidth=1, alpha=0.5, label='Equal distribution')
 top20_idx = np.searchsorted(stations_pct, 80)
+# sorted_exits is ascending, so cumulative[top20_idx] is the share held by
+# the bottom 80% of stations — the top 20% (highest-volume, at the tail)
+# hold the complement, not cumulative[top20_idx] itself.
+bottom80_share = cumulative[top20_idx] * 100
+top20_share = 100 - bottom80_share
 axes[1,1].axvline(80, color='red', linestyle=':', linewidth=1.2)
-axes[1,1].axhline(cumulative[top20_idx]*100, color='red', linestyle=':', linewidth=1.2)
+axes[1,1].axhline(bottom80_share, color='red', linestyle=':', linewidth=1.2)
 axes[1,1].annotate(
-    f'Top 20% of stations\n= {cumulative[top20_idx]*100:.0f}% of exits',
-    xy=(80, cumulative[top20_idx]*100), xytext=(50, 60),
+    f'Top 20% of stations\n= {top20_share:.0f}% of exits',
+    xy=(80, bottom80_share), xytext=(50, 60),
     arrowprops=dict(arrowstyle='->', color='red'),
     fontsize=9, color='red'
 )

@@ -22,7 +22,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
   const gridLines = [0, 10, 20, 30];
 
   const labelFor = m => ({
-    'AutoETS (AutoGluon)': 'AutoETS / AutoGluon',
+    'AutoGluon_Ensemble': 'AutoETS / AutoGluon',
     'SARIMA': 'SARIMA(2,1,2)',
     'Prophet': 'Prophet',
   }[m] || m);
@@ -47,7 +47,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
 
       {/* bars */}
       {data.map((r, i) => {
-        const isBest = r.model === 'AutoETS (AutoGluon)';
+        const isBest = r.model === 'AutoGluon_Ensemble';
         const wape = r.WAPE_pct != null ? r.WAPE_pct : 0;
         const disp = Math.min(wape, DISPLAY_CAP);
         const barW = (disp / DISPLAY_CAP) * W;
@@ -107,7 +107,8 @@ const Calibration = ({ width = 460, height = 260 }) => {
       <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">Loading…</text>
     </svg>
   );
-  if (pts.length === 0) return (
+  const allVals = pts.flatMap(r => [r.p10, r.p50, r.p90]).filter(v => v != null);
+  if (pts.length === 0 || allVals.length === 0) return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
       <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">No forecast data</text>
     </svg>
@@ -118,7 +119,6 @@ const Calibration = ({ width = 460, height = 260 }) => {
   const H = height - pad.t - pad.b;
   const n = pts.length;
 
-  const allVals = pts.flatMap(r => [r.p10, r.p50, r.p90]).filter(v => v != null);
   const minV = Math.min(...allVals) * 0.92;
   const maxV = Math.max(...allVals) * 1.05;
 

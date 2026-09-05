@@ -1,5 +1,5 @@
 """
-models/chronos2/zero_shot.py
+machine_learning_files/zero_shot.py
 ─────────────────────────────
 Zero-shot Chronos-2 inference — no fine-tuning required.
 Uses your historical ridership data as context, with weather and events
@@ -9,8 +9,8 @@ This is your baseline. Run it first to establish a performance floor
 before investing in fine-tuning.
 
 Usage:
-    python models/chronos2/zero_shot.py
-    python models/chronos2/zero_shot.py --station EMBR --horizon 24
+    python machine_learning_files/zero_shot.py
+    python machine_learning_files/zero_shot.py --station EMBR --horizon 24
 """
 
 import argparse
@@ -40,7 +40,7 @@ def load_feature_store(station_id: str = None) -> pd.DataFrame:
     path = PROCESSED_DIR / "feature_store.parquet"
     if not path.exists():
         raise FileNotFoundError(
-            "Feature store not found. Run: python processing/merge_pipeline.py"
+            "Feature store not found. Run: python machine_learning_files/merge_pipeline.py"
         )
     df = pd.read_parquet(path)
     if station_id:
@@ -279,10 +279,13 @@ def forecast_all_stations(
                 pipeline, context_df, future_df,
                 station_id, prediction_length, quantile_levels,
             )
-            pred_df["station_id"] = station_id
-            all_preds.append(pred_df)
-
-            # Evaluate if we have actuals for the forecast window
+            # Evaluate (if we have actuals) before appending "station_id"
+            # below: evaluate_predictions()'s "no p50/mean quantile column"
+            # fallback picks pred_df.columns[-1] as the median column, and
+            # with "station_id" already appended that fallback would select
+            # the station-id label column instead -- crashing the
+            # float-cast on a string and getting logged as "Forecast
+            # failed" even though the forecast itself succeeded.
             if as_of is not None:
                 actuals = df[
                     (df["station_id"] == station_id) &
@@ -293,6 +296,9 @@ def forecast_all_stations(
                     m["station_id"] = station_id
                     metrics_rows.append(m)
                     log.info(f"  MAE={m['MAE']:.1f}  RMSE={m['RMSE']:.1f}  WAPE={m['WAPE_%']:.1f}%")
+
+            pred_df["station_id"] = station_id
+            all_preds.append(pred_df)
 
         except Exception as e:
             log.error(f"  Forecast failed for {station_id}: {e}")
