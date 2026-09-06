@@ -352,10 +352,24 @@ def run_ablation(
         "is_sharks_game_window", "is_game_day", "is_raining",
         "precip_intensity", "is_am_peak", "is_pm_peak", "in_event_catchment",
     ]
-    missing = [c for c in diagnostic_cols if c not in test_df.columns and c in feature_store.columns]
-    if missing:
+    # is_raining is NOT actually missing from the raw test_df -- merge_pipeline.py's
+    # build_feature_store() already writes it there as a per-station-month MEAN
+    # FRACTION (agg_kwargs' is_raining=("is_raining", "mean")), not the enriched
+    # boolean feature_engineering.py recomputes. A plain "missing" filter would
+    # skip it here, leaving eval_on_slices()'s `merged["is_raining"] == True`
+    # comparing a fraction against True (i.e. == 1.0), which only matches a
+    # month that rained every single hour -- silently zeroing out rainy_day on
+    # every run. Always overwrite it from feature_store; only backfill the rest
+    # when genuinely absent.
+    always_overwrite = {"is_raining"}
+    cols_to_pull = [
+        c for c in diagnostic_cols
+        if c in feature_store.columns and (c not in test_df.columns or c in always_overwrite)
+    ]
+    if cols_to_pull:
+        test_df = test_df.drop(columns=[c for c in cols_to_pull if c in test_df.columns])
         test_df = test_df.merge(
-            feature_store[["timestamp", "station_id"] + missing],
+            feature_store[["timestamp", "station_id"] + cols_to_pull],
             on=["timestamp", "station_id"],
             how="left",
         )
