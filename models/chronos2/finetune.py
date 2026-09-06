@@ -55,7 +55,7 @@ def load_config() -> dict:
 def load_train_val(cfg: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Load the chronological train and val splits from the feature store.
-    These were created by processing/merge_pipeline.py.
+    These were created by machine_learning_files/merge_pipeline.py.
 
     Returns (train_df, val_df) — both in AutoGluon TimeSeriesDataFrame format.
     """
@@ -66,7 +66,7 @@ def load_train_val(cfg: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     if not train_path.exists():
         raise FileNotFoundError(
-            "Train split not found. Run: python processing/merge_pipeline.py"
+            "Train split not found. Run: python machine_learning_files/merge_pipeline.py"
         )
 
     log.info("Loading train split …")
@@ -153,17 +153,17 @@ KNOWN_FUTURE_COLS = [
     "hour_sin", "hour_cos", "dow_sin", "dow_cos", "month_sin", "month_cos",
     # Weather forecast (7-day ahead from Open-Meteo)
     "temp_f", "precip_mm", "precip_in", "windspeed_mph",
-    "is_raining", "weather_code", "cloud_cover_pct",
+    "is_raining", "weather_code", "cloud_cover_pct", "humidity_pct",
     "precip_intensity", "weather_discomfort",
     "is_very_cold", "is_very_hot", "is_windy", "temp_deviation",
     # Event schedule (known from NHL/Ticketmaster calendar)
     "is_game_day", "is_sharks_game_window", "game_start_hour",
     "is_pre_event_window", "is_post_event_window", "is_playoff",
     "is_any_event_day", "nearest_event_attendance_tier",
-    "hours_to_next_event",
+    "hours_to_next_event", "hours_to_event", "event_proximity_score",
     # Station static (never changes)
     "is_hub_station", "capacity_tier", "in_event_catchment",
-    "dist_from_diridon_km",
+    "dist_from_diridon_km", "transit_mode",
 ]
 
 
@@ -197,6 +197,9 @@ def _default_covariate_cols(df: pd.DataFrame) -> list[str]:
         # Rolling weather — cumulative rain over past N hours
         "precip_3hr_sum", "precip_6hr_sum", "precip_24hr_sum",
         "is_rain_onset",
+        # Event recency — only knowable after the fact (how long ago the
+        # last event ended), not a forecastable future value.
+        "hours_since_last_event",
     ]
 
     present_known   = [c for c in known_future if c in df.columns]
@@ -372,7 +375,7 @@ def evaluate_event_days(
 
     # This is a simplified slice — in production you'd build proper
     # game-day/non-game-day TimeSeriesDataFrame subsets
-    log.info("  (Full event-day slice evaluation available in evaluation/ablation.py)")
+    log.info("  (Full event-day slice evaluation available in Processing/ablation.py)")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────

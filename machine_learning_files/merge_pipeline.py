@@ -1,6 +1,6 @@
 """
-processing/merge_pipeline.py
-─────────────────────────────
+machine_learning_files/merge_pipeline.py
+───────────────────────────────────────────
 Joins all raw data sources into a single tidy feature store parquet file,
 keyed on (timestamp, station_id).
 
@@ -16,16 +16,19 @@ otherwise.
 
 Output: data/processed/feature_store.parquet
 Schema:
-    timestamp       datetime64[ns, America/Los_Angeles]
+    timestamp       datetime64[ns]  (tz-naive, wall-clock America/Los_Angeles)
     station_id      str
     agency_id       str
     transit_mode    str      (rail / bus / ferry / road)
     ridership       float64  ← TARGET
     temp_f          float64
     precip_mm       float64
+    precip_in       float64
     is_raining      bool
     weather_code    int
     windspeed_mph   float64
+    cloud_cover_pct float64
+    humidity_pct    float64
     is_game_day     bool
     game_start_hour int      (NaN if no game)
     hours_to_event  float64  (hours until next event at a nearby venue)
@@ -40,8 +43,8 @@ Schema:
     is_pm_peak      bool     (only present when timestamps carry sub-daily resolution)
 
 Usage:
-    python processing/merge_pipeline.py
-    python processing/merge_pipeline.py --freq 15min --start 2020-01-01
+    python machine_learning_files/merge_pipeline.py
+    python machine_learning_files/merge_pipeline.py --freq 15min --start 2020-01-01
 """
 
 import argparse
@@ -337,12 +340,14 @@ def build_feature_store(
         agg_kwargs = dict(
             temp_f=("temp_f", "mean"),
             precip_mm=("precip_mm", "mean"),
+            precip_in=("precip_in", "mean"),
             windspeed_mph=("windspeed_mph", "mean"),
             is_raining=("is_raining", "mean"),
             # weather_code is a categorical WMO code — averaging it produces a
             # meaningless fractional value, so take the most common code instead.
             weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
             cloud_cover_pct=("cloud_cover_pct", "mean"),
+            humidity_pct=("humidity_pct", "mean"),
         )
         weather_cols = list(agg_kwargs.keys())
 
