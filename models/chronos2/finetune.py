@@ -55,7 +55,9 @@ def load_config() -> dict:
 def load_train_val(cfg: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Load the chronological train and val splits from the feature store.
-    These were created by machine_learning_files/merge_pipeline.py.
+    These are (re)written by Processing/feature_engineering.py's main()
+    from the enriched feature store, after merge_pipeline.py first writes
+    them from the raw store.
 
     Returns (train_df, val_df) — both in AutoGluon TimeSeriesDataFrame format.
     """

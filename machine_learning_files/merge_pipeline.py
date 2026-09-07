@@ -24,14 +24,18 @@ Schema:
     temp_f          float64
     precip_mm       float64
     precip_in       float64
-    is_raining      bool
+    is_raining      float64  (per-station-month mean fraction 0.0-1.0, NOT
+                              bool -- feature_engineering.py recomputes this
+                              column as an actual bool from precip_mm)
     weather_code    int
     windspeed_mph   float64
     cloud_cover_pct float64
     humidity_pct    float64
     is_game_day     bool
     game_start_hour int      (NaN if no game)
-    hours_to_event  float64  (hours until next event at a nearby venue)
+    hours_to_event  float64  (despite the name, this is a monthly home-game/
+                              event COUNT for that station-month, not an
+                              hours-scale value -- see compute_event_features())
     is_sharks_game  bool
     is_playoff      bool
     is_holiday      bool

@@ -568,6 +568,24 @@ def main():
     df_enriched.to_parquet(out, index=False)
     log.info(f"Enriched feature store saved → {out}")
 
+    # Regenerate data/processed/splits/{train,val,test}.parquet from the
+    # enriched store. merge_pipeline.py's own main() writes these splits
+    # from the raw, pre-enrichment feature store; without redoing that here,
+    # finetune.py's load_train_val() (which reads splits/train.parquet and
+    # splits/val.parquet) would permanently train on data missing every
+    # column this module adds — including is_sharks_game_window — even
+    # though predict.py's Predictor.get_feature_store() serves inference
+    # from this enriched store.
+    from machine_learning_files.merge_pipeline import load_configs, make_splits
+
+    _, model_cfg = load_configs()
+    make_splits(
+        df_enriched,
+        train_end=model_cfg["data"]["train_end"],
+        val_end=model_cfg["data"]["val_end"],
+        train_start=model_cfg["data"].get("train_start"),
+    )
+
     # Print feature summary
     print(f"\n{'─'*60}")
     print(f"Feature Engineering Summary")
