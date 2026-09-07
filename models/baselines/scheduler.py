@@ -1,6 +1,6 @@
 """
-serving/scheduler.py
-─────────────────────
+models/baselines/scheduler.py
+──────────────────────────────
 Nightly pipeline scheduler — keeps the Live demo on your website fresh.
 
 Runs every night at 2am (configurable):
@@ -17,14 +17,14 @@ rather than stale.
 
 Usage:
     # Run once manually:
-    python serving/scheduler.py
+    python models/baselines/scheduler.py
 
     # Set up as a cron job (runs nightly at 2am):
     crontab -e
-    # Add: 0 2 * * * cd /path/to/project && python serving/scheduler.py
+    # Add: 0 2 * * * cd /path/to/project && python models/baselines/scheduler.py
 
     # Or run as an APScheduler loop (keeps process alive):
-    python serving/scheduler.py --loop
+    python models/baselines/scheduler.py --loop
 """
 
 from __future__ import annotations
