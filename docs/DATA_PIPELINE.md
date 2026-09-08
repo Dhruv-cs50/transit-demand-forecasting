@@ -44,9 +44,9 @@ python machine_learning_files/merge_pipeline.py
 Expected outputs:
 
 - `data/processed/feature_store.parquet`
-- `data/processed/splits/train.parquet`
-- `data/processed/splits/val.parquet`
-- `data/processed/splits/test.parquet`
+- `data/processed/splits/train.parquet` (pre-enrichment; overwritten by step 3)
+- `data/processed/splits/val.parquet` (pre-enrichment; overwritten by step 3)
+- `data/processed/splits/test.parquet` (pre-enrichment; overwritten by step 3)
 
 ### 3. Add engineered features
 
@@ -57,6 +57,11 @@ python Processing/feature_engineering.py
 Expected output:
 
 - `data/processed/feature_store_enriched.parquet`
+- `data/processed/splits/{train,val,test}.parquet` — regenerated from the
+  enriched store so downstream consumers (`finetune.py`'s `load_train_val()`,
+  `evaluation/metrics.py`'s default `--actuals`, `Processing/ablation.py`'s
+  default `--test`) train/evaluate on the full enriched schema, not the raw
+  one step 2 wrote.
 
 ### 4. Validate data quality
 
