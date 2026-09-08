@@ -8,9 +8,10 @@ Runs every night at 2am (configurable):
   2. Pull weather forecast from Open-Meteo (7 days ahead)
   3. Pull upcoming events from NHL + Ticketmaster
   4. Merge into feature store
-  5. Validate data quality
-  6. Run Chronos-2 batch forecast for next 24 hours
-  7. Write forecasts to database / cache for the API to serve
+  5. Enrich feature store (Processing/feature_engineering.py) + regenerate splits
+  6. Validate data quality
+  7. Run Chronos-2 batch forecast for next 24 hours
+  8. Write forecasts to database / cache for the API to serve
 
 This is what keeps the "+34% vs typical" card on your website accurate
 rather than stale.
@@ -216,15 +217,30 @@ class NightlyPipeline:
         log.info("\n[2/5] Fetching upcoming events …")
         self.results["events"] = step_fetch_events()
 
-        # Step 3 — Merge pipeline (rebuild feature store with fresh data)
-        log.info("\n[3/5] Rebuilding feature store …")
+        # Step 3 — Merge pipeline (rebuild raw feature store with fresh data).
+        # --no-split: the splits this would write are pre-enrichment and get
+        # superseded by step 4's regeneration below; writing them here too
+        # would just be overwritten immediately after.
+        log.info("\n[3/6] Rebuilding feature store …")
         self.results["merge"] = run_step(
             "Merge pipeline",
             "machine_learning_files/merge_pipeline.py",
+            ["--no-split"],
         )
 
-        # Step 4 — Validate (gate before forecast)
-        log.info("\n[4/5] Validating data quality …")
+        # Step 4 — Feature engineering (enrich store + regenerate splits).
+        # Without this, feature_store_enriched.parquet and splits/*.parquet
+        # never get refreshed with tonight's data: predict.py's Predictor
+        # prefers the enriched store, so forecasts would keep serving off a
+        # stale enriched snapshot while the fresh raw data sits unused.
+        log.info("\n[4/6] Enriching feature store …")
+        self.results["features"] = run_step(
+            "Feature engineering",
+            "Processing/feature_engineering.py",
+        )
+
+        # Step 5 — Validate (gate before forecast)
+        log.info("\n[5/6] Validating data quality …")
         self.results["validate"] = step_validate()
 
         if not self.results["validate"]:
@@ -233,8 +249,8 @@ class NightlyPipeline:
             self._report()
             return False
 
-        # Step 5 — Forecast
-        log.info("\n[5/5] Running batch forecast …")
+        # Step 6 — Forecast
+        log.info("\n[6/6] Running batch forecast …")
         self.results["forecast"] = step_forecast()
 
         self._report()
@@ -315,7 +331,7 @@ def main():
     parser.add_argument("--loop", action="store_true",
                         help="Keep running on a schedule (default: run once and exit)")
     parser.add_argument("--step", default=None,
-                        choices=["weather", "events", "merge", "validate", "forecast"],
+                        choices=["weather", "events", "merge", "features", "validate", "forecast"],
                         help="Run a single step only")
     args = parser.parse_args()
 
@@ -327,7 +343,8 @@ def main():
             "events":   step_fetch_events,
             "validate": step_validate,
             "forecast": step_forecast,
-            "merge":    lambda: run_step("Merge", "machine_learning_files/merge_pipeline.py"),
+            "merge":    lambda: run_step("Merge", "machine_learning_files/merge_pipeline.py", ["--no-split"]),
+            "features": lambda: run_step("Feature engineering", "Processing/feature_engineering.py"),
         }[args.step]
         ok = step_fn()
         sys.exit(0 if ok else 1)
