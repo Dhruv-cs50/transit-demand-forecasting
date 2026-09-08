@@ -61,9 +61,9 @@ if _FASTAPI_AVAILABLE:
 
     class QuantileForecast(BaseModel):
         timestamp: str
-        p10:       float
-        p50:       float
-        p90:       float
+        p10:       Optional[float] = None
+        p50:       Optional[float] = None
+        p90:       Optional[float] = None
 
     class ForecastResponse(BaseModel):
         station_id:    str
@@ -125,6 +125,22 @@ def get_feature_store() -> pd.DataFrame:
 
 # ── Forecast logic ─────────────────────────────────────────────────────────────
 
+def _clean_quantile(value) -> float | None:
+    """Coerce a raw quantile cell to a JSON-safe value.
+
+    `max(0.0, x)` silently returns 0.0 when `x` is NaN (NaN always loses
+    float comparisons, so `nan > 0.0` is False and `max` picks the first
+    arg) -- turning a station-month the model genuinely couldn't forecast
+    into a fake "0 riders" prediction. Returning None instead lets the
+    response emit JSON `null` (which the frontends already render as "—"),
+    matching how export_website_data.py already handles the same NaN case
+    for this exact cached parquet.
+    """
+    if value is None or pd.isna(value):
+        return None
+    return max(0.0, float(value))
+
+
 def _run_forecast(
     station_id: str,
     horizon_hours: int,
@@ -151,9 +167,9 @@ def _run_forecast(
                 ts = row.get("timestamp", "")
                 results.append({
                     "timestamp": str(ts),
-                    "p10": max(0.0, float(row[q10_col])) if q10_col else 0.0,
-                    "p50": max(0.0, float(row[q50_col])) if q50_col else 0.0,
-                    "p90": max(0.0, float(row[q90_col])) if q90_col else 0.0,
+                    "p10": _clean_quantile(row[q10_col]) if q10_col else None,
+                    "p50": _clean_quantile(row[q50_col]) if q50_col else None,
+                    "p90": _clean_quantile(row[q90_col]) if q90_col else None,
                 })
             if results:
                 return results
@@ -217,9 +233,9 @@ def _run_forecast(
         ts = row.get("timestamp", "")
         results.append({
             "timestamp": str(ts),
-            "p10": max(0.0, float(row[q_cols["p10"]])) if q_cols["p10"] else float("nan"),
-            "p50": max(0.0, float(row[q_cols["p50"]])) if q_cols["p50"] else float("nan"),
-            "p90": max(0.0, float(row[q_cols["p90"]])) if q_cols["p90"] else float("nan"),
+            "p10": _clean_quantile(row[q_cols["p10"]]) if q_cols["p10"] else None,
+            "p50": _clean_quantile(row[q_cols["p50"]]) if q_cols["p50"] else None,
+            "p90": _clean_quantile(row[q_cols["p90"]]) if q_cols["p90"] else None,
         })
 
     return results

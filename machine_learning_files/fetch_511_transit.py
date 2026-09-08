@@ -1,5 +1,5 @@
 """
-ingestion/fetch_511_transit.py
+machine_learning_files/fetch_511_transit.py
 ─────────────────────────────
 Pulls GTFS-RT and historical stop-observation data from the 511 SF Bay API
 for all major Bay Area transit agencies and saves to data/raw/transit/.
@@ -7,8 +7,8 @@ for all major Bay Area transit agencies and saves to data/raw/transit/.
 Covers: BART, Caltrain, VTA, Muni, AC Transit, SamTrans, WETA, Golden Gate Transit.
 
 Usage:
-    python ingestion/fetch_511_transit.py
-    python ingestion/fetch_511_transit.py --agency VTA --start 2024-01-01 --end 2024-12-31
+    python machine_learning_files/fetch_511_transit.py
+    python machine_learning_files/fetch_511_transit.py --agency VTA --start 2024-01-01 --end 2024-12-31
 """
 
 import argparse
@@ -74,22 +74,35 @@ class Transit511Client:
 
     def get_stops(self, agency_id: str) -> pd.DataFrame:
         """Return all stops for an agency as a DataFrame."""
-        data = self._get("stops", {"operator_id": agency_id})
+        # Without format=json the 511 API returns XML (SIRI) by default —
+        # json.loads() in _get() would then raise JSONDecodeError on every
+        # call. get_stop_monitoring() below already passes this; stops/lines
+        # didn't, so they never actually returned data.
+        data = self._get("stops", {"operator_id": agency_id, "format": "json"})
         stops = data.get("Contents", {}).get("dataObjects", {}).get("ScheduledStopPoint", [])
-        return pd.DataFrame([
-            {
+        rows = []
+        for s in stops:
+            # dict.get(key, default) only substitutes when the key is absent
+            # -- a stop with a pending/unassigned location can carry
+            # "Latitude"/"Longitude": null, and float(None) raises TypeError,
+            # silently dropping this agency's whole stop list (caught by the
+            # outer try/except in fetch_stops_all_agencies()).
+            loc = s.get("Location", {}) or {}
+            lat = loc.get("Latitude")
+            lng = loc.get("Longitude")
+            rows.append({
                 "stop_id":   s["id"],
                 "stop_name": s.get("Name", ""),
-                "lat":       float(s.get("Location", {}).get("Latitude", 0)),
-                "lng":       float(s.get("Location", {}).get("Longitude", 0)),
+                "lat":       float(lat) if lat is not None else 0.0,
+                "lng":       float(lng) if lng is not None else 0.0,
                 "agency_id": agency_id,
-            }
-            for s in stops
-        ])
+            })
+        return pd.DataFrame(rows)
 
     def get_lines(self, agency_id: str) -> pd.DataFrame:
         """Return all routes for an agency."""
-        data = self._get("lines", {"operator_id": agency_id})
+        # Same missing format=json as get_stops() above — see comment there.
+        data = self._get("lines", {"operator_id": agency_id, "format": "json"})
         lines = data.get("Content", {}).get("dataObjects", {}).get("LineGroup", [])
         if isinstance(lines, dict):
             lines = [lines]

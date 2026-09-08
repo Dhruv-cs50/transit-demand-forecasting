@@ -3,10 +3,14 @@ models/chronos2/predict.py
 ───────────────────────────
 Production inference wrapper for the fine-tuned Chronos-2 model.
 
-This is the single entry point called by:
-  - serving/api.py        (FastAPI endpoint → Live demo on website)
-  - serving/scheduler.py  (nightly batch forecast run)
-  - evaluation scripts    (metrics, ablation)
+This is the entry point called by:
+  - models/baselines/scheduler.py  (nightly batch forecast run)
+  - evaluation scripts             (metrics, ablation)
+
+Note: machine_learning_files/api.py's live FastAPI endpoint does NOT call
+this module -- it runs its own independent zero-shot-only path via
+machine_learning_files/zero_shot.py (prepare_context/run_zero_shot_forecast),
+never touching the fine-tuned AutoGluon model or the Predictor class below.
 
 It handles:
   - Loading the fine-tuned model (cached after first load)
@@ -97,7 +101,7 @@ class Predictor:
                 return self._store
 
         raise FileNotFoundError(
-            "No feature store found. Run: python processing/merge_pipeline.py"
+            "No feature store found. Run: python machine_learning_files/merge_pipeline.py"
         )
 
     # ── Model loading ──────────────────────────────────────────────────────────
@@ -227,8 +231,13 @@ class Predictor:
         if freq.upper() in {"MS", "M", "ME"} or "month" in freq.lower():
             period = min(12, len(context_df))
         else:
-            # 168 hours = 1 week at hourly; at 15min → 672 steps
-            period = int(pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)) * 168
+            # 168 hours = 1 week. Steps-per-week = 168 / hours-per-step, not
+            # hours-per-step * 168 — the old formula truncated hours-per-step
+            # to int() *before* multiplying, so any sub-hourly freq (e.g.
+            # 15min, hours_per_step=0.25) rounded down to 0 and produced
+            # period=0, making `i % period` below raise ZeroDivisionError.
+            hours_per_step = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+            period = max(1, int(round(168 / hours_per_step)))
         series = context_df.set_index("timestamp")["ridership"]
 
         last_ts  = series.index.max()
@@ -243,7 +252,12 @@ class Predictor:
         for i, ts in enumerate(future_ts):
             lag_idx = len(series) - period + (i % period)
             lag_val = float(series.iloc[max(0, lag_idx)]) if len(series) > 0 else 0.0
-            noise   = np.random.normal(0, lag_val * 0.05)
+            # np.random.normal's scale must be >= 0. lag_val can legitimately
+            # be negative (e.g. a sensor-error row that validators.py flags
+            # but doesn't strip before this emergency fallback ever sees it),
+            # and this is the last-resort path that's supposed to always
+            # succeed -- abs() so a negative lag still produces a scale.
+            noise   = np.random.normal(0, abs(lag_val) * 0.05)
             rows.append({
                 "timestamp":  ts,
                 "p10": max(0, lag_val * 0.80),
@@ -349,10 +363,15 @@ class Predictor:
         preds["generated_at"] = datetime.utcnow().isoformat()
         preds["model_mode"] = self._mode
 
-        # Clip negatives
+        # Clip negatives; ensure all three quantile columns exist even when
+        # _zeroshot_forecast()'s `keep = [c for c in [...] if c in preds_df.columns]`
+        # dropped one (e.g. Chronos returned no column matching "0.1"/"0.9") —
+        # otherwise the unconditional column selection below raises KeyError.
         for col in ["p10", "p50", "p90"]:
             if col in preds.columns:
                 preds[col] = preds[col].clip(lower=0)
+            else:
+                preds[col] = np.nan
 
         return preds[["timestamp", "station_id", "p10", "p50", "p90",
                        "generated_at", "model_mode"]]
@@ -448,7 +467,7 @@ class Predictor:
     ) -> pd.DataFrame:
         """
         Run forecasts for every station in the feature store.
-        Used by serving/scheduler.py for nightly batch runs.
+        Used by models/baselines/scheduler.py for nightly batch runs.
         """
         df = self.get_feature_store()
         stations = df["station_id"].unique()
@@ -523,7 +542,18 @@ class Predictor:
         typical_median = station_df[typical_mask]["ridership"].median()
         forecast_p50   = forecast_df["p50"].iloc[0]
 
-        lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
+        # typical_mask can match zero rows (e.g. a station whose every
+        # historical occurrence of this calendar month had a Sharks game,
+        # so not_game_day excludes all of them), making typical_median NaN.
+        # max(typical_median, 1) does NOT guard against this -- max(nan, 1)
+        # returns nan, since nan compares False against everything -- so the
+        # NaN would silently propagate into lift_pct and print as "+nan%"
+        # (the caller's `is not None` guard doesn't catch NaN). Guard here
+        # instead of relying on max()'s argument order.
+        if pd.isna(typical_median):
+            lift_pct = None
+        else:
+            lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
 
         # Build reason string
         # `now` is forecast_df's own first timestamp, which exactly matches a row
@@ -551,8 +581,8 @@ class Predictor:
                 reason = "Rain in forecast · ridership shift expected"
 
         return {
-            "lift_pct":       round(lift_pct, 1),
-            "typical_median": round(float(typical_median), 1),
+            "lift_pct":       round(lift_pct, 1) if lift_pct is not None else None,
+            "typical_median": round(float(typical_median), 1) if pd.notna(typical_median) else None,
             "forecast_p50":   round(float(forecast_p50), 1),
             "reason":         reason,
         }
@@ -585,8 +615,17 @@ def main():
             horizon_hours=args.horizon,
             output_path=output,
         )
-        print(f"\nBatch complete: {len(combined):,} rows across "
-              f"{combined['station_id'].nunique()} stations")
+        # forecast_all_stations() returns a bare pd.DataFrame() (no columns)
+        # when every station's forecast came back empty -- indexing
+        # combined['station_id'] on that raised an unhandled KeyError right
+        # at the finish line instead of the clean message every other
+        # caller (scheduler.py, benchmarks.py, the single-station branch
+        # below) already gives this same empty-result case.
+        if combined.empty:
+            print("\nBatch complete: no forecasts generated")
+        else:
+            print(f"\nBatch complete: {len(combined):,} rows across "
+                  f"{combined['station_id'].nunique()} stations")
     else:
         preds = predictor.forecast(args.station, horizon_hours=args.horizon)
         if not preds.empty:
