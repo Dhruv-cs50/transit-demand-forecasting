@@ -335,8 +335,15 @@ def evaluate_on_val(
     log.info(f"\n{'─'*50}")
     log.info("Validation Scores")
     log.info(f"{'─'*50}")
+    # AutoGluon reports all metrics in "higher is better" format, which means
+    # error metrics (all four requested here) come back with their sign
+    # flipped (e.g. a 12.34% WAPE is returned as -12.3400) -- negate for a
+    # human-readable log line. `scores` itself is returned unmodified so any
+    # future caller comparing it against AutoGluon's own leaderboard()/
+    # fit_summary() output (which use the same signed convention) still sees
+    # values in that convention.
     for metric, score in scores.items():
-        log.info(f"  {metric:6s}: {score:.4f}")
+        log.info(f"  {metric:6s}: {-score:.4f}")
 
     log.info("(Per-station breakdown skipped — use predictor.leaderboard() for full details)")
 
@@ -428,8 +435,10 @@ def main():
         print(f"Fine-tuning complete!")
         print(f"  Model saved → {output_dir}")
         def _fmt(key):
+            # See evaluate_on_val()'s comment: AutoGluon's returned scores
+            # are sign-flipped error metrics -- negate back for display.
             val = scores.get(key)
-            return f"{val:.4f}" if val is not None else "N/A"
+            return f"{-val:.4f}" if val is not None else "N/A"
 
         print(f"  WAPE  : {_fmt('WAPE')}")
         print(f"  MASE  : {_fmt('MASE')}")

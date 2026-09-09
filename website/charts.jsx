@@ -114,10 +114,19 @@ const Calibration = ({ width = 460, height = 260 }) => {
     </svg>
   );
 
+  // export_website_data.py's _finite_or_none() documents that p10/p50/p90
+  // can each independently be null for a given row. Passing a null straight
+  // into sy() below (`v - minV`) coerces it to 0 - minV -- a finite but
+  // wrong y-coordinate -- silently drawing a spurious spike/dip instead of
+  // skipping the point. Drop any row missing a quantile before building the
+  // paths (the all-null case above already handles the "no usable rows at
+  // all" case).
+  const validPts = pts.filter(r => r.p10 != null && r.p50 != null && r.p90 != null);
+
   const pad = { l: 58, r: 20, t: 24, b: 38 };
   const W = width - pad.l - pad.r;
   const H = height - pad.t - pad.b;
-  const n = pts.length;
+  const n = validPts.length;
 
   const minV = Math.min(...allVals) * 0.92;
   const maxV = Math.max(...allVals) * 1.05;
@@ -128,13 +137,13 @@ const Calibration = ({ width = 460, height = 260 }) => {
   const monthLabel = s => { const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return mo[parseInt(s.slice(5,7),10)-1]; };
 
   const bandPath = [
-    ...pts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p90).toFixed(1)}`),
-    ...pts.slice().reverse().map((r, i) => `L${sx(n - 1 - i).toFixed(1)},${sy(r.p10).toFixed(1)}`),
+    ...validPts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p90).toFixed(1)}`),
+    ...validPts.slice().reverse().map((r, i) => `L${sx(n - 1 - i).toFixed(1)},${sy(r.p10).toFixed(1)}`),
     'Z',
   ].join(' ');
-  const p50Path = pts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p50).toFixed(1)}`).join(' ');
-  const p10Path = pts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p10).toFixed(1)}`).join(' ');
-  const p90Path = pts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p90).toFixed(1)}`).join(' ');
+  const p50Path = validPts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p50).toFixed(1)}`).join(' ');
+  const p10Path = validPts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p10).toFixed(1)}`).join(' ');
+  const p90Path = validPts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p90).toFixed(1)}`).join(' ');
 
   const gridVals = [0.25, 0.5, 0.75, 1].map(t => minV + (maxV - minV) * t);
 
@@ -162,12 +171,12 @@ const Calibration = ({ width = 460, height = 260 }) => {
       <path d={p10Path} fill="none" stroke="var(--primary)" strokeWidth="1.2" strokeDasharray="4 3" opacity="0.5" />
       {/* P50 median */}
       <path d={p50Path} fill="none" stroke="var(--primary)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-      {pts.map((r, i) => (
+      {validPts.map((r, i) => (
         <circle key={i} cx={sx(i)} cy={sy(r.p50)} r="3.5" fill="var(--bg-elev)" stroke="var(--primary)" strokeWidth="1.8" />
       ))}
 
       {/* x labels */}
-      {pts.map((r, i) => (
+      {validPts.map((r, i) => (
         <text key={i} x={sx(i)} y={pad.t + H + 16} textAnchor="middle" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{monthLabel(r.month)}</text>
       ))}
 

@@ -210,11 +210,11 @@ class NightlyPipeline:
         log.info(f"{'═'*55}")
 
         # Step 1 — Weather forecast (always needed for covariates)
-        log.info("\n[1/5] Fetching weather forecast …")
+        log.info("\n[1/6] Fetching weather forecast …")
         self.results["weather"] = step_fetch_weather()
 
         # Step 2 — Events (needed for game-night covariate)
-        log.info("\n[2/5] Fetching upcoming events …")
+        log.info("\n[2/6] Fetching upcoming events …")
         self.results["events"] = step_fetch_events()
 
         # Step 3 — Merge pipeline (rebuild raw feature store with fresh data).

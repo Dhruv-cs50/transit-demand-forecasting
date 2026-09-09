@@ -284,12 +284,28 @@ def add_event_features(
     # every delta_end-based calculation (is_post_event_window,
     # hours_since_last_event, the post-event proximity score) by the LA
     # UTC offset -- the same tz-mixing bug class fixed repeatedly elsewhere.
-    cols_to_normalize = [(df, "timestamp"), (events, "timestamp_start")]
+    #
+    # Only events' own columns are normalized here -- df["timestamp"] is
+    # NOT reassigned. merge_pipeline.py's Schema docstring documents the
+    # feature store's timestamp column as tz-naive wall-clock
+    # America/Los_Angeles; silently flipping it tz-aware here (whenever real
+    # event data is present, i.e. almost always in production) broke any
+    # later merge against a still-tz-naive frame on "timestamp" -- e.g.
+    # Processing/ablation.py's run_ablation(), which is not wrapped in a
+    # try/except -- with "You are trying to merge on datetime64[us] and
+    # datetime64[us, America/Los_Angeles] columns". A tz-aware copy
+    # (ts_for_calc, below) is used for this function's own delta math
+    # instead.
+    cols_to_normalize = [(events, "timestamp_start")]
     if "timestamp_end" in events.columns:
         cols_to_normalize.append((events, "timestamp_end"))
     for frame, col in cols_to_normalize:
         if frame[col].dt.tz is None:
             frame[col] = frame[col].dt.tz_localize("America/Los_Angeles")
+
+    ts_for_calc = df["timestamp"]
+    if ts_for_calc.dt.tz is None:
+        ts_for_calc = ts_for_calc.dt.tz_localize("America/Los_Angeles")
 
     # approach_hours/departure_hours-scale windows are only meaningful when
     # df's timestamps carry sub-daily resolution. At this pipeline's actual
@@ -316,7 +332,7 @@ def add_event_features(
     is_sharks_win   = np.zeros(len(df), dtype=bool)
     is_any_event    = np.zeros(len(df), dtype=bool)
 
-    for i, ts in enumerate(df["timestamp"].values):
+    for i, ts in enumerate(ts_for_calc.values):
         # Time delta in hours to each event start
         delta_start = (ev_starts - ts) / np.timedelta64(1, "h")
         delta_end   = (ev_ends   - ts) / np.timedelta64(1, "h")

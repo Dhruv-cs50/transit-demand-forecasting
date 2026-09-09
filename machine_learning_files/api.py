@@ -297,7 +297,13 @@ if _FASTAPI_AVAILABLE:
         return {
             "station_id":    req.station_id,
             "horizon_hours": req.horizon_hours,
-            "generated_at":  datetime.utcnow().isoformat(),
+            # A bare isoformat() string with no "Z"/offset is parsed by the
+            # browser's `new Date(...)` as LOCAL time (ECMA-262 Date Time
+            # String Format), not UTC -- api-demo.html's `new
+            # Date(data.generated_at).toLocaleTimeString()` showed a time off
+            # by exactly the visitor's UTC offset. Append "Z" so it's parsed
+            # as UTC and correctly converted to the visitor's local time.
+            "generated_at":  datetime.utcnow().isoformat() + "Z",
             "forecasts":     forecasts,
         }
 

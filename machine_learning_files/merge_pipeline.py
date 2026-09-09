@@ -216,8 +216,12 @@ def compute_event_features(
 ) -> pd.DataFrame:
     """
     Monthly aggregation: for each timestamp (month-start), count events in that month.
-    - is_game_day    : True if ≥1 home game in that month
-    - hours_to_event : number of home games in that month (repurposed as game count)
+    - is_game_day    : True if >=1 event of ANY kind (Sharks game, concert, etc.)
+                       from `events` fell in that month -- despite the name, this
+                       is not scoped to home games specifically; use is_sharks_game
+                       for that. hours_to_event/COVARIATE_GROUPS callers treat this
+                       as a generic "any event this month" signal.
+    - hours_to_event : number of events of any kind in that month (repurposed as event count)
     - is_sharks_game : True if any Sharks game in that month
     - game_start_hour: modal game start hour in that month
     - is_playoff     : True if any playoff game in that month

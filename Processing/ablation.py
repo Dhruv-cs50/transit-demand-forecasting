@@ -193,20 +193,12 @@ def run_inference_with_config(
     )
 
     predictor = TimeSeriesPredictor.load(str(model_dir))
-    prediction_length = cfg["data"].get("forecast_horizon_steps") \
-        or cfg["chronos2"].get("prediction_length_steps")
-    if prediction_length is None:
-        freq = cfg["data"]["resample_freq"]
-        horizon_hours = cfg["data"]["forecast_horizon_hours"]
-        try:
-            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-            prediction_length = int(horizon_hours * steps_per_hour)
-        except ValueError:
-            # Non-fixed frequencies (e.g. "MS" for month-start) have no fixed
-            # nanosecond duration — approximate using a 30-day month.
-            prediction_length = max(1, round(horizon_hours / (30 * 24)))
 
-    preds = predictor.predict(ts_df, prediction_length=prediction_length)
+    # TimeSeriesPredictor.predict() has no `prediction_length` parameter -- the
+    # horizon is fixed at fit() time. Passing it raised "TypeError: predict()
+    # got an unexpected keyword argument 'prediction_length'" on every call,
+    # same root cause as models/chronos2/predict.py's _finetuned_forecast().
+    preds = predictor.predict(ts_df)
 
     # Convert AutoGluon output to flat DataFrame
     preds_df = preds.reset_index()

@@ -407,8 +407,13 @@ class Predictor:
                 timestamp_column="timestamp",
             )
 
+        # TimeSeriesPredictor.predict() has no `prediction_length` parameter --
+        # the horizon is fixed at fit() time (build_predictor() in finetune.py
+        # already passes prediction_length=horizon_steps there). Passing it
+        # here raised "TypeError: predict() got an unexpected keyword argument
+        # 'prediction_length'" on every finetuned-mode forecast call.
         preds = self._predictor.predict(
-            ts_df, known_covariates=known_covariates, prediction_length=horizon_steps
+            ts_df, known_covariates=known_covariates
         )
         preds_df = preds.reset_index()
 
