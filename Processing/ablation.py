@@ -1,5 +1,5 @@
 """
-evaluation/ablation.py
+Processing/ablation.py
 ───────────────────────
 Ablation study — measures the accuracy impact of each covariate group
 by systematically zeroing out feature groups and re-evaluating.
@@ -20,8 +20,8 @@ For each group we measure WAPE and MAE overall AND specifically on:
 This tells you exactly which data sources are earning their keep.
 
 Usage:
-    python evaluation/ablation.py
-    python evaluation/ablation.py --model-dir models/chronos2/weights
+    python Processing/ablation.py
+    python Processing/ablation.py --model-dir models/chronos2/weights
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ COVARIATE_GROUPS = {
         "is_game_day", "is_sharks_game_window", "game_start_hour",
         "is_pre_event_window", "is_post_event_window", "is_playoff",
         "is_any_event_day", "nearest_event_attendance_tier",
-        "hours_to_next_event", "hours_since_last_event",
+        "hours_to_next_event", "hours_to_event", "hours_since_last_event",
         "event_proximity_score",
     ],
     "station": [
@@ -193,20 +193,12 @@ def run_inference_with_config(
     )
 
     predictor = TimeSeriesPredictor.load(str(model_dir))
-    prediction_length = cfg["data"].get("forecast_horizon_steps") \
-        or cfg["chronos2"].get("prediction_length_steps")
-    if prediction_length is None:
-        freq = cfg["data"]["resample_freq"]
-        horizon_hours = cfg["data"]["forecast_horizon_hours"]
-        try:
-            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-            prediction_length = int(horizon_hours * steps_per_hour)
-        except ValueError:
-            # Non-fixed frequencies (e.g. "MS" for month-start) have no fixed
-            # nanosecond duration — approximate using a 30-day month.
-            prediction_length = max(1, round(horizon_hours / (30 * 24)))
 
-    preds = predictor.predict(ts_df, prediction_length=prediction_length)
+    # TimeSeriesPredictor.predict() has no `prediction_length` parameter -- the
+    # horizon is fixed at fit() time. Passing it raised "TypeError: predict()
+    # got an unexpected keyword argument 'prediction_length'" on every call,
+    # same root cause as models/chronos2/predict.py's _finetuned_forecast().
+    preds = predictor.predict(ts_df)
 
     # Convert AutoGluon output to flat DataFrame
     preds_df = preds.reset_index()
@@ -336,6 +328,43 @@ def run_ablation(
     """
     if configs is None:
         configs = ABLATION_CONFIGS
+
+    # test_df (--test, defaults to data/processed/splits/test.parquet) is
+    # written by merge_pipeline.py's make_splits() from the RAW feature
+    # store -- it never goes through feature_engineering.py's build_features(),
+    # so it carries none of is_sharks_game_window/is_game_day/is_raining/
+    # precip_intensity/is_am_peak/is_pm_peak/in_event_catchment. Every one of
+    # eval_on_slices()'s `if <col> in merged.columns` guards then silently
+    # skips that slice on every config, every day -- only "overall" ever
+    # printed, even though feature_store (--feature-store, the enriched
+    # store used for inference above) has these columns for the exact same
+    # (timestamp, station_id) rows. Backfill them from feature_store so the
+    # diagnostic slices this module exists for actually run.
+    diagnostic_cols = [
+        "is_sharks_game_window", "is_game_day", "is_raining",
+        "precip_intensity", "is_am_peak", "is_pm_peak", "in_event_catchment",
+    ]
+    # is_raining is NOT actually missing from the raw test_df -- merge_pipeline.py's
+    # build_feature_store() already writes it there as a per-station-month MEAN
+    # FRACTION (agg_kwargs' is_raining=("is_raining", "mean")), not the enriched
+    # boolean feature_engineering.py recomputes. A plain "missing" filter would
+    # skip it here, leaving eval_on_slices()'s `merged["is_raining"] == True`
+    # comparing a fraction against True (i.e. == 1.0), which only matches a
+    # month that rained every single hour -- silently zeroing out rainy_day on
+    # every run. Always overwrite it from feature_store; only backfill the rest
+    # when genuinely absent.
+    always_overwrite = {"is_raining"}
+    cols_to_pull = [
+        c for c in diagnostic_cols
+        if c in feature_store.columns and (c not in test_df.columns or c in always_overwrite)
+    ]
+    if cols_to_pull:
+        test_df = test_df.drop(columns=[c for c in cols_to_pull if c in test_df.columns])
+        test_df = test_df.merge(
+            feature_store[["timestamp", "station_id"] + cols_to_pull],
+            on=["timestamp", "station_id"],
+            how="left",
+        )
 
     # as_of = val_end: forecast prediction_length steps starting right after
     # this, landing on the test window (ts > val_end) that test_df covers.

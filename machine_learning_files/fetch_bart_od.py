@@ -1,6 +1,6 @@
 """
-ingestion/fetch_bart_od.py
-──────────────────────────
+machine_learning_files/fetch_bart_od.py
+────────────────────────────────────────
 Downloads BART monthly origin-destination (OD) ridership XLS files
 from bart.gov, going back as far as 2005. Converts to tidy parquet files
 in data/raw/transit/bart/.
@@ -9,8 +9,8 @@ Each monthly OD file contains: (origin_station, dest_station, hour, riders)
 disaggregated across all station pairs and hours of the day.
 
 Usage:
-    python ingestion/fetch_bart_od.py
-    python ingestion/fetch_bart_od.py --start 2020 --end 2024
+    python machine_learning_files/fetch_bart_od.py
+    python machine_learning_files/fetch_bart_od.py --start 2020 --end 2024
 """
 
 import argparse

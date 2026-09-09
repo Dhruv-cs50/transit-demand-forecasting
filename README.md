@@ -131,7 +131,9 @@ bash scripts/run_pipeline.sh
 That script performs:
 
 1. Build `data/processed/feature_store.parquet` and chronological splits.
-2. Build `data/processed/feature_store_enriched.parquet`.
+2. Build `data/processed/feature_store_enriched.parquet`, then regenerate the
+   chronological splits from it (step 1's splits are pre-enrichment and get
+   overwritten here so `finetune.py` trains on the full enriched schema).
 3. Validate the enriched feature store.
 4. Run Chronos zero-shot forecasts.
 5. Run SARIMA and Prophet baselines.
