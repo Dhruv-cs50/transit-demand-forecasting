@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import time
 from datetime import date, datetime, timedelta
@@ -53,17 +54,20 @@ class Transit511Client:
                 resp.raise_for_status()
                 # 511 sometimes returns JSON with BOM — strip it
                 text = resp.content.decode("utf-8-sig")
-                return __import__("json").loads(text)
+                return json.loads(text)
             except requests.HTTPError as e:
                 log.warning(f"HTTP {e.response.status_code} on {url} (attempt {attempt+1})")
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
                 else:
                     raise
-            except requests.RequestException as e:
-                # Timeout/ConnectionError etc. aren't HTTPError subclasses —
-                # without this, a transient network failure skipped the
-                # retry/backoff entirely and raised on the very first attempt.
+            except (requests.RequestException, json.JSONDecodeError, UnicodeDecodeError) as e:
+                # Timeout/ConnectionError etc. aren't HTTPError subclasses, and
+                # a truncated/malformed body raises json.JSONDecodeError (a
+                # ValueError, not a RequestException) since this method decodes
+                # the body manually rather than via resp.json() — without this,
+                # either failure skipped the retry/backoff entirely and raised
+                # on the very first attempt.
                 log.warning(f"{type(e).__name__} on {url} (attempt {attempt+1})")
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)

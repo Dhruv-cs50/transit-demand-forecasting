@@ -168,8 +168,18 @@ def run_zero_shot_forecast(
             timestamp_column="timestamp",
             target="target",
         )
-    except TypeError:
-        # Fallback: some versions don't support all kwargs — strip covariates
+    except (TypeError, AttributeError):
+        # configs/model.yaml pins a Chronos-1 T5 checkpoint, loaded via the
+        # base ChronosPipeline class (see models/chronos2/predict.py's
+        # _load_zeroshot for the same class choice) — across the project's
+        # entire supported chronos-forecasting range (>=1.3.0 through
+        # current), that class either has no predict_df() method at all
+        # (<2.1.0 — raises AttributeError, not caught by "except TypeError"
+        # alone) or a predict_df() that never accepts future_df/covariates
+        # (>=2.1.0 — raises TypeError; only Chronos2Pipeline's predict_df()
+        # supports future covariates). So this call always fails today and
+        # always falls back to univariate — not just "some versions", as
+        # the log message below used to imply.
         log.warning("Falling back to univariate mode (no explicit covariates)")
         pred_df = pipeline.predict_df(
             context_long[["timestamp", "station_id", "target"]],

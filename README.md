@@ -317,7 +317,7 @@ Endpoints:
 {
   "station_id": "EMBR",
   "horizon_hours": 6,
-  "generated_at": "2025-06-01T12:00:00",
+  "generated_at": "2025-06-01T12:00:00.000000Z",
   "forecasts": [
     { "timestamp": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
   ]

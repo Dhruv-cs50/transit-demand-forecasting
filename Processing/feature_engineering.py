@@ -570,12 +570,23 @@ def main():
     df = pd.read_parquet(feature_store_path)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-    # Load events if available
+    # Load and merge ALL events files, not just the most recent by filename
+    # sort: fetch_events.py names both the one-time historical backfill
+    # (events_2019-01-01_...) and the nightly incremental fetch
+    # (events_{today}_...) with the same events_{start}_{end}.parquet
+    # pattern, so "most recent by sort" permanently drops the historical
+    # file the first time a nightly file's start date (today) sorts after
+    # the fixed 2019-01-01 backfill start -- silently zeroing out the
+    # Sharks-game/event signal for all of history. See merge_pipeline.py's
+    # load_events() for the same fix.
     events = pd.DataFrame()
     event_files = sorted(events_path.glob("events_*.parquet"))
     if event_files:
-        events = pd.read_parquet(event_files[-1])
+        events = pd.concat([pd.read_parquet(f) for f in event_files], ignore_index=True)
         events["timestamp_start"] = pd.to_datetime(events["timestamp_start"])
+        dedup_keys = [c for c in ("timestamp_start", "venue", "event_name") if c in events.columns]
+        if dedup_keys:
+            events = events.drop_duplicates(subset=dedup_keys, keep="last")
         log.info(f"Loaded {len(events)} events")
 
     df_enriched = build_features(df, events=events)

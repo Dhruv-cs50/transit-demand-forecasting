@@ -194,11 +194,37 @@ def run_inference_with_config(
 
     predictor = TimeSeriesPredictor.load(str(model_dir))
 
-    # TimeSeriesPredictor.predict() has no `prediction_length` parameter -- the
-    # horizon is fixed at fit() time. Passing it raised "TypeError: predict()
-    # got an unexpected keyword argument 'prediction_length'" on every call,
-    # same root cause as models/chronos2/predict.py's _finetuned_forecast().
-    preds = predictor.predict(ts_df)
+    # build_predictor() (finetune.py) always fits with a non-empty
+    # known_covariates_names (calendar columns are always present), so
+    # predict() unconditionally requires known_covariates for the forecast
+    # horizon -- omitting it raised "ValueError: known_covariates ... should
+    # be provided at prediction time" on every call, same root cause class as
+    # models/chronos2/predict.py's _finetuned_forecast(). Mirror that
+    # function's pattern: slice the horizon rows from feature_store, apply
+    # the SAME ablation zeroing used for context (so a config's zeroed
+    # covariates stay zeroed for the forecast window too, not just history),
+    # and feed only the columns the predictor was actually fit to expect
+    # ahead of time (KNOWN_FUTURE_COLS).
+    from models.chronos2.finetune import KNOWN_FUTURE_COLS
+
+    horizon_steps = cfg["data"].get("forecast_horizon_steps") \
+        or cfg["chronos2"].get("prediction_length_steps")
+
+    future_raw = feature_store[feature_store["timestamp"] > as_of]
+    future_ablated = zero_out_groups(future_raw, include_groups)
+    future_ablated = future_ablated.rename(columns={"station_id": "item_id"})
+
+    known_covariates = None
+    known_cols = [c for c in KNOWN_FUTURE_COLS if c in future_ablated.columns]
+    if known_cols and not future_ablated.empty:
+        fut = future_ablated.sort_values(["item_id", "timestamp"]).groupby("item_id").head(horizon_steps)
+        known_covariates = TimeSeriesDataFrame.from_data_frame(
+            fut[["item_id", "timestamp"] + known_cols],
+            id_column="item_id",
+            timestamp_column="timestamp",
+        )
+
+    preds = predictor.predict(ts_df, known_covariates=known_covariates)
 
     # Convert AutoGluon output to flat DataFrame
     preds_df = preds.reset_index()

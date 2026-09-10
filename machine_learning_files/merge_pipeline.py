@@ -189,15 +189,31 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
 
 
 def load_events() -> pd.DataFrame:
-    """Load the most recent events parquet file."""
+    """
+    Load and merge all events parquet files.
+
+    fetch_events.py's fetch_all() names its output events_{start}_{end}.parquet
+    for BOTH the one-time historical backfill (start=2019-01-01) and the nightly
+    incremental fetch (start=today), so loading only the single most-recent file
+    (by filename sort) permanently loses the historical file the moment a nightly
+    run's filename first sorts after it -- every historical (year, month) then
+    silently gets is_game_day=False/is_sharks_game=False/hours_to_event=0.0 in
+    compute_event_features() below, zeroing out the Sharks-game signal across
+    all of history. Load and concatenate every events_*.parquet file instead,
+    deduping on (timestamp_start, venue, event_name) since NHL/Ticketmaster use
+    different id columns (game_id vs event_id) that don't unify into one key.
+    """
     log.info("Loading events data …")
     files = sorted((RAW_DIR / "events").glob("events_*.parquet"))
     if not files:
         log.warning("No events files found")
         return pd.DataFrame()
 
-    df = pd.read_parquet(files[-1])
+    df = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
     df["timestamp_start"] = pd.to_datetime(df["timestamp_start"])
+    dedup_keys = [c for c in ("timestamp_start", "venue", "event_name") if c in df.columns]
+    if dedup_keys:
+        df = df.drop_duplicates(subset=dedup_keys, keep="last")
     if df["timestamp_start"].dt.tz is None:
         df["timestamp_start"] = df["timestamp_start"].dt.tz_localize("America/Los_Angeles")
     else:
