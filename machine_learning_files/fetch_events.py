@@ -1,6 +1,6 @@
 """
-ingestion/fetch_events.py
-─────────────────────────
+machine_learning_files/fetch_events.py
+─────────────────────────────────────────
 Fetches Bay Area event schedules from:
   1. NHL API  — San Jose Sharks games (free, no key required)
   2. Ticketmaster Discovery API — concerts, sports at SAP Center,
@@ -13,8 +13,8 @@ Produces a unified events DataFrame:
 Output: data/raw/events/events_{start}_{end}.parquet
 
 Usage:
-    python ingestion/fetch_events.py
-    python ingestion/fetch_events.py --start 2020-01-01 --end 2024-12-31
+    python machine_learning_files/fetch_events.py
+    python machine_learning_files/fetch_events.py --start 2020-01-01 --end 2024-12-31
 """
 
 import argparse
@@ -181,8 +181,16 @@ class TicketmasterClient:
                     continue
 
                 try:
-                    ts_start = pd.to_datetime(dt_str).tz_convert("America/Los_Angeles") \
-                        if "T" in dt_str else pd.to_datetime(dt_str)
+                    ts_start = pd.to_datetime(dt_str)
+                    # Ticketmaster returns a full dateTime (tz-aware after
+                    # parsing) for most events, but falls back to a
+                    # date-only localDate (tz-naive) for TBD-time events.
+                    # Normalize both to tz-aware so downstream concat with
+                    # other tz-aware sources (e.g. NHLClient) never mixes
+                    # tz-aware/tz-naive values in one column.
+                    ts_start = ts_start.tz_convert("America/Los_Angeles") \
+                        if ts_start.tzinfo is not None \
+                        else ts_start.tz_localize("America/Los_Angeles")
                 except Exception:
                     continue
 

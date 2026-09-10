@@ -1,6 +1,6 @@
 """
-ingestion/fetch_pems_roads.py
-──────────────────────────────
+models/baselines/fetch_pems_roads.py
+───────────────────────────────────────
 Downloads Caltrans PeMS (Performance Measurement System) freeway sensor data
 for District 4 (Bay Area). Provides road traffic context for transit forecasting.
 
@@ -18,9 +18,9 @@ Note: PeMS requires a free account at pems.dot.ca.gov
 The PEMS-BAY ML-ready dataset (2017, 325 sensors) is also directly downloadable.
 
 Usage:
-    python ingestion/fetch_pems_roads.py --mode pems_bay    # ML-ready dataset
-    python ingestion/fetch_pems_roads.py --mode live        # live API (needs login)
-    python ingestion/fetch_pems_roads.py --mode stations    # station metadata only
+    python models/baselines/fetch_pems_roads.py --mode pems_bay    # ML-ready dataset
+    python models/baselines/fetch_pems_roads.py --mode live        # live API (needs login)
+    python models/baselines/fetch_pems_roads.py --mode stations    # station metadata only
 """
 
 from __future__ import annotations

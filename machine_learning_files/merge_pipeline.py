@@ -1,6 +1,6 @@
 """
-processing/merge_pipeline.py
-─────────────────────────────
+machine_learning_files/merge_pipeline.py
+───────────────────────────────────────────
 Joins all raw data sources into a single tidy feature store parquet file,
 keyed on (timestamp, station_id).
 
@@ -16,19 +16,26 @@ otherwise.
 
 Output: data/processed/feature_store.parquet
 Schema:
-    timestamp       datetime64[ns, America/Los_Angeles]
+    timestamp       datetime64[ns]  (tz-naive, wall-clock America/Los_Angeles)
     station_id      str
     agency_id       str
     transit_mode    str      (rail / bus / ferry / road)
     ridership       float64  ← TARGET
     temp_f          float64
     precip_mm       float64
-    is_raining      bool
+    precip_in       float64
+    is_raining      float64  (per-station-month mean fraction 0.0-1.0, NOT
+                              bool -- feature_engineering.py recomputes this
+                              column as an actual bool from precip_mm)
     weather_code    int
     windspeed_mph   float64
+    cloud_cover_pct float64
+    humidity_pct    float64
     is_game_day     bool
     game_start_hour int      (NaN if no game)
-    hours_to_event  float64  (hours until next event at a nearby venue)
+    hours_to_event  float64  (despite the name, this is a monthly home-game/
+                              event COUNT for that station-month, not an
+                              hours-scale value -- see compute_event_features())
     is_sharks_game  bool
     is_playoff      bool
     is_holiday      bool
@@ -40,8 +47,8 @@ Schema:
     is_pm_peak      bool     (only present when timestamps carry sub-daily resolution)
 
 Usage:
-    python processing/merge_pipeline.py
-    python processing/merge_pipeline.py --freq 15min --start 2020-01-01
+    python machine_learning_files/merge_pipeline.py
+    python machine_learning_files/merge_pipeline.py --freq 15min --start 2020-01-01
 """
 
 import argparse
@@ -182,15 +189,31 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
 
 
 def load_events() -> pd.DataFrame:
-    """Load the most recent events parquet file."""
+    """
+    Load and merge all events parquet files.
+
+    fetch_events.py's fetch_all() names its output events_{start}_{end}.parquet
+    for BOTH the one-time historical backfill (start=2019-01-01) and the nightly
+    incremental fetch (start=today), so loading only the single most-recent file
+    (by filename sort) permanently loses the historical file the moment a nightly
+    run's filename first sorts after it -- every historical (year, month) then
+    silently gets is_game_day=False/is_sharks_game=False/hours_to_event=0.0 in
+    compute_event_features() below, zeroing out the Sharks-game signal across
+    all of history. Load and concatenate every events_*.parquet file instead,
+    deduping on (timestamp_start, venue, event_name) since NHL/Ticketmaster use
+    different id columns (game_id vs event_id) that don't unify into one key.
+    """
     log.info("Loading events data …")
     files = sorted((RAW_DIR / "events").glob("events_*.parquet"))
     if not files:
         log.warning("No events files found")
         return pd.DataFrame()
 
-    df = pd.read_parquet(files[-1])
+    df = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
     df["timestamp_start"] = pd.to_datetime(df["timestamp_start"])
+    dedup_keys = [c for c in ("timestamp_start", "venue", "event_name") if c in df.columns]
+    if dedup_keys:
+        df = df.drop_duplicates(subset=dedup_keys, keep="last")
     if df["timestamp_start"].dt.tz is None:
         df["timestamp_start"] = df["timestamp_start"].dt.tz_localize("America/Los_Angeles")
     else:
@@ -209,8 +232,12 @@ def compute_event_features(
 ) -> pd.DataFrame:
     """
     Monthly aggregation: for each timestamp (month-start), count events in that month.
-    - is_game_day    : True if ≥1 home game in that month
-    - hours_to_event : number of home games in that month (repurposed as game count)
+    - is_game_day    : True if >=1 event of ANY kind (Sharks game, concert, etc.)
+                       from `events` fell in that month -- despite the name, this
+                       is not scoped to home games specifically; use is_sharks_game
+                       for that. hours_to_event/COVARIATE_GROUPS callers treat this
+                       as a generic "any event this month" signal.
+    - hours_to_event : number of events of any kind in that month (repurposed as event count)
     - is_sharks_game : True if any Sharks game in that month
     - game_start_hour: modal game start hour in that month
     - is_playoff     : True if any playoff game in that month
@@ -337,12 +364,14 @@ def build_feature_store(
         agg_kwargs = dict(
             temp_f=("temp_f", "mean"),
             precip_mm=("precip_mm", "mean"),
+            precip_in=("precip_in", "mean"),
             windspeed_mph=("windspeed_mph", "mean"),
             is_raining=("is_raining", "mean"),
             # weather_code is a categorical WMO code — averaging it produces a
             # meaningless fractional value, so take the most common code instead.
             weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
             cloud_cover_pct=("cloud_cover_pct", "mean"),
+            humidity_pct=("humidity_pct", "mean"),
         )
         weather_cols = list(agg_kwargs.keys())
 
