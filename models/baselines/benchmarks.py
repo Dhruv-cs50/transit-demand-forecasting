@@ -1,6 +1,6 @@
 """
-evaluation/benchmarks.py
-─────────────────────────
+models/baselines/benchmarks.py
+─────────────────────────────────
 Head-to-head comparison of all models on the held-out test set.
 
 Models compared:
@@ -19,8 +19,8 @@ Produces:
 This is what powers the "MAPE 11.8%" number on your website hero.
 
 Usage:
-    python evaluation/benchmarks.py
-    python evaluation/benchmarks.py --quick   # skip slow baselines
+    python models/baselines/benchmarks.py
+    python models/baselines/benchmarks.py --quick   # skip slow baselines
 """
 
 from __future__ import annotations
@@ -83,7 +83,15 @@ def seasonal_naive_forecast(
         n_test = len(grp)
         repeated = np.tile(last_week, (n_test // lag) + 1)[:n_test]
 
-        grp = grp.copy()
+        # `repeated` is built assuming positional row i == the i-th chronological
+        # test timestamp (e.g. repeated[0] is the seasonal-naive value for the
+        # earliest test month). test_df's on-disk row order isn't guaranteed
+        # sorted per station (predict.py/zero_shot.py/ablation.py all explicitly
+        # re-sort after filtering by station for the same reason) — without
+        # sorting here, np.tile's positionally-built array gets assigned to
+        # whatever order grp's rows happen to be in, silently pairing each
+        # timestamp with the wrong seasonal-naive value.
+        grp = grp.sort_values("timestamp").copy()
         grp["p50"] = np.maximum(repeated, 0)
         grp["p10"] = grp["p50"] * 0.80
         grp["p90"] = grp["p50"] * 1.20

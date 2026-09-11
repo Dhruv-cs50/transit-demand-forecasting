@@ -601,6 +601,13 @@ def main():
         default=str(PROCESSED_DIR / "splits/train.parquet"),
         help="Training data path for MASE scaling",
     )
+    parser.add_argument(
+        "--feature-store",
+        default=str(PROCESSED_DIR / "feature_store_enriched.parquet"),
+        help="Enriched feature store, used to backfill diagnostic columns "
+             "(is_sharks_game_window, precip_intensity, ...) missing from "
+             "--actuals when it points at the raw train/test split",
+    )
     args = parser.parse_args()
 
     # Load data
@@ -616,6 +623,43 @@ def main():
 
     actuals_df     = pd.read_parquet(actuals_path)
     predictions_df = pd.read_parquet(preds_path)
+
+    # --actuals (defaults to data/processed/splits/test.parquet) may be an
+    # older split written by merge_pipeline.py's make_splits() from the RAW
+    # feature store -- it never goes through feature_engineering.py's
+    # build_features(), so it lacks is_sharks_game_window/precip_intensity.
+    # event_day_metrics()'s/weather_day_metrics()'s `if <col> in merged.columns`
+    # guards then silently skip the Sharks-game and heavy-rain breakdowns on
+    # every default run. Backfill them from --feature-store (the enriched
+    # store) so those diagnostics actually run, same fix as ablation.py's
+    # run_ablation() (2026-09-04).
+    #
+    # is_raining is NOT actually missing from a raw test_df -- merge_pipeline.py's
+    # build_feature_store() already writes it there as a per-station-month MEAN
+    # FRACTION (agg_kwargs' is_raining=("is_raining", "mean")), not the enriched
+    # boolean feature_engineering.py recomputes. A plain "missing" filter would
+    # skip it here, leaving weather_day_metrics()'s `merged["is_raining"] == True`
+    # comparing a fraction against True (i.e. == 1.0), which only matches a
+    # month that rained every single hour -- silently zeroing out the "rainy"
+    # breakdown on every run. Always overwrite it from feature_store; only
+    # backfill the rest when genuinely absent (same fix as ablation.py's
+    # run_ablation(), 2026-09-06).
+    diagnostic_cols = ["is_sharks_game_window", "precip_intensity", "is_raining"]
+    always_overwrite = {"is_raining"}
+    feature_store_path = Path(args.feature_store)
+    if feature_store_path.exists():
+        feature_store = pd.read_parquet(feature_store_path)
+        cols_to_pull = [
+            c for c in diagnostic_cols
+            if c in feature_store.columns and (c not in actuals_df.columns or c in always_overwrite)
+        ]
+        if cols_to_pull:
+            actuals_df = actuals_df.drop(columns=[c for c in cols_to_pull if c in actuals_df.columns])
+            actuals_df = actuals_df.merge(
+                feature_store[["timestamp", "station_id"] + cols_to_pull],
+                on=["timestamp", "station_id"],
+                how="left",
+            )
 
     train_df = None
     train_path = Path(args.train)
