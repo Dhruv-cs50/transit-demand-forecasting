@@ -8,7 +8,7 @@ Fetches Bay Area event schedules from:
 
 Produces a unified events DataFrame:
   timestamp_start, timestamp_end, venue, event_name, event_type,
-  is_sharks_game, expected_attendance, lat, lng
+  is_sharks_game, lat, lng
 
 Output: data/raw/events/events_{start}_{end}.parquet
 

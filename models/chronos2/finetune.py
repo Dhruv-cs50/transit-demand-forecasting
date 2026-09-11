@@ -217,6 +217,7 @@ def _default_covariate_cols(df: pd.DataFrame) -> list[str]:
 
 def build_predictor(
     train_ts: "TimeSeriesDataFrame",
+    tuning_ts: "TimeSeriesDataFrame",
     cfg: dict,
     time_limit: int = None,
     preset: str = None,
@@ -229,10 +230,16 @@ def build_predictor(
       1. Fine-tune Chronos-2 on your ridership data
       2. Train lightweight baselines (SeasonalNaive, ETS, DeepAR)
       3. Fit a weighted ensemble that combines all models
-      4. Use the val split internally to select best weights
+      4. Use the val split (passed as `tuning_ts`) to select best weights
 
     The ensemble approach means even if Chronos-2 has a bad day on
     a particular station, a simpler model can cover for it.
+
+    `tuning_ts` must include each item's train-period history alongside the
+    val window (not the val window alone) — AutoGluon's `tuning_data` uses
+    only the last `prediction_length` steps of each series as the held-out
+    target and needs the preceding steps as forecast context, exactly like
+    `evaluate_on_val()` needs `train_df + val_df` rather than `val_df` alone.
     """
     try:
         from autogluon.timeseries import TimeSeriesPredictor
@@ -281,6 +288,7 @@ def build_predictor(
 
     predictor.fit(
         train_data=train_ts,
+        tuning_data=tuning_ts,
         time_limit=time_budget,
         presets=model_preset,
         hyperparameters={
@@ -302,8 +310,6 @@ def build_predictor(
                 "batch_size": 32,
             },
         },
-        num_val_windows=2,
-        val_step_size=prediction_length,
     )
 
     log.info("\nFit complete. Leaderboard:")
@@ -416,18 +422,23 @@ def main():
     log.info("Converting to AutoGluon TimeSeriesDataFrame …")
     train_ts = to_autogluon_format(train_df)
     val_ts   = to_autogluon_format(val_df)
+    # train+val so the frame has context rows ahead of the held-out window
+    # (val alone is exactly prediction_length rows — too short for AutoGluon
+    # to slice a forecast-context window plus a validation target from).
+    full_ts  = to_autogluon_format(pd.concat([train_df, val_df], ignore_index=True))
 
-    # 3. Fine-tune
+    # 3. Fine-tune — tuning_data=full_ts makes AutoGluon use our chronological
+    # val split (not its own internal train-tail windows) for model/ensemble
+    # selection.
     predictor = build_predictor(
-        train_ts, cfg,
+        train_ts, full_ts, cfg,
         time_limit=args.time_limit,
         preset=args.preset,
         output_dir=output_dir,
     )
 
-    # 4. Evaluate — pass train+val so predictor has context rows (val alone = prediction_length rows)
+    # 4. Evaluate on the same held-out window
     if not args.skip_eval:
-        full_ts = to_autogluon_format(pd.concat([train_df, val_df], ignore_index=True))
         scores = evaluate_on_val(predictor, full_ts, cfg)
         evaluate_event_days(predictor, val_ts, feature_store)
 
