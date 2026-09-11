@@ -1,14 +1,25 @@
 """
 scripts/export_website_data.py
 ────────────────────────────────
-Reads the feature store and exports two JSON files consumed by the website:
+Reads the feature store and exports JSON files under website/data/. Two of
+them are not currently read by any page in website/ (kept for a future
+ridership heat-map integration; grep confirms no fetch() of either file
+anywhere in website/*.jsx or *.html):
 
   website/data/stations_ridership.json
-      Per-station average monthly ridership + normalized heat scale (0-2.4)
-      Used by transit-map.jsx to anchor station heat values to real data.
+      Per-station average monthly ridership + normalized heat scale (0-2.4).
+      Was consumed by website/transit-map.jsx, which was deleted 2026-07-12
+      when the live map moved to transit-demo.html's Google Maps
+      implementation (transit-demo.html uses its own hardcoded per-station
+      heat multipliers instead, not this file).
 
   website/data/stations_meta.json
-      Station list with real names and BART IDs — used by Demo dropdowns.
+      Station list with real names and BART IDs. Not read by the "Real BART
+      Data" section's station picker either — BARTForecasts in sections.jsx
+      hardcodes its own KEY_STATIONS list instead.
+
+The other three exports below (export_ridership_actuals/export_forecasts/
+export_model_comparison) ARE consumed live, by sections.jsx and charts.jsx.
 
 Usage:
     python scripts/export_website_data.py
