@@ -123,12 +123,31 @@ def zero_out_groups(
         for col in COVARIATE_GROUPS[group]:
             if col not in df.columns:
                 continue
-            if df[col].dtype == bool or str(df[col].dtype) == "bool":
+            if pd.api.types.is_bool_dtype(df[col]):
                 df[col] = False
-            elif df[col].dtype == object:
-                pass  # leave string/categorical columns as-is
-            else:
+            elif pd.api.types.is_numeric_dtype(df[col]):
                 df[col] = 0.0
+            else:
+                # String/categorical columns (e.g. "station" group's
+                # transit_mode) -- leave as-is. `df[col].dtype == object`
+                # used to gate this branch, but pandas 3.x infers a plain
+                # string dtype ("str", not "object") for columns like this
+                # by default -- the installed pandas here is 3.0.5, and
+                # requirements.txt's floor (pandas>=2.1.0) sets no upper
+                # bound, so this is the real dtype on a fresh install today,
+                # not a future hypothetical. That comparison silently missed
+                # every such column and fell through to the numeric branch
+                # instead, overwriting transit_mode with the float 0.0 for
+                # every ablation config that excludes "station" (baseline,
+                # +calendar, +weather, +events -- 4 of 6 configs) -- a
+                # dtype-corrupting mismatch against the string values the
+                # predictor was fine-tuned on, not the "no station info"
+                # neutral state this function's docstring promises. Checking
+                # via pd.api.types.is_bool_dtype/is_numeric_dtype instead of
+                # raw dtype-string comparisons is correct under both the
+                # object-dtype (pandas < 3) and str-dtype (pandas >= 3)
+                # backends.
+                pass
 
     return df
 

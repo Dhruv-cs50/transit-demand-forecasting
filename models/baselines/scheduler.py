@@ -311,11 +311,23 @@ def run_loop(cfg: dict) -> None:
 
 
 def _simple_loop(cfg: dict) -> None:
-    """Fallback loop using time.sleep — no external dependency."""
+    """Fallback loop using time.sleep — no external dependency.
+
+    apscheduler is not listed in requirements.txt (and isn't installed in
+    this environment), so run_loop()'s ImportError fallback to this function
+    is the actual path taken by `--loop`, not a rare edge case. It must honor
+    cfg's serving.nightly_refresh_cron the same way run_loop() does --
+    previously it hardcoded hour=2/minute=0 and ignored the `cfg` parameter
+    entirely, so changing nightly_refresh_cron away from its "0 2 * * *"
+    default had no effect and this loop kept firing at 2am regardless.
+    """
+    cron = cfg.get("serving", {}).get("nightly_refresh_cron", "0 2 * * *")
+    minute_str, hour_str = cron.split()[0], cron.split()[1]
+    hour, minute = int(hour_str), int(minute_str)
+
     while True:
         now = datetime.now()
-        # Run at 2am
-        target = now.replace(hour=2, minute=0, second=0, microsecond=0)
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
         wait_secs = (target - now).total_seconds()

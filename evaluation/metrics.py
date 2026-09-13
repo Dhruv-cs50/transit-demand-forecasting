@@ -166,14 +166,37 @@ def coverage(
     For P10/P90 intervals, we expect ~80% coverage.
     Significantly below 80% = intervals too narrow (overconfident).
     Significantly above 80% = intervals too wide (underconfident).
+
+    Rows where the actual or either bound is NaN (e.g. predict.py's
+    forecast() fills p10/p90 with NaN for an entire station when the
+    upstream model never produced that quantile column -- see its
+    "ensure all three quantile columns exist" guard) are excluded from
+    both the numerator and denominator. A plain `>=`/`<=` comparison
+    against NaN is always False, so without this guard those rows
+    silently counted as "not covered" instead of being left out,
+    dragging the reported coverage rate toward 0% for reasons that have
+    nothing to do with actual interval quality.
     """
-    covered = (y_true >= y_lower) & (y_true <= y_upper)
+    valid = ~(np.isnan(y_true) | np.isnan(y_lower) | np.isnan(y_upper))
+    if not np.any(valid):
+        return float("nan")
+    covered = (y_true[valid] >= y_lower[valid]) & (y_true[valid] <= y_upper[valid])
     return float(np.mean(covered) * 100)
 
 
 def interval_width(y_lower: np.ndarray, y_upper: np.ndarray) -> float:
-    """Average width of the prediction interval (P90 - P10)."""
-    return float(np.mean(y_upper - y_lower))
+    """
+    Average width of the prediction interval (P90 - P10).
+
+    Ignores rows where either bound is NaN instead of letting a single
+    missing row propagate NaN through the whole slice's average (same
+    NaN-exclusion as coverage(), for the same reason).
+    """
+    width = y_upper - y_lower
+    valid = ~np.isnan(width)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.mean(width[valid]))
 
 
 # ── Result container ───────────────────────────────────────────────────────────
