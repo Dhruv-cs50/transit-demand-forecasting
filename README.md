@@ -131,7 +131,9 @@ bash scripts/run_pipeline.sh
 That script performs:
 
 1. Build `data/processed/feature_store.parquet` and chronological splits.
-2. Build `data/processed/feature_store_enriched.parquet`.
+2. Build `data/processed/feature_store_enriched.parquet`, then regenerate the
+   chronological splits from it (step 1's splits are pre-enrichment and get
+   overwritten here so `finetune.py` trains on the full enriched schema).
 3. Validate the enriched feature store.
 4. Run Chronos zero-shot forecasts.
 5. Run SARIMA and Prophet baselines.
@@ -228,7 +230,7 @@ gcloud run deploy transit-api \
 
 | Data | Location | Notes |
 | --- | --- | --- |
-| Feature store parquet | `data/processed/feature_store_enriched.parquet` | Station-month ridership + covariates |
+| Feature store parquet | `data/processed/feature_store.parquet` + `data/processed/feature_store_enriched.parquet` | `Dockerfile.api` bakes in both, but the live API (`api.py`'s `get_feature_store()`, `zero_shot.py`'s `load_feature_store()`) reads only the pre-enrichment `feature_store.parquet` at serve time — the enriched file feeds offline training splits (`finetune.py`) instead |
 | Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API |
 | Website assets | App Engine Standard | HTML/CSS/JSX/JSON, served via static file handlers |
 | Pre-computed forecasts | Baked into Docker image | `models/chronos2/outputs/*.parquet` copied at build time |
@@ -315,7 +317,7 @@ Endpoints:
 {
   "station_id": "EMBR",
   "horizon_hours": 6,
-  "generated_at": "2025-06-01T12:00:00",
+  "generated_at": "2025-06-01T12:00:00.000000Z",
   "forecasts": [
     { "timestamp": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
   ]
