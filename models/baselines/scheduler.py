@@ -1,20 +1,29 @@
 """
 models/baselines/scheduler.py
 ──────────────────────────────
-Nightly pipeline scheduler — keeps the Live demo on your website fresh.
+Nightly pipeline scheduler — refreshes the feature store and produces a
+batch Chronos-2 forecast snapshot.
 
-Runs every night at 2am (configurable):
-  1. Pull fresh transit data from 511 API
-  2. Pull weather forecast from Open-Meteo (7 days ahead)
-  3. Pull upcoming events from NHL + Ticketmaster
-  4. Merge into feature store
-  5. Enrich feature store (Processing/feature_engineering.py) + regenerate splits
-  6. Validate data quality
-  7. Run Chronos-2 batch forecast for next 24 hours
-  8. Write forecasts to database / cache for the API to serve
+Runs every night at 2am (configurable), matching NightlyPipeline.run()
+below:
+  1. Pull weather forecast from Open-Meteo (7 days ahead)
+  2. Pull upcoming events from NHL + Ticketmaster
+  3. Merge into the raw feature store (--no-split)
+  4. Enrich feature store (Processing/feature_engineering.py) + regenerate splits
+  5. Validate data quality (gates step 6 — a validation failure skips it)
+  6. Run Chronos-2 batch forecast for the horizon and copy the output to
+     models/chronos2/outputs/nightly/forecasts_latest.parquet
 
-This is what keeps the "+34% vs typical" card on your website accurate
-rather than stale.
+Note: this pipeline never re-fetches BART OD ridership itself (the
+forecast target) — machine_learning_files/fetch_511_transit.py exists but
+is not wired into any step here; it's a standalone/future-expansion
+utility per its own docstring. Also note: machine_learning_files/api.py's
+live /forecast endpoint does NOT read forecasts_latest.parquet — it calls
+machine_learning_files/zero_shot.py independently on every request (see
+models/chronos2/predict.py's own docstring for the same caveat). So today
+this step's output is a standalone batch artifact for offline
+analysis/benchmarking, not something the live website's demo actually
+serves from.
 
 Usage:
     # Run once manually:
@@ -272,7 +281,9 @@ class NightlyPipeline:
             latest = FORECAST_DIR / "forecasts_latest.parquet"
             if latest.exists():
                 preds = pd.read_parquet(latest)
-                log.info(f"\n  Live demo ready: {len(preds):,} forecast rows")
+                # NOT read by the live website (see module docstring) --
+                # this is just confirming the batch artifact itself landed.
+                log.info(f"\n  Nightly batch snapshot ready: {len(preds):,} forecast rows")
                 log.info(f"  Stations: {sorted(preds['station_id'].unique())}")
 
 

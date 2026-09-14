@@ -375,7 +375,10 @@ def check_station_coverage(
     if total_stations == 0:
         return results
 
-    # Resample to hourly and count distinct stations
+    # Resample to the caller's cadence (`freq` -- "MS" for this project's real
+    # monthly feature store, via validate_feature_store()'s default/scheduler.py's
+    # --freq; "1h" only applies if this function is called directly without
+    # overriding it) and count distinct stations per window.
     df_copy = df.copy()
     df_copy["timestamp"] = pd.to_datetime(df_copy["timestamp"]).dt.tz_localize(None)
     coverage = (

@@ -165,9 +165,19 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
         df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
 
     # Is it the FIRST hour of rain after a dry spell? (commuters unprepared)
-    df["is_rain_onset"] = df["is_raining"] & ~df.groupby(
+    # x.shift(1) on a bool Series introduces a leading NaN, which upcasts the
+    # dtype to object (bool can't hold NaN); .fillna(False) alone leaves it
+    # object dtype holding Python True/False. `~` on an object-dtype Series
+    # of Python bools does integer bitwise-invert (bool subclasses int:
+    # ~True == -2, ~False == -1), not logical negation, so the previous code
+    # produced an always-truthy object array and this whole expression
+    # silently collapsed to just `df["is_raining"]` -- every rainy row was
+    # flagged as an "onset," not only the first one after a dry spell.
+    # astype(bool) restores real bool dtype so `~` means logical NOT again.
+    prev_raining = df.groupby(
         "station_id" if "station_id" in df.columns else [True] * len(df)
-    )["is_raining"].transform(lambda x: x.shift(1).fillna(False))
+    )["is_raining"].transform(lambda x: x.shift(1).fillna(False).astype(bool))
+    df["is_rain_onset"] = df["is_raining"] & ~prev_raining
 
     # ── Temperature ───────────────────────────────────────────────────────────
     if "temp_f" in df.columns:
@@ -217,7 +227,20 @@ def _add_monthly_event_features(df: pd.DataFrame, events: pd.DataFrame) -> pd.Da
     df["_month"] = df["timestamp"].dt.month
     df = df.merge(monthly, on=["_year", "_month"], how="left")
     df["event_count"] = df["event_count"].fillna(0).astype(int)
-    df["has_sharks"]  = df["has_sharks"].fillna(False)
+    # The left merge leaves "has_sharks" NaN for any (_year, _month) with no
+    # matching event row -- virtually guaranteed in real data, since most
+    # station-months have no Sharks game. That NaN promotes the column to
+    # object dtype holding Python True/False/NaN; fillna(False) alone keeps
+    # it object dtype. `~` on an object-dtype Series of Python bools does
+    # integer bitwise-invert (bool is an int subclass: ~True == -2, ~False ==
+    # -1), not logical negation, so `nearest_event_attendance_tier`'s
+    # `~is_sharks_game_window` term below was always a truthy nonzero value
+    # regardless of the actual flag, silently collapsing the "minor event,
+    # not a Sharks game" exclusion term to always equal is_any_event_day --
+    # a Sharks-game month scored tier 3 (2 + 1) instead of the documented
+    # major-tier value of 2. astype(bool) restores real bool dtype so `~`
+    # means logical NOT again.
+    df["has_sharks"]  = df["has_sharks"].fillna(False).astype(bool)
 
     df["is_any_event_day"]      = df["event_count"] > 0
     df["is_sharks_game_window"] = df["has_sharks"]

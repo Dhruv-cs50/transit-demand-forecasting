@@ -61,7 +61,8 @@ flowchart TD
     I1 & I2 & I3 & I4 --> P1
     P1 --> P2
     P2 --> P3
-    P2 --> M1 & M2 & M3 & M4
+    P1 --> M1
+    P2 --> M2 & M3 & M4
     M1 & M2 & M3 & M4 --> O1
     O1 --> O2
 
@@ -105,17 +106,17 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
                   merge_pipeline.py
                            │
                   feature_store.parquet (station × month × covariates)
-                           │
-                  feature_engineering.py
-                           │
-                  feature_store_enriched.parquet
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-         zero_shot     finetune.py   arima.py / prophet_baseline.py
-              │            │            │
-              └────────────┴────────────┘
-                           │
+                     │                 │
+                     │ zero_shot.py    ▼
+                     │ reads this      feature_engineering.py
+                     │ file directly            │
+                     │ (bypasses          feature_store_enriched.parquet
+                     │  enrichment)             │
+                     ▼                          ▼
+                zero_shot            finetune.py / arima.py / prophet_baseline.py
+                     │                          │
+                     └────────────┬─────────────┘
+                                  │
                   models/*/outputs/*.parquet
                            │
                   ┌────────┴────────┐

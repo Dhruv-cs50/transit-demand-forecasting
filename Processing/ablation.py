@@ -559,7 +559,21 @@ def offline_covariate_correlation(
     High correlation → likely important feature.
     Near-zero correlation → feature may not be helping.
     """
-    numeric_cols = feature_store.select_dtypes(include=[np.number]).columns.tolist()
+    # Include bool alongside np.number: pandas does not treat bool as a
+    # numeric dtype, so a plain `select_dtypes(include=[np.number])` silently
+    # dropped every boolean covariate (is_game_day, is_sharks_game_window,
+    # is_raining, is_weekend, is_holiday, is_am_peak, is_pm_peak, is_playoff,
+    # is_hub_station, ...) from this diagnostic -- exactly the event/weather
+    # flag columns this project's ablation study is built around, and the
+    # single largest category of columns in COVARIATE_GROUPS. `.corr()` on a
+    # bool column is well-defined (point-biserial correlation, the standard
+    # way to correlate a binary flag with a continuous target), so there's no
+    # reason to exclude it. Confirmed with a repro: a boolean column with a
+    # real 500-unit ridership lift reported a 0.91 Pearson correlation once
+    # included, versus being silently omitted from the report entirely
+    # before this fix (with no error/warning -- the printed "top features"
+    # table just looked complete while missing this whole class of columns).
+    numeric_cols = feature_store.select_dtypes(include=[np.number, "bool"]).columns.tolist()
     if target_col not in numeric_cols:
         return pd.DataFrame()
 

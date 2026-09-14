@@ -5,7 +5,8 @@ Prophet baseline for Bay Area transit ridership forecasting.
 
 Prophet handles three things natively that matter for this project:
   - Multiple seasonalities (daily commute + weekly weekend pattern)
-  - Holidays (US/CA public holidays)
+  - Holidays (US federal holidays, via make_holiday_df/USFederalHolidayCalendar
+    -- not CA-specific state holidays despite this module's earlier claim)
   - Regressors (rain intensity, is_game_day as external covariates)
 
 This gives us a strong classical baseline. If Chronos-2 can't beat
@@ -66,13 +67,16 @@ def fit_station(
     """
     Fit a Prophet model for a single station.
 
-    Regressors added:
-      - precip_intensity : rain bucket 0–4 (nonlinear weather signal)
-      - is_game_day      : binary event flag
-      - is_sharks_game   : Sharks-specific spike
-      - is_holiday       : CA public holiday
+    Regressors added (whichever of these columns are actually present --
+    see the loop below for the authoritative list):
+      - precip_intensity      : rain bucket 0-4 (nonlinear weather signal)
+      - precip_mm             : raw precipitation amount
+      - is_game_day           : binary event flag (any venue)
+      - is_sharks_game        : Sharks-specific spike
+      - is_sharks_game_window : Sharks game +/- proximity window
+      - is_holiday            : US federal holiday flag
 
-    Returns (model, train_df) tuple.
+    Returns (model, train_df, regressors) tuple.
     """
     try:
         from prophet import Prophet
