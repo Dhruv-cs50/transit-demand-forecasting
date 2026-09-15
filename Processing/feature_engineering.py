@@ -1,5 +1,5 @@
 """
-processing/feature_engineering.py
+Processing/feature_engineering.py
 ───────────────────────────────────
 Transforms the raw merged dataset into a rich, model-ready feature matrix.
 
@@ -15,11 +15,11 @@ The output of this file feeds directly into Chronos-2 as:
   - Static features  : things that never change per station (mode, location)
 
 Usage:
-    from processing.feature_engineering import build_features
+    from Processing.feature_engineering import build_features
     df = build_features(raw_df)
 
     # Or as a standalone script:
-    python processing/feature_engineering.py
+    python Processing/feature_engineering.py
 """
 
 from __future__ import annotations
@@ -165,9 +165,19 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
         df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
 
     # Is it the FIRST hour of rain after a dry spell? (commuters unprepared)
-    df["is_rain_onset"] = df["is_raining"] & ~df.groupby(
+    # x.shift(1) on a bool Series introduces a leading NaN, which upcasts the
+    # dtype to object (bool can't hold NaN); .fillna(False) alone leaves it
+    # object dtype holding Python True/False. `~` on an object-dtype Series
+    # of Python bools does integer bitwise-invert (bool subclasses int:
+    # ~True == -2, ~False == -1), not logical negation, so the previous code
+    # produced an always-truthy object array and this whole expression
+    # silently collapsed to just `df["is_raining"]` -- every rainy row was
+    # flagged as an "onset," not only the first one after a dry spell.
+    # astype(bool) restores real bool dtype so `~` means logical NOT again.
+    prev_raining = df.groupby(
         "station_id" if "station_id" in df.columns else [True] * len(df)
-    )["is_raining"].transform(lambda x: x.shift(1).fillna(False))
+    )["is_raining"].transform(lambda x: x.shift(1).fillna(False).astype(bool))
+    df["is_rain_onset"] = df["is_raining"] & ~prev_raining
 
     # ── Temperature ───────────────────────────────────────────────────────────
     if "temp_f" in df.columns:
@@ -217,7 +227,20 @@ def _add_monthly_event_features(df: pd.DataFrame, events: pd.DataFrame) -> pd.Da
     df["_month"] = df["timestamp"].dt.month
     df = df.merge(monthly, on=["_year", "_month"], how="left")
     df["event_count"] = df["event_count"].fillna(0).astype(int)
-    df["has_sharks"]  = df["has_sharks"].fillna(False)
+    # The left merge leaves "has_sharks" NaN for any (_year, _month) with no
+    # matching event row -- virtually guaranteed in real data, since most
+    # station-months have no Sharks game. That NaN promotes the column to
+    # object dtype holding Python True/False/NaN; fillna(False) alone keeps
+    # it object dtype. `~` on an object-dtype Series of Python bools does
+    # integer bitwise-invert (bool is an int subclass: ~True == -2, ~False ==
+    # -1), not logical negation, so `nearest_event_attendance_tier`'s
+    # `~is_sharks_game_window` term below was always a truthy nonzero value
+    # regardless of the actual flag, silently collapsing the "minor event,
+    # not a Sharks game" exclusion term to always equal is_any_event_day --
+    # a Sharks-game month scored tier 3 (2 + 1) instead of the documented
+    # major-tier value of 2. astype(bool) restores real bool dtype so `~`
+    # means logical NOT again.
+    df["has_sharks"]  = df["has_sharks"].fillna(False).astype(bool)
 
     df["is_any_event_day"]      = df["event_count"] > 0
     df["is_sharks_game_window"] = df["has_sharks"]
@@ -257,23 +280,55 @@ def add_event_features(
       event_proximity_score : continuous 0→1 score peaking at event time
       is_sharks_game_window : specifically Sharks game window (Diridon/VTA spike)
     """
-    if events.empty or "timestamp" not in df.columns:
+    if events.empty or df.empty or "timestamp" not in df.columns:
+        # hours_to_next_event/hours_since_last_event use NaN for "no event
+        # data available" everywhere else in this module (the main loop
+        # below and _add_monthly_event_features()) -- 0.0 here would instead
+        # read as "an event is starting/ended this exact hour" for every row.
+        for col in ["hours_to_next_event", "hours_since_last_event"]:
+            df[col] = np.nan
         for col in [
-            "hours_to_next_event", "hours_since_last_event",
             "is_pre_event_window", "is_post_event_window",
             "event_proximity_score", "is_sharks_game_window",
             "is_any_event_day", "nearest_event_attendance_tier",
         ]:
-            df[col] = 0.0 if "hours" in col or "score" in col or "tier" in col else False
+            df[col] = 0.0 if "score" in col or "tier" in col else False
         return df
 
     df = df.copy()
     events = events.copy()
 
-    # Ensure timestamps are timezone-aware
-    for frame, col in [(df, "timestamp"), (events, "timestamp_start")]:
+    # Ensure timestamps are timezone-aware. timestamp_end must be normalized
+    # alongside timestamp_start -- fetch_events.py currently always writes
+    # both tz-aware, so this is dormant today, but skipping timestamp_end
+    # here would leave it naive next to a tz-aware timestamp_start/df
+    # timestamp. `.values` below then UTC-converts the tz-aware columns
+    # while leaving a naive timestamp_end untouched, silently offsetting
+    # every delta_end-based calculation (is_post_event_window,
+    # hours_since_last_event, the post-event proximity score) by the LA
+    # UTC offset -- the same tz-mixing bug class fixed repeatedly elsewhere.
+    #
+    # Only events' own columns are normalized here -- df["timestamp"] is
+    # NOT reassigned. merge_pipeline.py's Schema docstring documents the
+    # feature store's timestamp column as tz-naive wall-clock
+    # America/Los_Angeles; silently flipping it tz-aware here (whenever real
+    # event data is present, i.e. almost always in production) broke any
+    # later merge against a still-tz-naive frame on "timestamp" -- e.g.
+    # Processing/ablation.py's run_ablation(), which is not wrapped in a
+    # try/except -- with "You are trying to merge on datetime64[us] and
+    # datetime64[us, America/Los_Angeles] columns". A tz-aware copy
+    # (ts_for_calc, below) is used for this function's own delta math
+    # instead.
+    cols_to_normalize = [(events, "timestamp_start")]
+    if "timestamp_end" in events.columns:
+        cols_to_normalize.append((events, "timestamp_end"))
+    for frame, col in cols_to_normalize:
         if frame[col].dt.tz is None:
             frame[col] = frame[col].dt.tz_localize("America/Los_Angeles")
+
+    ts_for_calc = df["timestamp"]
+    if ts_for_calc.dt.tz is None:
+        ts_for_calc = ts_for_calc.dt.tz_localize("America/Los_Angeles")
 
     # approach_hours/departure_hours-scale windows are only meaningful when
     # df's timestamps carry sub-daily resolution. At this pipeline's actual
@@ -300,7 +355,7 @@ def add_event_features(
     is_sharks_win   = np.zeros(len(df), dtype=bool)
     is_any_event    = np.zeros(len(df), dtype=bool)
 
-    for i, ts in enumerate(df["timestamp"].values):
+    for i, ts in enumerate(ts_for_calc.values):
         # Time delta in hours to each event start
         delta_start = (ev_starts - ts) / np.timedelta64(1, "h")
         delta_end   = (ev_ends   - ts) / np.timedelta64(1, "h")
@@ -531,19 +586,30 @@ def main():
     events_path        = Path("data/raw/events")
 
     if not feature_store_path.exists():
-        log.error("Feature store not found. Run: python processing/merge_pipeline.py")
+        log.error("Feature store not found. Run: python machine_learning_files/merge_pipeline.py")
         return
 
     log.info("Loading feature store …")
     df = pd.read_parquet(feature_store_path)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-    # Load events if available
+    # Load and merge ALL events files, not just the most recent by filename
+    # sort: fetch_events.py names both the one-time historical backfill
+    # (events_2019-01-01_...) and the nightly incremental fetch
+    # (events_{today}_...) with the same events_{start}_{end}.parquet
+    # pattern, so "most recent by sort" permanently drops the historical
+    # file the first time a nightly file's start date (today) sorts after
+    # the fixed 2019-01-01 backfill start -- silently zeroing out the
+    # Sharks-game/event signal for all of history. See merge_pipeline.py's
+    # load_events() for the same fix.
     events = pd.DataFrame()
     event_files = sorted(events_path.glob("events_*.parquet"))
     if event_files:
-        events = pd.read_parquet(event_files[-1])
+        events = pd.concat([pd.read_parquet(f) for f in event_files], ignore_index=True)
         events["timestamp_start"] = pd.to_datetime(events["timestamp_start"])
+        dedup_keys = [c for c in ("timestamp_start", "venue", "event_name") if c in events.columns]
+        if dedup_keys:
+            events = events.drop_duplicates(subset=dedup_keys, keep="last")
         log.info(f"Loaded {len(events)} events")
 
     df_enriched = build_features(df, events=events)
@@ -551,6 +617,24 @@ def main():
     out = PROCESSED_DIR / "feature_store_enriched.parquet"
     df_enriched.to_parquet(out, index=False)
     log.info(f"Enriched feature store saved → {out}")
+
+    # Regenerate data/processed/splits/{train,val,test}.parquet from the
+    # enriched store. merge_pipeline.py's own main() writes these splits
+    # from the raw, pre-enrichment feature store; without redoing that here,
+    # finetune.py's load_train_val() (which reads splits/train.parquet and
+    # splits/val.parquet) would permanently train on data missing every
+    # column this module adds — including is_sharks_game_window — even
+    # though predict.py's Predictor.get_feature_store() serves inference
+    # from this enriched store.
+    from machine_learning_files.merge_pipeline import load_configs, make_splits
+
+    _, model_cfg = load_configs()
+    make_splits(
+        df_enriched,
+        train_end=model_cfg["data"]["train_end"],
+        val_end=model_cfg["data"]["val_end"],
+        train_start=model_cfg["data"].get("train_start"),
+    )
 
     # Print feature summary
     print(f"\n{'─'*60}")

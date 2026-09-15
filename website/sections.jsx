@@ -353,7 +353,7 @@ const Results = () => {
 /* ── Live demo: teaser card linking to standalone map page ─────── */
 const Demo = () => {
   const features = [
-    { icon: '🗺', title: 'Real Google Maps', desc: 'All 50 BART and 39 VTA stations plotted at true lat/lng.' },
+    { icon: '🗺', title: 'Real Google Maps', desc: 'All 41 BART and 39 VTA stations plotted at true lat/lng.' },
     { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded ridership load: green → amber → coral as demand rises.' },
     { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to animate demand through a full 24-hour day.' },
     { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to see how the model adjusts boardings.' },
@@ -418,7 +418,7 @@ const Benchmarks = () => {
   const fmtN = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n));
 
   const MODEL_LABELS = {
-    'AutoETS (AutoGluon)': 'AutoETS / AutoGluon (best baseline)',
+    'AutoGluon_Ensemble': 'AutoETS / AutoGluon (best baseline)',
     'SARIMA': 'SARIMA(2,1,2)',
     'Prophet': 'Prophet (per-station)',
   };
@@ -430,7 +430,7 @@ const Benchmarks = () => {
       mape: r.MAPE_pct != null ? r.MAPE_pct.toFixed(1)+'%' : '—',
       mae:  r.MAE  != null ? fmtN(r.MAE) : '—',
       relW: r.WAPE_pct,
-      best: r.model === 'AutoETS (AutoGluon)',
+      best: r.model === 'AutoGluon_Ensemble',
     })),
     { m:'Chronos-2 zero-shot', wape:'—', mape:'—', mae:'—', relW:null, note:'Forecasting Jan–Jun 2024 — beyond available actuals' },
   ] : [];
@@ -780,9 +780,9 @@ const BARTForecasts = () => {
                 {(liveData.forecasts || []).map(f => (
                   <div key={f.timestamp || f.date} style={{ fontSize:13 }}>
                     <div style={{ color:'var(--ink-muted)', fontSize:11, marginBottom:2 }}>{(f.timestamp || f.date || '').slice(0,7)}</div>
-                    <div><span style={{ color:'var(--accent)' }}>P10 </span><b style={{ fontFamily:'var(--mono)' }}>{fmt(f.p10)}</b></div>
-                    <div><span style={{ color:'var(--primary)' }}>P50 </span><b style={{ fontFamily:'var(--mono)', fontWeight:700 }}>{fmt(f.p50)}</b></div>
-                    <div><span style={{ color:'var(--accent)' }}>P90 </span><b style={{ fontFamily:'var(--mono)' }}>{fmt(f.p90)}</b></div>
+                    <div><span style={{ color:'var(--accent)' }}>P10 </span><b style={{ fontFamily:'var(--mono)' }}>{f.p10 != null ? fmt(f.p10) : '—'}</b></div>
+                    <div><span style={{ color:'var(--primary)' }}>P50 </span><b style={{ fontFamily:'var(--mono)', fontWeight:700 }}>{f.p50 != null ? fmt(f.p50) : '—'}</b></div>
+                    <div><span style={{ color:'var(--accent)' }}>P90 </span><b style={{ fontFamily:'var(--mono)' }}>{f.p90 != null ? fmt(f.p90) : '—'}</b></div>
                   </div>
                 ))}
               </div>

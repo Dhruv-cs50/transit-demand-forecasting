@@ -41,14 +41,17 @@ machine_learning_files/merge_pipeline.py
 data/processed/feature_store.parquet
 data/processed/splits/{train,val,test}.parquet
         |
-        v
-Processing/feature_engineering.py
-        |
-        v
+        +----------------------------------------+
+        |                                        |
+        v                                        v
+Processing/feature_engineering.py       zero_shot.py / api.py (live path)
+        |                                reads feature_store.parquet
+        v                                directly — bypasses enrichment
 data/processed/feature_store_enriched.parquet
         |
         v
-models, evaluation, API, website export
+finetune.py, arima.py, prophet_baseline.py,
+evaluation, website export
 ```
 
 The current production-like target is monthly BART station ridership. `merge_pipeline.py` aggregates BART OD data to station-month records, joins month-level weather summaries, computes monthly event indicators, adds calendar fields, and writes chronological train/validation/test splits from `configs/model.yaml`.
