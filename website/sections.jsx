@@ -353,7 +353,7 @@ const Results = () => {
 /* ── Live demo: teaser card linking to standalone map page ─────── */
 const Demo = () => {
   const features = [
-    { icon: '🗺', title: 'Real Google Maps', desc: 'All 50 BART and 39 VTA stations plotted at true lat/lng.' },
+    { icon: '🗺', title: 'Real Google Maps', desc: 'All 41 BART and 39 VTA stations plotted at true lat/lng.' },
     { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded ridership load: green → amber → coral as demand rises.' },
     { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to animate demand through a full 24-hour day.' },
     { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to see how the model adjusts boardings.' },

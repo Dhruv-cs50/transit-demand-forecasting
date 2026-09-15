@@ -241,7 +241,7 @@ gcloud run deploy transit-api \
 flowchart LR
     subgraph Pipeline["Batch Pipeline (local / CI)"]
         RAW[Raw Data\nBART · Weather · Events]
-        FS[feature_store_enriched\n.parquet]
+        FS[feature_store.parquet\n+ feature_store_enriched.parquet]
         FC[Forecast\n*.parquet]
         JSON[website/data\n*.json]
         RAW --> FS --> FC --> JSON
