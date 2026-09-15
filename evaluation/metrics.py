@@ -48,14 +48,40 @@ EVAL_DIR      = Path("evaluation/outputs")
 
 # ── Core metric functions ──────────────────────────────────────────────────────
 
+def _valid_mask(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
+    """
+    Rows where neither the actual nor the prediction is NaN.
+
+    predict.py's forecast() documents (see its "ensure all three quantile
+    columns exist" guard) that p10/p50/p90 can legitimately be NaN for a
+    station whose upstream model didn't return a matching quantile column
+    -- a real, reachable case, not a theoretical one. Without this guard,
+    a *single* NaN row anywhere in the slice silently poisoned every one of
+    mae/rmse/mape/wape/smape to NaN for the WHOLE slice (np.mean/np.sum
+    over an array containing NaN returns NaN, with no warning) -- not just
+    that one row -- e.g. one station's missing p50 in a 500-row "Overall"
+    slice reported NaN for every metric on the project's primary evaluation
+    report. Excluding invalid rows here mirrors the same fix already
+    applied to coverage()/interval_width() (2026-09-13) for prediction
+    intervals.
+    """
+    return ~(np.isnan(y_true) | np.isnan(y_pred))
+
+
 def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Mean Absolute Error."""
-    return float(np.mean(np.abs(y_pred - y_true)))
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.mean(np.abs(y_pred[valid] - y_true[valid])))
 
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Root Mean Squared Error."""
-    return float(np.sqrt(np.mean((y_pred - y_true) ** 2)))
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.sqrt(np.mean((y_pred[valid] - y_true[valid]) ** 2)))
 
 
 def mape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
@@ -64,8 +90,12 @@ def mape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
     Uses epsilon floor on actuals to avoid division by near-zero values
     (common in late-night windows with minimal ridership).
     """
-    denom = np.maximum(np.abs(y_true), epsilon)
-    return float(np.mean(np.abs(y_pred - y_true) / denom) * 100)
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    yt, yp = y_true[valid], y_pred[valid]
+    denom = np.maximum(np.abs(yt), epsilon)
+    return float(np.mean(np.abs(yp - yt) / denom) * 100)
 
 
 def wape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
@@ -76,10 +106,14 @@ def wape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
 
     WAPE = sum(|y_pred - y_true|) / sum(|y_true|)
     """
-    denom = np.sum(np.abs(y_true))
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    yt, yp = y_true[valid], y_pred[valid]
+    denom = np.sum(np.abs(yt))
     if denom < epsilon:
         return float("nan")
-    return float(np.sum(np.abs(y_pred - y_true)) / denom * 100)
+    return float(np.sum(np.abs(yp - yt)) / denom * 100)
 
 
 def smape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
@@ -88,8 +122,12 @@ def smape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float
     Useful because transit agencies care about both over-provisioning
     (wasted vehicles) and under-provisioning (overcrowded trains).
     """
-    denom = (np.abs(y_true) + np.abs(y_pred)) / 2 + epsilon
-    return float(np.mean(np.abs(y_pred - y_true) / denom) * 100)
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    yt, yp = y_true[valid], y_pred[valid]
+    denom = (np.abs(yt) + np.abs(yp)) / 2 + epsilon
+    return float(np.mean(np.abs(yp - yt) / denom) * 100)
 
 
 def mase(
@@ -130,7 +168,13 @@ def mase(
     scale = np.mean(naive_errors)
     if scale < 1e-8:
         return float("nan")
-    return float(np.mean(np.abs(y_pred - y_true)) / scale)
+    # Same NaN-poisoning risk as mae/rmse/mape/wape/smape (see _valid_mask):
+    # a single NaN y_true/y_pred row would otherwise make np.mean(...) NaN
+    # for the whole slice instead of just excluding that row.
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.mean(np.abs(y_pred[valid] - y_true[valid])) / scale)
 
 
 def _infer_seasonal_period(train_df: pd.DataFrame) -> int:
