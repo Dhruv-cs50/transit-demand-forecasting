@@ -194,8 +194,14 @@ class TicketmasterClient:
                 except Exception:
                     continue
 
-                # Estimate event duration by type
-                classification = ev.get("classifications", [{}])[0]
+                # Estimate event duration by type. dict.get(key, default) only
+                # substitutes when the key is absent -- Ticketmaster can return
+                # "classifications": [] (key present, empty list) for events
+                # with no classification data, and [][0] raises an uncaught
+                # IndexError that isn't caught by the try/except above (that
+                # one only wraps date parsing), crashing the whole venue's
+                # pagination loop and every venue after it in get_all_venues().
+                classification = (ev.get("classifications") or [{}])[0]
                 segment = classification.get("segment", {}).get("name", "")
                 event_type = classification.get("genre", {}).get("name", segment or "Other")
                 duration_hrs = {"Sports": 3.0, "Music": 3.0, "Arts & Theatre": 2.5}.get(segment, 2.5)

@@ -210,8 +210,26 @@ def diebold_mariano_test(
         return {}
 
     y_true = common["ridership"].values.astype(float)
-    e_a = np.abs(y_true - np.maximum(common["p50_a"].values.astype(float), 0))
-    e_b = np.abs(y_true - np.maximum(common["p50_b"].values.astype(float), 0))
+    p50_a  = common["p50_a"].values.astype(float)
+    p50_b  = common["p50_b"].values.astype(float)
+
+    # Exclude NaN rows before computing -- predict.py's forecast() documents
+    # that p10/p50/p90 can legitimately be NaN for a station whose upstream
+    # model didn't return a matching quantile column, and ridership itself
+    # can have null rows (same NaN-propagation family already fixed in
+    # evaluation/metrics.py's mae/rmse/mape/wape/smape/mase on 2026-09-15).
+    # A single NaN row here silently poisoned d.mean()/t_stat/p_value to NaN
+    # for the WHOLE comparison, and `p_value < 0.05` against that NaN is
+    # always False -- so the result wasn't just mislabeled "not significant",
+    # `winner` fell through to model_a even when model_b (the challenger)
+    # was actually better, misreporting an undefined test as a clean loss.
+    valid = ~(np.isnan(y_true) | np.isnan(p50_a) | np.isnan(p50_b))
+    if valid.sum() < 2:
+        return {}
+    y_true, p50_a, p50_b = y_true[valid], p50_a[valid], p50_b[valid]
+
+    e_a = np.abs(y_true - np.maximum(p50_a, 0))
+    e_b = np.abs(y_true - np.maximum(p50_b, 0))
     d   = e_a - e_b   # positive = B is better
 
     t_stat, p_value = stats.ttest_1samp(d, 0)

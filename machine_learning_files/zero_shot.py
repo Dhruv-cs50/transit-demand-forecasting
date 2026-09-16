@@ -233,6 +233,20 @@ def evaluate_predictions(
     y_pred = merged[median_col].values.astype(float)
     y_true = merged["actual"].values.astype(float)
 
+    # Exclude NaN rows before computing -- ridership can legitimately have
+    # null values (check_target_null_rate tolerates up to ~10% before
+    # erroring), and np.mean/np.sum over an array containing even one NaN
+    # silently return NaN for the WHOLE station, not just that row (same
+    # NaN-propagation family already fixed in evaluation/metrics.py's
+    # mae/rmse/mape/wape/smape/mase via _valid_mask() on 2026-09-15 --
+    # this module reimplements the same metrics independently and needs
+    # the same guard).
+    valid = ~(np.isnan(y_true) | np.isnan(y_pred))
+    y_true = y_true[valid]
+    y_pred = y_pred[valid]
+    if len(y_true) == 0:
+        return {}
+
     mae  = np.mean(np.abs(y_pred - y_true))
     rmse = np.sqrt(np.mean((y_pred - y_true) ** 2))
     # MAPE — guard against zero actuals

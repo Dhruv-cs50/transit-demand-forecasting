@@ -132,7 +132,7 @@ const AtAGlance = () => {
   const items = [
     { ic: <I.target />, num: '14.2', unit:'% WAPE', lbl:'AutoETS best model — vs 22.5% SARIMA', delta:'Jan–Jun 2023 validation · 300 station-months' },
     { ic: <I.chart />, num: '50', unit:' stations', lbl:'Full BART network covered', delta:'All OD pairs · Bay Area' },
-    { ic: <I.database />, num: '1,800', unit:' mo', lbl:'Station-month ridership records', delta:'2019 + 2022–2023 BART OD' },
+    { ic: <I.database />, num: '1,800', unit:' mo', lbl:'Station-month ridership records', delta:'Jan 2021–Dec 2023 BART OD' },
     { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'AutoETS + Chronos-2 ensemble' },
   ];
   return (
@@ -156,7 +156,7 @@ const AtAGlance = () => {
 /* ── Methodology timeline ──────────────────────────────────────── */
 const Method = () => {
   const steps = [
-    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public 511 API (2019 + 2022–2023), joined with Open-Meteo hourly weather and a Bay Area events calendar. Stored as Parquet in a local feature store.", tools:['BART API','Open-Meteo','Parquet'] },
+    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public ridership reports (bart.gov, Jan 2021–Dec 2023), joined with Open-Meteo hourly weather and a Bay Area events calendar. Stored as Parquet in a local feature store.", tools:['BART API','Open-Meteo','Parquet'] },
     { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built covariates including lag windows, rolling means, holiday and school-calendar flags, weather, and event proximity indicators for known-future inputs to Chronos-2.', tools:['pandas','scikit-learn'] },
     { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-2 (Amazon pretrained time-series foundation model) zero-shot, then fine-tuned with AutoGluon TimeSeriesPredictor as an ensemble with ARIMA and Prophet baselines.', tools:['Chronos-2','AutoGluon','Prophet','ARIMA'] },
     { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with MASE, WAPE, and P10/P90 interval coverage across all 50 BART stations.', tools:['MASE','WAPE'] },
@@ -191,7 +191,7 @@ const Method = () => {
 /* ── Dataset ───────────────────────────────────────────────────── */
 const Dataset = () => {
   const splits = [
-    { nm:'Train (2019 + Jan–Dec 2022)', v:1200, w:0.667 },
+    { nm:'Train (Jan 2021–Dec 2022)', v:1200, w:0.667 },
     { nm:'Validation (Jan–Jun 2023)', v:300, w:0.167 },
     { nm:'Test (Jul–Dec 2023)', v:300, w:0.167 },
   ];
@@ -213,7 +213,7 @@ const Dataset = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Dataset</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>BART OD · 1,800 station‑months across 50 stations.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public 511 API, fused with Open-Meteo weather and a curated Bay Area events calendar. Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public ridership reports (bart.gov), fused with Open-Meteo weather and a curated Bay Area events calendar. Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
           </div></Reveal>
         </div>
         <div className="ds-grid">
@@ -733,7 +733,7 @@ const BARTForecasts = () => {
           <Reveal delay="1"><div className="row">
             <h2>Live model outputs — 50 stations, 6-month forecast.</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
-              Chronos-2 zero-shot forecasts trained on 2019–2022 BART origin-destination data.
+              Chronos-2 zero-shot forecasts trained on 2021–2022 BART origin-destination data.
               Forecasting Jan–Jun 2024 monthly ridership with P10/P50/P90 uncertainty bands.
             </p>
           </div></Reveal>
@@ -833,7 +833,7 @@ const BARTForecasts = () => {
               </table>
               <div style={{ marginTop:12, fontSize:12, color:'var(--ink-muted)' }}>
                 ▶ Forecast months (Jan–Jun 2024) shown in blue. Bars sized by ridership volume.
-                BART OD monthly data: 2019, 2022, 2023.
+                BART OD monthly data: 2021, 2022, 2023.
               </div>
             </div>
           )}

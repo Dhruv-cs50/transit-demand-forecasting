@@ -32,7 +32,9 @@ Schema:
     cloud_cover_pct float64
     humidity_pct    float64
     is_game_day     bool
-    game_start_hour int      (NaN if no game)
+    game_start_hour float64  (NaN if no game -- compute_event_features()
+                              always emits a Python float here, so this
+                              column can never actually be int dtype)
     hours_to_event  float64  (despite the name, this is a monthly home-game/
                               event COUNT for that station-month, not an
                               hours-scale value -- see compute_event_features())
@@ -43,8 +45,14 @@ Schema:
     hour_of_day     int
     day_of_week     int      (0=Mon, 6=Sun)
     month           int
+    week_of_year    int
     is_am_peak      bool     (only present when timestamps carry sub-daily resolution)
     is_pm_peak      bool     (only present when timestamps carry sub-daily resolution)
+    period          datetime64[ns]  (carried through from load_transit(); same
+                                      month-start value as timestamp)
+    station_name    str      (from BART's origin_name)
+    ridership_daily_est float64  (ridership ÷ 22 weekdays; read by
+                                   scripts/export_website_data.py)
 
 Usage:
     python machine_learning_files/merge_pipeline.py
@@ -134,7 +142,10 @@ def load_transit(freq: str) -> pd.DataFrame:
         combined = combined[~combined["day_type"].str.contains("total", case=False, na=False)]
 
     # Aggregate total riders per station per period (collapse day_types & destinations)
-    # For forecasting we want total inbound ridership per station per time window
+    # Grouped by origin, so this is total outbound ridership (riders departing
+    # from that station) per station per time window -- matches "station_id"
+    # being documented project-wide (docs/DATA_PIPELINE.md, docs/ARCHITECTURE.md)
+    # as the BART OD *origin* station code, not a destination/inbound count.
     station_monthly = (
         combined
         .groupby(["period", "origin", "origin_name"])["riders"]
