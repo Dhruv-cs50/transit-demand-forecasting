@@ -356,7 +356,7 @@ def build_feature_store(
     # reset_index: load_transit() filters rows (dropping "Exits"-style aggregate
     # station codes), leaving a non-contiguous index. Section 3 below assigns
     # `.merge(...)` results (always a fresh 0..n-1 RangeIndex) back onto `base`
-    # via `.where(...)`, which label-aligns on the index rather than position —
+    # via `fillna()`, which label-aligns on the index rather than position —
     # a gappy index there silently scrambles/NaNs the per-row weather match.
     base = transit_df.copy().reset_index(drop=True)
 

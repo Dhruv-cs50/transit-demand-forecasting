@@ -201,9 +201,12 @@ class TicketmasterClient:
                 # IndexError that isn't caught by the try/except above (that
                 # one only wraps date parsing), crashing the whole venue's
                 # pagination loop and every venue after it in get_all_venues().
+                # Same reasoning applies one level deeper: "segment"/"genre"
+                # can be present but explicitly null for uncategorized events,
+                # and None.get(...) raises AttributeError.
                 classification = (ev.get("classifications") or [{}])[0]
-                segment = classification.get("segment", {}).get("name", "")
-                event_type = classification.get("genre", {}).get("name", segment or "Other")
+                segment = (classification.get("segment") or {}).get("name", "")
+                event_type = (classification.get("genre") or {}).get("name", segment or "Other")
                 duration_hrs = {"Sports": 3.0, "Music": 3.0, "Arts & Theatre": 2.5}.get(segment, 2.5)
 
                 priceRanges = ev.get("priceRanges", [{}])
