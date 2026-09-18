@@ -433,9 +433,16 @@ section("SECTION 3: DESCRIPTIVE STATISTICS")
 # ── 3.1 BART Station-Level Statistics ─────────────────────────────────────────
 print("\n── 3.1 BART: Station Exit Statistics (Weekday 2023) ──")
 bart_2023_wd = bart_clean[(bart_clean['year']==2023) & (bart_clean['day_type']=='Weekday')]
+# Sum across origins *within* each month first, then average across the 12
+# months -- summing straight across the whole year (as this used to do)
+# reports an annual total mislabeled as "exits/month", inflating every
+# figure below by ~12x. Mirrors the station_exits/station_annual pattern
+# above.
 station_2023 = (
-    bart_2023_wd.groupby('destination')['riders']
-    .sum()
+    bart_2023_wd.groupby(['month','destination'])['riders']
+    .sum().reset_index()
+    .groupby('destination')['riders']
+    .mean()
     .sort_values(ascending=False)
     .reset_index()
     .rename(columns={'destination':'station','riders':'avg_daily_exits'})
@@ -635,11 +642,16 @@ fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 fig.suptitle("Section 4A — Demand Distribution (H1: BART Ridership is Highly Skewed)",
              fontsize=13, fontweight='bold')
 
-# Histogram + KDE of station exits
+# Histogram + KDE of station exits. Sum across origins *within* each month
+# first, then average across that year's months -- summing straight across
+# all months of the year (as this used to do) inflates every station's value
+# by ~12x versus the "Total Monthly Exits per Station" axis label below.
 station_all_yrs = (
     bart_clean[bart_clean['day_type']=='Weekday']
-    .groupby(['year','destination'])['riders']
+    .groupby(['year','month','destination'])['riders']
     .sum().reset_index()
+    .groupby(['year','destination'])['riders']
+    .mean().reset_index()
 )
 data_hist = station_all_yrs['riders']
 axes[0,0].hist(data_hist[data_hist>0], bins=40, color=BART_BLUE, alpha=0.7,
@@ -789,11 +801,17 @@ fig.suptitle("Section 4C — Correlation Heatmaps", fontsize=13, fontweight='bol
 
 # BART top-20 station OD heatmap (2023 Weekday)
 top20_stations = station_2023.head(20)['station'].tolist()
+# Sum within each month first, then average across the year's months -- the
+# colorbar is labeled "Avg Monthly Riders", but summing straight across all
+# 12 months (as this used to do) reported an annual total, ~12x too high.
 od_matrix = (
     bart_clean[(bart_clean['year']==2023) & (bart_clean['day_type']=='Weekday')]
     [bart_clean['origin'].isin(top20_stations) & bart_clean['destination'].isin(top20_stations)]
-    .groupby(['origin','destination'])['riders']
+    .groupby(['month','origin','destination'])['riders']
     .sum()
+    .reset_index()
+    .groupby(['origin','destination'])['riders']
+    .mean()
     .reset_index()
     .pivot(index='destination', columns='origin', values='riders')
     .fillna(0)

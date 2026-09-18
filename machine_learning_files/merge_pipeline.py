@@ -169,6 +169,14 @@ def load_transit(freq: str) -> pd.DataFrame:
 def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     """Load all weather parquet files and return combined hourly DataFrame."""
     log.info("Loading weather data …")
+    # fetch_historical_all_stations() names its output
+    # weather_all_stations_{start}_{end}.parquet, embedding the CLI --start/--end
+    # args -- so a later backfill run with a narrower or differently-dated range
+    # can sort lexicographically *before* an earlier, fuller run (same failure
+    # mode documented on load_events() below). Load and concatenate every
+    # historical file instead of just the lexicographically-last one, deduping
+    # on (timestamp, station) so overlapping ranges keep the most-recently-
+    # written value.
     hist_files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
     # fetch_forecast_all_stations() writes the nightly 7-day-ahead forecast under a
     # separate "weather_forecast_*" prefix — it must be loaded too, or the pipeline's
@@ -180,10 +188,13 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
 
     frames = []
     if hist_files:
-        frames.append(pd.read_parquet(hist_files[-1]))  # most recent combined historical file
+        frames.append(pd.concat([pd.read_parquet(f) for f in hist_files], ignore_index=True))
     if forecast_files:
         frames.append(pd.read_parquet(forecast_files[-1]))  # most recent forecast file
     df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    dedup_keys = [c for c in ("timestamp", "station") if c in df.columns]
+    if dedup_keys:
+        df = df.drop_duplicates(subset=dedup_keys, keep="last")
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
         # tz_convert(None) would shift to UTC before stripping the tz label; use

@@ -282,7 +282,9 @@ class Predictor:
 
         Args:
             station_id     : transit station code (e.g. "DIRIDON", "EMBR")
-            horizon_hours  : hours to forecast ahead (default from config)
+            horizon_hours  : forecast steps ahead (default from config; ignored
+                              in finetuned mode, whose horizon is fixed at fit
+                              time — see note below)
             as_of          : forecast origin timestamp (default: latest in store)
             force_mode     : "finetuned" | "zeroshot" — bypass the cached
                               finetuned-first auto-selection and load this
@@ -307,6 +309,24 @@ class Predictor:
             horizon_hours = horizon_hours or cfg["data"]["forecast_horizon_hours"]
             steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
             horizon_steps = int(horizon_hours * steps_per_hour)
+
+        # A caller-supplied horizon_hours must override the config-driven default
+        # above, or it's a dead parameter (config["data"]["forecast_horizon_steps"]
+        # is always set today, so the "is None" branch above never runs). The
+        # fine-tuned AutoGluon backend can't honor an arbitrary horizon —
+        # TimeSeriesPredictor.predict() has no horizon argument; prediction_length
+        # is fixed at fit() time (see _finetuned_forecast) — so only apply the
+        # override for the naive/zero-shot backends, which can. Matches the
+        # "hours-labeled, steps-valued" --horizon convention already used by
+        # arima.py/prophet_baseline.py/zero_shot.py's CLIs.
+        if horizon_hours is not None:
+            if self._mode == "finetuned":
+                log.info(
+                    f"horizon_hours={horizon_hours} ignored in finetuned mode — "
+                    f"AutoGluon's prediction_length is fixed at fit time ({horizon_steps} steps)"
+                )
+            else:
+                horizon_steps = int(horizon_hours)
 
         # Resolve as_of — must match df["timestamp"]'s tz-awareness (the feature
         # store is tz-naive by default), otherwise the <= / > comparisons in
