@@ -455,9 +455,9 @@ mad = np.median(np.abs(station_2023['avg_daily_exits'] - station_2023['avg_daily
 print(f"\n  {'Metric':<30} {'Value':>15}")
 print(f"  {'-'*46}")
 print(f"  {'Count (stations)':<30} {desc['count']:>15.0f}")
-print(f"  {'Mean exits/month':<30} {desc['mean']:>15,.1f}")
+print(f"  {'Mean daily exits':<30} {desc['mean']:>15,.1f}")
 print(f"  {'Trimmed Mean (10%)':<30} {trimmed_mean:>15,.1f}")
-print(f"  {'Median exits/month':<30} {desc['50%']:>15,.1f}")
+print(f"  {'Median daily exits':<30} {desc['50%']:>15,.1f}")
 print(f"  {'Std Deviation':<30} {desc['std']:>15,.1f}")
 print(f"  {'Median Abs Deviation':<30} {mad:>15,.1f}")
 print(f"  {'Min':<30} {desc['min']:>15,.1f}")
@@ -561,7 +561,12 @@ axes[0,0].axvline(desc['mean'], color='red', linestyle='--', linewidth=1.8, labe
 axes[0,0].axvline(desc['50%'], color=GOLD, linestyle='-', linewidth=1.8, label=f"Median {desc['50%']:,.0f}")
 axes[0,0].axvline(trimmed_mean, color='green', linestyle=':', linewidth=1.8, label=f"Trimmed Mean {trimmed_mean:,.0f}")
 axes[0,0].set_title("BART Station Exit Distribution\n(2023 Weekday)")
-axes[0,0].set_xlabel("Avg Monthly Exits per Station"); axes[0,0].set_ylabel("Frequency")
+# station_2023['avg_daily_exits'] sums across origins within each month, then
+# averages across the year's months (see the comment above station_2023's
+# definition) -- the result is an avg *daily* exit figure, matching this same
+# variable's "avg daily exits" labeling a few lines above in the printed
+# table, not a monthly total.
+axes[0,0].set_xlabel("Avg Daily Exits per Station"); axes[0,0].set_ylabel("Frequency")
 axes[0,0].legend(fontsize=8)
 
 # 3b: Boxplot by day type (2023)
@@ -663,7 +668,10 @@ axes[0,0].axvline(data_hist.mean(), color=GOLD, linestyle='--', linewidth=1.5, l
 axes[0,0].axvline(data_hist.median(), color='green', linestyle='-', linewidth=1.5, label=f'Median')
 axes[0,0].set_xlim(0, data_hist.quantile(0.99))
 axes[0,0].set_title("BART: Distribution of Station Exit Totals\n(All years, Weekday)")
-axes[0,0].set_xlabel("Total Monthly Exits per Station"); axes[0,0].set_ylabel("Density")
+# station_all_yrs (data_hist) is built with the same sum-within-month-then-
+# mean-across-months pattern as station_2023 above -- an avg *daily* exit
+# figure per station-year, not a monthly total.
+axes[0,0].set_xlabel("Avg Daily Exits per Station"); axes[0,0].set_ylabel("Density")
 axes[0,0].legend(fontsize=9)
 
 # Top stations bar chart (2023)
@@ -672,7 +680,7 @@ colors_top = [GOLD if i >= 10 else BART_BLUE for i in range(len(top_stations))]
 axes[0,1].barh(top_stations['station'], top_stations['avg_daily_exits'],
                color=colors_top, edgecolor='white')
 axes[0,1].set_title("Top 15 BART Stations by Exit Volume\n(2023 Weekday)")
-axes[0,1].set_xlabel("Avg Monthly Exits")
+axes[0,1].set_xlabel("Avg Daily Exits")
 axes[0,1].axvline(station_2023['avg_daily_exits'].median(), color='red',
                   linestyle='--', label='Median')
 axes[0,1].legend()
@@ -1076,7 +1084,7 @@ ax0b.tick_params(axis='y', colors='red')
 ax0b.axhline(80, color='red', linestyle=':', alpha=0.5)
 axes[0].set_title("H1: Pareto — Station Exit Concentration\n(2023 Weekday)")
 axes[0].set_xlabel("Stations (ranked by exits)")
-axes[0].set_ylabel("Avg Monthly Exits (thousands)")
+axes[0].set_ylabel("Avg Daily Exits (thousands)")
 axes[0].legend(loc='upper left')
 
 # H2: Day-type bar comparison across years
