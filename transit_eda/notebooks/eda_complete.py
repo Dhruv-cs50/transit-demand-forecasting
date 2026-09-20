@@ -809,9 +809,11 @@ fig.suptitle("Section 4C — Correlation Heatmaps", fontsize=13, fontweight='bol
 
 # BART top-20 station OD heatmap (2023 Weekday)
 top20_stations = station_2023.head(20)['station'].tolist()
-# Sum within each month first, then average across the year's months -- the
-# colorbar is labeled "Avg Monthly Riders", but summing straight across all
-# 12 months (as this used to do) reported an annual total, ~12x too high.
+# `riders` is already an avg-daily-riders figure per month/OD pair (see the
+# `bart_clean` docstring), so summing within each month is a no-op and this
+# averages that daily figure across the year's months -- the result is an
+# avg *daily* riders figure, not monthly. Summing straight across all 12
+# months (as this used to do) reported an annual total, ~12x too high.
 od_matrix = (
     bart_clean[(bart_clean['year']==2023) & (bart_clean['day_type']=='Weekday')]
     [bart_clean['origin'].isin(top20_stations) & bart_clean['destination'].isin(top20_stations)]
@@ -824,7 +826,7 @@ od_matrix = (
     .pivot(index='destination', columns='origin', values='riders')
     .fillna(0)
 )
-sns.heatmap(od_matrix, ax=axes[0], cmap='Blues', cbar_kws={'label':'Avg Monthly Riders'},
+sns.heatmap(od_matrix, ax=axes[0], cmap='Blues', cbar_kws={'label':'Avg Daily Riders'},
             linewidths=0.3, linecolor='white')
 axes[0].set_title("BART OD Heatmap — Top 20 Stations\n(2023 Weekday)")
 axes[0].set_xlabel("Origin Station"); axes[0].set_ylabel("Destination Station")

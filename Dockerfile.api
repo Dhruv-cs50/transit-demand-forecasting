@@ -4,8 +4,10 @@
 # Target: Google Cloud Run (linux/amd64)
 #
 # Build & push (Apple Silicon — MUST use Cloud Build, not local docker build):
-#   gcloud builds submit --region=us-west2 \
-#     --tag us-west2-docker.pkg.dev/<PROJECT_ID>/transit-repo/transit-api:tag1
+#   gcloud builds submit --config=cloudbuild.yaml .
+#   (a bare `--tag` build with no --config/-f defaults to the root
+#   `Dockerfile`, NOT this one — cloudbuild.yaml is what selects
+#   Dockerfile.api via its `-f Dockerfile.api` build arg.)
 #
 # Run locally (for testing only):
 #   docker build -t transit-api -f Dockerfile.api .
