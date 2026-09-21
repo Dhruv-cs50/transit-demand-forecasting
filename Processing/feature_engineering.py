@@ -600,10 +600,13 @@ def main():
     # pattern, so "most recent by sort" permanently drops the historical
     # file the first time a nightly file's start date (today) sorts after
     # the fixed 2019-01-01 backfill start -- silently zeroing out the
-    # Sharks-game/event signal for all of history. See merge_pipeline.py's
-    # load_events() for the same fix.
+    # Sharks-game/event signal for all of history. Sort by actual file
+    # mtime, not filename, so a corrective re-fetch of an earlier date
+    # range (whose filename sorts before a wider existing file) still wins
+    # the keep="last" dedup below. See merge_pipeline.py's load_events()
+    # for the same fix.
     events = pd.DataFrame()
-    event_files = sorted(events_path.glob("events_*.parquet"))
+    event_files = sorted(events_path.glob("events_*.parquet"), key=lambda p: p.stat().st_mtime)
     if event_files:
         events = pd.concat([pd.read_parquet(f) for f in event_files], ignore_index=True)
         events["timestamp_start"] = pd.to_datetime(events["timestamp_start"])

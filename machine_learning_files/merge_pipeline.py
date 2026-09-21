@@ -174,10 +174,15 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     # args -- so a later backfill run with a narrower or differently-dated range
     # can sort lexicographically *before* an earlier, fuller run (same failure
     # mode documented on load_events() below). Load and concatenate every
-    # historical file instead of just the lexicographically-last one, deduping
-    # on (timestamp, station) so overlapping ranges keep the most-recently-
-    # written value.
-    hist_files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
+    # historical file instead of just the lexicographically-last one, sorted by
+    # actual file mtime (not filename -- a filename sort has no reliable
+    # relationship to write recency once ranges overlap) so the dedup below
+    # keeps the most-recently-written value for overlapping (timestamp, station)
+    # rows.
+    hist_files = sorted(
+        (RAW_DIR / "weather").glob("weather_all_stations_*.parquet"),
+        key=lambda p: p.stat().st_mtime,
+    )
     # fetch_forecast_all_stations() writes the nightly 7-day-ahead forecast under a
     # separate "weather_forecast_*" prefix — it must be loaded too, or the pipeline's
     # only source of future-known weather covariates is silently dropped.
@@ -222,11 +227,18 @@ def load_events() -> pd.DataFrame:
     silently gets is_game_day=False/is_sharks_game=False/hours_to_event=0.0 in
     compute_event_features() below, zeroing out the Sharks-game signal across
     all of history. Load and concatenate every events_*.parquet file instead,
-    deduping on (timestamp_start, venue, event_name) since NHL/Ticketmaster use
-    different id columns (game_id vs event_id) that don't unify into one key.
+    sorted by actual file mtime (not filename -- a corrective re-fetch of an
+    earlier date range writes a filename that sorts before a wider existing
+    file regardless of which was actually written more recently), deduping
+    on (timestamp_start, venue, event_name) so keep="last" below keeps the
+    most-recently-written row, since NHL/Ticketmaster use different id
+    columns (game_id vs event_id) that don't unify into one key.
     """
     log.info("Loading events data …")
-    files = sorted((RAW_DIR / "events").glob("events_*.parquet"))
+    files = sorted(
+        (RAW_DIR / "events").glob("events_*.parquet"),
+        key=lambda p: p.stat().st_mtime,
+    )
     if not files:
         log.warning("No events files found")
         return pd.DataFrame()
