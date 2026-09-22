@@ -5,11 +5,23 @@ Data quality gate — runs before any data reaches the model.
 
 Catches:
   - Missing time windows (API downtime, failed ingestion runs)
-  - Schema violations (missing required columns, wrong dtypes)
+  - Schema violations (missing required columns)
   - Anomalous ridership spikes (sensor glitches, data entry errors)
-  - Imputed / forward-filled gaps that exceed safe thresholds
-  - Weather data staleness (forecast too old to trust)
   - Station coverage gaps (stations missing from a time window)
+
+NOT currently implemented, despite constants defined below for each
+(EXPECTED_DTYPES / MAX_IMPUTED_ROWS / WEATHER_MAX_AGE_HOURS) -- none
+of the three is referenced by any check_*() function or by
+validate_feature_store()'s checks list, so none of this actually
+gates the pipeline today:
+  - Dtype validation ("wrong dtypes" against EXPECTED_DTYPES) -- note
+    EXPECTED_DTYPES's `timestamp: datetime64[ns, America/Los_Angeles]`
+    also disagrees with this project's tz-naive-by-default feature
+    store (see e.g. models/chronos2/predict.py's `as_of` tz-handling
+    comment), so wiring it up as-is would false-positive STRICT mode
+    on real data rather than catch a real defect.
+  - Imputed / forward-filled gap length exceeding MAX_IMPUTED_ROWS
+  - Weather data staleness exceeding WEATHER_MAX_AGE_HOURS
 
 Every check emits structured ValidationResult objects that can be
 logged, stored, or used to halt the pipeline (strict mode).
@@ -43,6 +55,9 @@ PROCESSED_DIR = Path("data/processed")
 MAX_GAP_HOURS = 2.0
 
 # Maximum consecutive imputed rows before we reject the window
+# NOT YET WIRED UP -- no check_*() function reads this constant, and the
+# feature store carries no per-row "was this imputed/forward-filled" flag
+# for such a check to key off. See module docstring.
 MAX_IMPUTED_ROWS = 8   # 8 × 15min = 2 hours of filled data
 
 # Ridership anomaly thresholds
@@ -51,6 +66,8 @@ RIDERSHIP_SPIKE_MULTIPLIER  = 10.0     # flag if > 10× rolling median
 RIDERSHIP_MIN_PLAUSIBLE     = 0        # negative ridership = sensor error
 
 # Weather staleness
+# NOT YET WIRED UP -- check_weather_coverage() below only checks null rate,
+# not age; no check_*() function reads this constant. See module docstring.
 WEATHER_MAX_AGE_HOURS = 3.0   # weather data older than 3hrs is stale for serving
 
 # Minimum fraction of stations that must have data in each time window
@@ -63,6 +80,13 @@ REQUIRED_COLUMNS = [
     "ridership",
 ]
 
+# NOT YET WIRED UP -- no check_*() function reads this constant, so "wrong
+# dtypes" is not actually caught by validate_feature_store() today (only
+# "missing required columns", via check_required_columns(), is). Also note
+# the tz-aware `timestamp` entry below disagrees with this project's
+# tz-naive-by-default feature store convention (see e.g.
+# models/chronos2/predict.py's `as_of` tz-handling comment) -- wiring this
+# up unmodified would false-positive on real data. See module docstring.
 EXPECTED_DTYPES = {
     "timestamp":  "datetime64[ns, America/Los_Angeles]",
     "station_id": "object",
