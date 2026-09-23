@@ -90,7 +90,7 @@ REQUIRED_COLUMNS = [
 EXPECTED_DTYPES = {
     "timestamp":  "datetime64[ns, America/Los_Angeles]",
     "station_id": "object",
-    "ridership":  "float64",
+    "ridership":  "int64",
 }
 
 

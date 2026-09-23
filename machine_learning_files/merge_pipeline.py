@@ -20,7 +20,7 @@ Schema:
     station_id      str
     agency_id       str
     transit_mode    str      (rail / bus / ferry / road)
-    ridership       float64  ← TARGET
+    ridership       int64    ← TARGET
     temp_f          float64
     precip_mm       float64
     precip_in       float64
