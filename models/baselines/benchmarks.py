@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from evaluation.metrics import wape, mae, rmse, mape, smape, coverage
+from evaluation.metrics import wape, mae, rmse, mape, smape, coverage, mase, _infer_seasonal_period
 
 logging.basicConfig(
     level=logging.INFO,
@@ -108,10 +108,14 @@ def compute_metrics(
     preds: pd.DataFrame,
     model_name: str,
     slices: dict = None,
+    train_df: pd.DataFrame = None,
 ) -> list[dict]:
     """
     Compute metrics for a model overall and on each diagnostic slice.
     slices: dict of {slice_name: boolean mask on merged df}
+    train_df: training data used to scale MASE (mirrors evaluation.metrics._compute's
+        contract). Omitted -> "MASE" is left out of every row, same as before this
+        param existed.
     """
     merged = actuals.merge(
         preds[["timestamp", "station_id", "p10", "p50", "p90"]],
@@ -124,12 +128,24 @@ def compute_metrics(
 
     rows = []
 
+    # MASE scale is fixed for the whole training set, computed once here rather
+    # than per-slice, matching evaluation.metrics._compute's own approach.
+    y_train = seasonal_period = ids = None
+    if train_df is not None and "ridership" in train_df.columns:
+        seasonal_period = _infer_seasonal_period(train_df)
+        train_sorted = train_df.sort_values("timestamp") if "timestamp" in train_df.columns else train_df
+        train_valid = train_sorted.dropna(subset=["ridership"])
+        y_train = train_valid["ridership"].values.astype(float)
+        ids = train_valid["station_id"].values if "station_id" in train_valid.columns else None
+        if len(y_train) <= seasonal_period:
+            y_train = None
+
     def _metrics_row(label: str, subset: pd.DataFrame) -> dict | None:
         if subset.empty:
             return None
         y_true = subset["ridership"].values.astype(float)
         y_pred = np.maximum(subset["p50"].values.astype(float), 0)
-        return {
+        row = {
             "model":   model_name,
             "slice":   label,
             "n":       len(subset),
@@ -140,6 +156,9 @@ def compute_metrics(
             "sMAPE_%": round(smape(y_true, y_pred), 2),
             "Coverage_%": round(coverage(y_true, subset["p10"].values.astype(float), subset["p90"].values.astype(float)), 2),
         }
+        if y_train is not None:
+            row["MASE"] = round(mase(y_true, y_pred, y_train, seasonality=seasonal_period, ids=ids), 4)
+        return row
 
     # Overall
     r = _metrics_row("overall", merged)
@@ -293,7 +312,7 @@ def run_benchmarks(
     naive_preds = seasonal_naive_forecast(train_df, test_df, freq)
     if not naive_preds.empty:
         model_preds["SeasonalNaive"] = naive_preds
-        rows = compute_metrics(test_df, naive_preds, "SeasonalNaive")
+        rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df)
         all_rows.extend(rows)
         log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
 
@@ -307,7 +326,7 @@ def run_benchmarks(
             )
             if not arima_preds.empty:
                 model_preds["SARIMA"] = arima_preds
-                rows = compute_metrics(test_df, arima_preds, "SARIMA")
+                rows = compute_metrics(test_df, arima_preds, "SARIMA", train_df=train_df)
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -322,7 +341,7 @@ def run_benchmarks(
             )
             if not prophet_preds.empty:
                 model_preds["Prophet"] = prophet_preds
-                rows = compute_metrics(test_df, prophet_preds, "Prophet")
+                rows = compute_metrics(test_df, prophet_preds, "Prophet", train_df=train_df)
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -346,7 +365,7 @@ def run_benchmarks(
         )
         if not zs_preds.empty:
             model_preds["Chronos2_ZeroShot"] = zs_preds
-            rows = compute_metrics(test_df, zs_preds, "Chronos2_ZeroShot")
+            rows = compute_metrics(test_df, zs_preds, "Chronos2_ZeroShot", train_df=train_df)
             all_rows.extend(rows)
             log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
     except Exception as e:
@@ -366,7 +385,7 @@ def run_benchmarks(
             )
             if not ft_preds.empty:
                 model_preds["AutoGluon_Ensemble"] = ft_preds
-                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble")
+                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble", train_df=train_df)
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:

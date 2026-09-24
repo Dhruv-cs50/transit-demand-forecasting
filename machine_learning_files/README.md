@@ -100,7 +100,7 @@ curl -X POST http://localhost:8000/forecast \
 
 - `configs/model.yaml` controls the modeled frequency, context length, forecast horizon, chronological split dates, quantile levels, and AutoGluon training settings.
 - `configs/sources.yaml` controls source endpoints, API-key placeholders, venue IDs, agency IDs, and weather station coordinates.
-- The API serves cached forecasts first from `models/chronos2/outputs/` and falls back to live Chronos inference when needed.
+- The API serves cached forecasts first from `models/chronos2/outputs/`. The production `Dockerfile.api` image doesn't install `chronos-forecasting`, so a cache miss there returns `503`; live Chronos inference fallback only works on a local dev server installed from `requirements.txt`.
 - `scripts/run_pipeline.sh` expects `.venv311/bin/python` to exist.
 
 ## Troubleshooting

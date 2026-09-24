@@ -191,15 +191,29 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
         log.warning("No weather files found")
         return pd.DataFrame()
 
+    # Tag each group with its own source mtime and sort by that before dedup --
+    # historical rows are concatenated ahead of forecast rows below purely for
+    # readability, but that fixed order must not decide which value keep="last"
+    # keeps. Without the mtime-based sort, a forecast row always wins over a
+    # historical row for the same (timestamp, station) even when the historical
+    # file was fetched *after* the forecast file (e.g. a backfill re-run once
+    # Open-Meteo's archive catches up on a day only a stale forecast file
+    # covered), silently overwriting an observed value with a predicted one.
     frames = []
     if hist_files:
-        frames.append(pd.concat([pd.read_parquet(f) for f in hist_files], ignore_index=True))
+        hist_df = pd.concat([pd.read_parquet(f) for f in hist_files], ignore_index=True)
+        hist_df["_source_mtime"] = max(f.stat().st_mtime for f in hist_files)
+        frames.append(hist_df)
     if forecast_files:
-        frames.append(pd.read_parquet(forecast_files[-1]))  # most recent forecast file
+        forecast_file = forecast_files[-1]  # most recent forecast file
+        forecast_df = pd.read_parquet(forecast_file)
+        forecast_df["_source_mtime"] = forecast_file.stat().st_mtime
+        frames.append(forecast_df)
     df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     dedup_keys = [c for c in ("timestamp", "station") if c in df.columns]
     if dedup_keys:
-        df = df.drop_duplicates(subset=dedup_keys, keep="last")
+        df = df.sort_values("_source_mtime").drop_duplicates(subset=dedup_keys, keep="last")
+    df = df.drop(columns=["_source_mtime"])
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
         # tz_convert(None) would shift to UTC before stripping the tz label; use

@@ -264,7 +264,7 @@ flowchart LR
 - **App Engine Standard** — auto-scales instances, zero when idle, no server management
 - **Cloud Run** — scales 0→N replicas per concurrency, each replica stateless
 - **Pre-computed parquet cache** — >99% of API requests are sub-100ms parquet lookups, no model load
-- **Upgrade path** — live inference (cache miss) currently runs Chronos-T5-Small on CPU; swap to GPU Cloud Run or Vertex AI for higher throughput
+- **Upgrade path** — `Dockerfile.api` (the production image) doesn't bundle `chronos-forecasting`, so a cache miss returns `503` today rather than running live inference; a local dev server started from `machine_learning_files/requirements.txt` (which does pin it) runs Chronos-T5-Small on CPU on cache miss — bundling it into `Dockerfile.api` and moving to GPU Cloud Run or Vertex AI is the upgrade path for live inference in production
 
 Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
@@ -324,7 +324,7 @@ Endpoints:
 }
 ```
 
-The API serves from cached parquet in `models/chronos2/outputs/`. Cache miss triggers live Chronos-2 inference.
+The API serves from cached parquet in `models/chronos2/outputs/`. In the production `Dockerfile.api` image, a cache miss returns `503` (`chronos-forecasting` isn't installed there); only a local dev server running from `machine_learning_files/requirements.txt` falls back to live Chronos-2 inference.
 
 ## Documentation
 
