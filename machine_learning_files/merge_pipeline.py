@@ -191,18 +191,35 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
         log.warning("No weather files found")
         return pd.DataFrame()
 
-    # Tag each group with its own source mtime and sort by that before dedup --
-    # historical rows are concatenated ahead of forecast rows below purely for
-    # readability, but that fixed order must not decide which value keep="last"
-    # keeps. Without the mtime-based sort, a forecast row always wins over a
-    # historical row for the same (timestamp, station) even when the historical
-    # file was fetched *after* the forecast file (e.g. a backfill re-run once
-    # Open-Meteo's archive catches up on a day only a stale forecast file
-    # covered), silently overwriting an observed value with a predicted one.
+    # Tag each ROW with its own source FILE's mtime and sort by that before
+    # dedup -- historical rows are concatenated ahead of forecast rows below
+    # purely for readability, but that fixed order must not decide which
+    # value keep="last" keeps. Without the mtime-based sort, a forecast row
+    # always wins over a historical row for the same (timestamp, station)
+    # even when the historical file was fetched *after* the forecast file
+    # (e.g. a backfill re-run once Open-Meteo's archive catches up on a day
+    # only a stale forecast file covered), silently overwriting an observed
+    # value with a predicted one.
+    #
+    # hist_files can (and in production does) contain more than one file --
+    # e.g. an original wide backfill plus one or more later, narrower
+    # corrective re-fetches, none of which get cleaned up -- each written at
+    # a different time. Tagging every row with a single group-wide
+    # max(mtime across ALL hist_files) (as an earlier version of this fix
+    # did) lets a row from an OLDER hist file silently borrow a completely
+    # unrelated, newer hist file's mtime, so it can incorrectly "win" the
+    # dedup over a genuinely fresher forecast row for the same key even
+    # though the hist file that row actually came from predates that
+    # forecast. Read and tag each hist file individually before
+    # concatenating so every row carries its own source file's real mtime.
     frames = []
     if hist_files:
-        hist_df = pd.concat([pd.read_parquet(f) for f in hist_files], ignore_index=True)
-        hist_df["_source_mtime"] = max(f.stat().st_mtime for f in hist_files)
+        hist_frames = []
+        for f in hist_files:
+            hdf = pd.read_parquet(f)
+            hdf["_source_mtime"] = f.stat().st_mtime
+            hist_frames.append(hdf)
+        hist_df = pd.concat(hist_frames, ignore_index=True)
         frames.append(hist_df)
     if forecast_files:
         forecast_file = forecast_files[-1]  # most recent forecast file
