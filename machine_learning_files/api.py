@@ -45,6 +45,14 @@ PROCESSED_DIR = Path("data/processed")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
 
+class InvalidRequestError(Exception):
+    """Malformed request input (as opposed to a well-formed request for a
+    resource that doesn't exist -- see the `ValueError` "Unknown station"
+    case below, which correctly maps to 404). Kept distinct from
+    `ValueError` so `/forecast`'s handler can map this to 400 instead of
+    the 404 the "Unknown station" ValueError intentionally gets."""
+
+
 def load_model_config() -> dict:
     with open(MODEL_CONFIG_PATH) as f:
         return yaml.safe_load(f)
@@ -189,7 +197,18 @@ def _run_forecast(
     else:
         # feature_store timestamps are tz-naive — keep as_of naive too, or the
         # context-window comparisons in prepare_context() raise TypeError.
-        as_of = pd.Timestamp(as_of)
+        try:
+            as_of = pd.Timestamp(as_of)
+        except ValueError as e:
+            # pandas raises a ValueError subclass (DateParseError) for an
+            # unparseable as_of string. Left uncaught, that ValueError falls
+            # through to the same `except ValueError` branch below that
+            # `/forecast` uses for "Unknown station" and gets mapped to 404
+            # Not Found -- wrong for a malformed *request*, which callers
+            # (and anything alerting on status codes) should see as 400 Bad
+            # Request instead. Re-raise as a distinct type so the endpoint
+            # can tell the two apart.
+            raise InvalidRequestError(f"Invalid as_of value {as_of!r}: {e}") from e
         if station_df["timestamp"].dt.tz is not None:
             as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
         elif as_of.tzinfo is not None:
@@ -286,6 +305,8 @@ if _FASTAPI_AVAILABLE:
     def forecast(req: ForecastRequest):
         try:
             forecasts = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
+        except InvalidRequestError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except RuntimeError as e:

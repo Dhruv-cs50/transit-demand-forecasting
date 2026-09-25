@@ -104,6 +104,30 @@ class Predictor:
             "No feature store found. Run: python machine_learning_files/merge_pipeline.py"
         )
 
+    def reset_cache(self) -> None:
+        """
+        Clear the cached feature store / loaded model / selected mode so the
+        next call re-reads everything from disk.
+
+        `Predictor` is a process-wide singleton (see `__new__`): once
+        `get_feature_store()` caches a DataFrame on `self._store`, it is never
+        re-read for the rest of the process's life. `models/baselines/scheduler.py`'s
+        `--loop` mode (`_simple_loop`/`run_loop`, both documented there as the
+        actual long-running path that deployment mode takes) keeps a single
+        Python process alive across many nightly runs, each of which rewrites
+        `data/processed/feature_store_enriched.parquet` with fresh weather/
+        events/ridership data in steps 1-4 — but every night after the first,
+        `step_forecast()`'s `Predictor()` call returned the same cached
+        instance, so `forecast_all_stations()` silently kept forecasting off
+        night one's snapshot forever (with no error), while every other
+        pipeline stage correctly refreshed on disk. Call this before each
+        nightly forecast run to force a fresh read.
+        """
+        self._store = None
+        self._predictor = None
+        self._pipeline = None
+        self._mode = None
+
     # ── Model loading ──────────────────────────────────────────────────────────
 
     def _load_finetuned(self) -> bool:

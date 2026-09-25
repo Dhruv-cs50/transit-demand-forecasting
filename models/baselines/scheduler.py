@@ -173,6 +173,14 @@ def step_forecast() -> bool:
         latest_path = FORECAST_DIR / "forecasts_latest.parquet"
 
         predictor = Predictor()
+        # Predictor is a process-wide singleton whose feature store/model/mode
+        # stay cached for the life of the process (see Predictor.reset_cache's
+        # docstring). In --loop mode (_simple_loop/run_loop) this process
+        # stays alive across many nightly runs, and steps 1-4 above just
+        # rewrote feature_store_enriched.parquet with tonight's fresh data --
+        # without this reset, every run after the first would silently keep
+        # forecasting off the very first run's stale snapshot.
+        predictor.reset_cache()
         preds = predictor.forecast_all_stations(
             horizon_hours=24,
             output_path=output_path,
