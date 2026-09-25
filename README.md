@@ -131,7 +131,9 @@ bash scripts/run_pipeline.sh
 That script performs:
 
 1. Build `data/processed/feature_store.parquet` and chronological splits.
-2. Build `data/processed/feature_store_enriched.parquet`.
+2. Build `data/processed/feature_store_enriched.parquet`, then regenerate the
+   chronological splits from it (step 1's splits are pre-enrichment and get
+   overwritten here so `finetune.py` trains on the full enriched schema).
 3. Validate the enriched feature store.
 4. Run Chronos zero-shot forecasts.
 5. Run SARIMA and Prophet baselines.
@@ -228,7 +230,7 @@ gcloud run deploy transit-api \
 
 | Data | Location | Notes |
 | --- | --- | --- |
-| Feature store parquet | `data/processed/feature_store_enriched.parquet` | Station-month ridership + covariates |
+| Feature store parquet | `data/processed/feature_store.parquet` + `data/processed/feature_store_enriched.parquet` | `Dockerfile.api` bakes in both, but the live API (`api.py`'s `get_feature_store()`, `zero_shot.py`'s `load_feature_store()`) reads only the pre-enrichment `feature_store.parquet` at serve time — the enriched file feeds offline training splits (`finetune.py`) instead |
 | Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API |
 | Website assets | App Engine Standard | HTML/CSS/JSX/JSON, served via static file handlers |
 | Pre-computed forecasts | Baked into Docker image | `models/chronos2/outputs/*.parquet` copied at build time |
@@ -239,7 +241,7 @@ gcloud run deploy transit-api \
 flowchart LR
     subgraph Pipeline["Batch Pipeline (local / CI)"]
         RAW[Raw Data\nBART · Weather · Events]
-        FS[feature_store_enriched\n.parquet]
+        FS[feature_store.parquet\n+ feature_store_enriched.parquet]
         FC[Forecast\n*.parquet]
         JSON[website/data\n*.json]
         RAW --> FS --> FC --> JSON
@@ -262,7 +264,7 @@ flowchart LR
 - **App Engine Standard** — auto-scales instances, zero when idle, no server management
 - **Cloud Run** — scales 0→N replicas per concurrency, each replica stateless
 - **Pre-computed parquet cache** — >99% of API requests are sub-100ms parquet lookups, no model load
-- **Upgrade path** — live inference (cache miss) currently runs Chronos-T5-Small on CPU; swap to GPU Cloud Run or Vertex AI for higher throughput
+- **Upgrade path** — `Dockerfile.api` (the production image) doesn't bundle `chronos-forecasting`, so a cache miss returns `503` today rather than running live inference; a local dev server started from `machine_learning_files/requirements.txt` (which does pin it) runs Chronos-T5-Small on CPU on cache miss — bundling it into `Dockerfile.api` and moving to GPU Cloud Run or Vertex AI is the upgrade path for live inference in production
 
 Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
@@ -315,14 +317,14 @@ Endpoints:
 {
   "station_id": "EMBR",
   "horizon_hours": 6,
-  "generated_at": "2025-06-01T12:00:00",
+  "generated_at": "2025-06-01T12:00:00.000000Z",
   "forecasts": [
     { "timestamp": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
   ]
 }
 ```
 
-The API serves from cached parquet in `models/chronos2/outputs/`. Cache miss triggers live Chronos-2 inference.
+The API serves from cached parquet in `models/chronos2/outputs/`. In the production `Dockerfile.api` image, a cache miss returns `503` (`chronos-forecasting` isn't installed there); only a local dev server running from `machine_learning_files/requirements.txt` falls back to live Chronos-2 inference.
 
 ## Documentation
 

@@ -45,6 +45,14 @@ PROCESSED_DIR = Path("data/processed")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
 
+class InvalidRequestError(Exception):
+    """Malformed request input (as opposed to a well-formed request for a
+    resource that doesn't exist -- see the `ValueError` "Unknown station"
+    case below, which correctly maps to 404). Kept distinct from
+    `ValueError` so `/forecast`'s handler can map this to 400 instead of
+    the 404 the "Unknown station" ValueError intentionally gets."""
+
+
 def load_model_config() -> dict:
     with open(MODEL_CONFIG_PATH) as f:
         return yaml.safe_load(f)
@@ -61,9 +69,9 @@ if _FASTAPI_AVAILABLE:
 
     class QuantileForecast(BaseModel):
         timestamp: str
-        p10:       float
-        p50:       float
-        p90:       float
+        p10:       Optional[float] = None
+        p50:       Optional[float] = None
+        p90:       Optional[float] = None
 
     class ForecastResponse(BaseModel):
         station_id:    str
@@ -125,6 +133,22 @@ def get_feature_store() -> pd.DataFrame:
 
 # ── Forecast logic ─────────────────────────────────────────────────────────────
 
+def _clean_quantile(value) -> float | None:
+    """Coerce a raw quantile cell to a JSON-safe value.
+
+    `max(0.0, x)` silently returns 0.0 when `x` is NaN (NaN always loses
+    float comparisons, so `nan > 0.0` is False and `max` picks the first
+    arg) -- turning a station-month the model genuinely couldn't forecast
+    into a fake "0 riders" prediction. Returning None instead lets the
+    response emit JSON `null` (which the frontends already render as "—"),
+    matching how export_website_data.py already handles the same NaN case
+    for this exact cached parquet.
+    """
+    if value is None or pd.isna(value):
+        return None
+    return max(0.0, float(value))
+
+
 def _run_forecast(
     station_id: str,
     horizon_hours: int,
@@ -151,9 +175,9 @@ def _run_forecast(
                 ts = row.get("timestamp", "")
                 results.append({
                     "timestamp": str(ts),
-                    "p10": max(0.0, float(row[q10_col])) if q10_col else 0.0,
-                    "p50": max(0.0, float(row[q50_col])) if q50_col else 0.0,
-                    "p90": max(0.0, float(row[q90_col])) if q90_col else 0.0,
+                    "p10": _clean_quantile(row[q10_col]) if q10_col else None,
+                    "p50": _clean_quantile(row[q50_col]) if q50_col else None,
+                    "p90": _clean_quantile(row[q90_col]) if q90_col else None,
                 })
             if results:
                 return results
@@ -173,7 +197,18 @@ def _run_forecast(
     else:
         # feature_store timestamps are tz-naive — keep as_of naive too, or the
         # context-window comparisons in prepare_context() raise TypeError.
-        as_of = pd.Timestamp(as_of)
+        try:
+            as_of = pd.Timestamp(as_of)
+        except ValueError as e:
+            # pandas raises a ValueError subclass (DateParseError) for an
+            # unparseable as_of string. Left uncaught, that ValueError falls
+            # through to the same `except ValueError` branch below that
+            # `/forecast` uses for "Unknown station" and gets mapped to 404
+            # Not Found -- wrong for a malformed *request*, which callers
+            # (and anything alerting on status codes) should see as 400 Bad
+            # Request instead. Re-raise as a distinct type so the endpoint
+            # can tell the two apart.
+            raise InvalidRequestError(f"Invalid as_of value {as_of!r}: {e}") from e
         if station_df["timestamp"].dt.tz is not None:
             as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
         elif as_of.tzinfo is not None:
@@ -217,9 +252,9 @@ def _run_forecast(
         ts = row.get("timestamp", "")
         results.append({
             "timestamp": str(ts),
-            "p10": max(0.0, float(row[q_cols["p10"]])) if q_cols["p10"] else float("nan"),
-            "p50": max(0.0, float(row[q_cols["p50"]])) if q_cols["p50"] else float("nan"),
-            "p90": max(0.0, float(row[q_cols["p90"]])) if q_cols["p90"] else float("nan"),
+            "p10": _clean_quantile(row[q_cols["p10"]]) if q_cols["p10"] else None,
+            "p50": _clean_quantile(row[q_cols["p50"]]) if q_cols["p50"] else None,
+            "p90": _clean_quantile(row[q_cols["p90"]]) if q_cols["p90"] else None,
         })
 
     return results
@@ -270,6 +305,8 @@ if _FASTAPI_AVAILABLE:
     def forecast(req: ForecastRequest):
         try:
             forecasts = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
+        except InvalidRequestError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except RuntimeError as e:
@@ -281,7 +318,13 @@ if _FASTAPI_AVAILABLE:
         return {
             "station_id":    req.station_id,
             "horizon_hours": req.horizon_hours,
-            "generated_at":  datetime.utcnow().isoformat(),
+            # A bare isoformat() string with no "Z"/offset is parsed by the
+            # browser's `new Date(...)` as LOCAL time (ECMA-262 Date Time
+            # String Format), not UTC -- api-demo.html's `new
+            # Date(data.generated_at).toLocaleTimeString()` showed a time off
+            # by exactly the visitor's UTC offset. Append "Z" so it's parsed
+            # as UTC and correctly converted to the visitor's local time.
+            "generated_at":  datetime.utcnow().isoformat() + "Z",
             "forecasts":     forecasts,
         }
 

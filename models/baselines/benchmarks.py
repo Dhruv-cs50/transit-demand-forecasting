@@ -1,6 +1,6 @@
 """
-evaluation/benchmarks.py
-─────────────────────────
+models/baselines/benchmarks.py
+─────────────────────────────────
 Head-to-head comparison of all models on the held-out test set.
 
 Models compared:
@@ -19,8 +19,8 @@ Produces:
 This is what powers the "MAPE 11.8%" number on your website hero.
 
 Usage:
-    python evaluation/benchmarks.py
-    python evaluation/benchmarks.py --quick   # skip slow baselines
+    python models/baselines/benchmarks.py
+    python models/baselines/benchmarks.py --quick   # skip slow baselines
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from evaluation.metrics import wape, mae, rmse, mape, smape, coverage
+from evaluation.metrics import wape, mae, rmse, mape, smape, coverage, mase, _infer_seasonal_period
 
 logging.basicConfig(
     level=logging.INFO,
@@ -83,7 +83,15 @@ def seasonal_naive_forecast(
         n_test = len(grp)
         repeated = np.tile(last_week, (n_test // lag) + 1)[:n_test]
 
-        grp = grp.copy()
+        # `repeated` is built assuming positional row i == the i-th chronological
+        # test timestamp (e.g. repeated[0] is the seasonal-naive value for the
+        # earliest test month). test_df's on-disk row order isn't guaranteed
+        # sorted per station (predict.py/zero_shot.py/ablation.py all explicitly
+        # re-sort after filtering by station for the same reason) — without
+        # sorting here, np.tile's positionally-built array gets assigned to
+        # whatever order grp's rows happen to be in, silently pairing each
+        # timestamp with the wrong seasonal-naive value.
+        grp = grp.sort_values("timestamp").copy()
         grp["p50"] = np.maximum(repeated, 0)
         grp["p10"] = grp["p50"] * 0.80
         grp["p90"] = grp["p50"] * 1.20
@@ -100,10 +108,14 @@ def compute_metrics(
     preds: pd.DataFrame,
     model_name: str,
     slices: dict = None,
+    train_df: pd.DataFrame = None,
 ) -> list[dict]:
     """
     Compute metrics for a model overall and on each diagnostic slice.
     slices: dict of {slice_name: boolean mask on merged df}
+    train_df: training data used to scale MASE (mirrors evaluation.metrics._compute's
+        contract). Omitted -> "MASE" is left out of every row, same as before this
+        param existed.
     """
     merged = actuals.merge(
         preds[["timestamp", "station_id", "p10", "p50", "p90"]],
@@ -116,12 +128,24 @@ def compute_metrics(
 
     rows = []
 
+    # MASE scale is fixed for the whole training set, computed once here rather
+    # than per-slice, matching evaluation.metrics._compute's own approach.
+    y_train = seasonal_period = ids = None
+    if train_df is not None and "ridership" in train_df.columns:
+        seasonal_period = _infer_seasonal_period(train_df)
+        train_sorted = train_df.sort_values("timestamp") if "timestamp" in train_df.columns else train_df
+        train_valid = train_sorted.dropna(subset=["ridership"])
+        y_train = train_valid["ridership"].values.astype(float)
+        ids = train_valid["station_id"].values if "station_id" in train_valid.columns else None
+        if len(y_train) <= seasonal_period:
+            y_train = None
+
     def _metrics_row(label: str, subset: pd.DataFrame) -> dict | None:
         if subset.empty:
             return None
         y_true = subset["ridership"].values.astype(float)
         y_pred = np.maximum(subset["p50"].values.astype(float), 0)
-        return {
+        row = {
             "model":   model_name,
             "slice":   label,
             "n":       len(subset),
@@ -132,6 +156,9 @@ def compute_metrics(
             "sMAPE_%": round(smape(y_true, y_pred), 2),
             "Coverage_%": round(coverage(y_true, subset["p10"].values.astype(float), subset["p90"].values.astype(float)), 2),
         }
+        if y_train is not None:
+            row["MASE"] = round(mase(y_true, y_pred, y_train, seasonality=seasonal_period, ids=ids), 4)
+        return row
 
     # Overall
     r = _metrics_row("overall", merged)
@@ -202,8 +229,26 @@ def diebold_mariano_test(
         return {}
 
     y_true = common["ridership"].values.astype(float)
-    e_a = np.abs(y_true - np.maximum(common["p50_a"].values.astype(float), 0))
-    e_b = np.abs(y_true - np.maximum(common["p50_b"].values.astype(float), 0))
+    p50_a  = common["p50_a"].values.astype(float)
+    p50_b  = common["p50_b"].values.astype(float)
+
+    # Exclude NaN rows before computing -- predict.py's forecast() documents
+    # that p10/p50/p90 can legitimately be NaN for a station whose upstream
+    # model didn't return a matching quantile column, and ridership itself
+    # can have null rows (same NaN-propagation family already fixed in
+    # evaluation/metrics.py's mae/rmse/mape/wape/smape/mase on 2026-09-15).
+    # A single NaN row here silently poisoned d.mean()/t_stat/p_value to NaN
+    # for the WHOLE comparison, and `p_value < 0.05` against that NaN is
+    # always False -- so the result wasn't just mislabeled "not significant",
+    # `winner` fell through to model_a even when model_b (the challenger)
+    # was actually better, misreporting an undefined test as a clean loss.
+    valid = ~(np.isnan(y_true) | np.isnan(p50_a) | np.isnan(p50_b))
+    if valid.sum() < 2:
+        return {}
+    y_true, p50_a, p50_b = y_true[valid], p50_a[valid], p50_b[valid]
+
+    e_a = np.abs(y_true - np.maximum(p50_a, 0))
+    e_b = np.abs(y_true - np.maximum(p50_b, 0))
     d   = e_a - e_b   # positive = B is better
 
     t_stat, p_value = stats.ttest_1samp(d, 0)
@@ -267,7 +312,7 @@ def run_benchmarks(
     naive_preds = seasonal_naive_forecast(train_df, test_df, freq)
     if not naive_preds.empty:
         model_preds["SeasonalNaive"] = naive_preds
-        rows = compute_metrics(test_df, naive_preds, "SeasonalNaive")
+        rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df)
         all_rows.extend(rows)
         log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
 
@@ -281,7 +326,7 @@ def run_benchmarks(
             )
             if not arima_preds.empty:
                 model_preds["SARIMA"] = arima_preds
-                rows = compute_metrics(test_df, arima_preds, "SARIMA")
+                rows = compute_metrics(test_df, arima_preds, "SARIMA", train_df=train_df)
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -296,7 +341,7 @@ def run_benchmarks(
             )
             if not prophet_preds.empty:
                 model_preds["Prophet"] = prophet_preds
-                rows = compute_metrics(test_df, prophet_preds, "Prophet")
+                rows = compute_metrics(test_df, prophet_preds, "Prophet", train_df=train_df)
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -320,7 +365,7 @@ def run_benchmarks(
         )
         if not zs_preds.empty:
             model_preds["Chronos2_ZeroShot"] = zs_preds
-            rows = compute_metrics(test_df, zs_preds, "Chronos2_ZeroShot")
+            rows = compute_metrics(test_df, zs_preds, "Chronos2_ZeroShot", train_df=train_df)
             all_rows.extend(rows)
             log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
     except Exception as e:
@@ -340,7 +385,7 @@ def run_benchmarks(
             )
             if not ft_preds.empty:
                 model_preds["AutoGluon_Ensemble"] = ft_preds
-                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble")
+                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble", train_df=train_df)
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
