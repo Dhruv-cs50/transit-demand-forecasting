@@ -1,30 +1,40 @@
 """
-serving/scheduler.py
-─────────────────────
-Nightly pipeline scheduler — keeps the Live demo on your website fresh.
+models/baselines/scheduler.py
+──────────────────────────────
+Nightly pipeline scheduler — refreshes the feature store and produces a
+batch Chronos-2 forecast snapshot.
 
-Runs every night at 2am (configurable):
-  1. Pull fresh transit data from 511 API
-  2. Pull weather forecast from Open-Meteo (7 days ahead)
-  3. Pull upcoming events from NHL + Ticketmaster
-  4. Merge into feature store
-  5. Validate data quality
-  6. Run Chronos-2 batch forecast for next 24 hours
-  7. Write forecasts to database / cache for the API to serve
+Runs every night at 2am (configurable), matching NightlyPipeline.run()
+below:
+  1. Pull weather forecast from Open-Meteo (7 days ahead)
+  2. Pull upcoming events from NHL + Ticketmaster
+  3. Merge into the raw feature store (--no-split)
+  4. Enrich feature store (Processing/feature_engineering.py) + regenerate splits
+  5. Validate data quality (gates step 6 — a validation failure skips it)
+  6. Run Chronos-2 batch forecast for the horizon and copy the output to
+     models/chronos2/outputs/nightly/forecasts_latest.parquet
 
-This is what keeps the "+34% vs typical" card on your website accurate
-rather than stale.
+Note: this pipeline never re-fetches BART OD ridership itself (the
+forecast target) — machine_learning_files/fetch_511_transit.py exists but
+is not wired into any step here; it's a standalone/future-expansion
+utility per its own docstring. Also note: machine_learning_files/api.py's
+live /forecast endpoint does NOT read forecasts_latest.parquet — it calls
+machine_learning_files/zero_shot.py independently on every request (see
+models/chronos2/predict.py's own docstring for the same caveat). So today
+this step's output is a standalone batch artifact for offline
+analysis/benchmarking, not something the live website's demo actually
+serves from.
 
 Usage:
     # Run once manually:
-    python serving/scheduler.py
+    python models/baselines/scheduler.py
 
     # Set up as a cron job (runs nightly at 2am):
     crontab -e
-    # Add: 0 2 * * * cd /path/to/project && python serving/scheduler.py
+    # Add: 0 2 * * * cd /path/to/project && python models/baselines/scheduler.py
 
     # Or run as an APScheduler loop (keeps process alive):
-    python serving/scheduler.py --loop
+    python models/baselines/scheduler.py --loop
 """
 
 from __future__ import annotations
@@ -163,6 +173,14 @@ def step_forecast() -> bool:
         latest_path = FORECAST_DIR / "forecasts_latest.parquet"
 
         predictor = Predictor()
+        # Predictor is a process-wide singleton whose feature store/model/mode
+        # stay cached for the life of the process (see Predictor.reset_cache's
+        # docstring). In --loop mode (_simple_loop/run_loop) this process
+        # stays alive across many nightly runs, and steps 1-4 above just
+        # rewrote feature_store_enriched.parquet with tonight's fresh data --
+        # without this reset, every run after the first would silently keep
+        # forecasting off the very first run's stale snapshot.
+        predictor.reset_cache()
         preds = predictor.forecast_all_stations(
             horizon_hours=24,
             output_path=output_path,
@@ -209,22 +227,37 @@ class NightlyPipeline:
         log.info(f"{'═'*55}")
 
         # Step 1 — Weather forecast (always needed for covariates)
-        log.info("\n[1/5] Fetching weather forecast …")
+        log.info("\n[1/6] Fetching weather forecast …")
         self.results["weather"] = step_fetch_weather()
 
         # Step 2 — Events (needed for game-night covariate)
-        log.info("\n[2/5] Fetching upcoming events …")
+        log.info("\n[2/6] Fetching upcoming events …")
         self.results["events"] = step_fetch_events()
 
-        # Step 3 — Merge pipeline (rebuild feature store with fresh data)
-        log.info("\n[3/5] Rebuilding feature store …")
+        # Step 3 — Merge pipeline (rebuild raw feature store with fresh data).
+        # --no-split: the splits this would write are pre-enrichment and get
+        # superseded by step 4's regeneration below; writing them here too
+        # would just be overwritten immediately after.
+        log.info("\n[3/6] Rebuilding feature store …")
         self.results["merge"] = run_step(
             "Merge pipeline",
             "machine_learning_files/merge_pipeline.py",
+            ["--no-split"],
         )
 
-        # Step 4 — Validate (gate before forecast)
-        log.info("\n[4/5] Validating data quality …")
+        # Step 4 — Feature engineering (enrich store + regenerate splits).
+        # Without this, feature_store_enriched.parquet and splits/*.parquet
+        # never get refreshed with tonight's data: predict.py's Predictor
+        # prefers the enriched store, so forecasts would keep serving off a
+        # stale enriched snapshot while the fresh raw data sits unused.
+        log.info("\n[4/6] Enriching feature store …")
+        self.results["features"] = run_step(
+            "Feature engineering",
+            "Processing/feature_engineering.py",
+        )
+
+        # Step 5 — Validate (gate before forecast)
+        log.info("\n[5/6] Validating data quality …")
         self.results["validate"] = step_validate()
 
         if not self.results["validate"]:
@@ -233,8 +266,8 @@ class NightlyPipeline:
             self._report()
             return False
 
-        # Step 5 — Forecast
-        log.info("\n[5/5] Running batch forecast …")
+        # Step 6 — Forecast
+        log.info("\n[6/6] Running batch forecast …")
         self.results["forecast"] = step_forecast()
 
         self._report()
@@ -256,7 +289,9 @@ class NightlyPipeline:
             latest = FORECAST_DIR / "forecasts_latest.parquet"
             if latest.exists():
                 preds = pd.read_parquet(latest)
-                log.info(f"\n  Live demo ready: {len(preds):,} forecast rows")
+                # NOT read by the live website (see module docstring) --
+                # this is just confirming the batch artifact itself landed.
+                log.info(f"\n  Nightly batch snapshot ready: {len(preds):,} forecast rows")
                 log.info(f"  Stations: {sorted(preds['station_id'].unique())}")
 
 
@@ -295,11 +330,23 @@ def run_loop(cfg: dict) -> None:
 
 
 def _simple_loop(cfg: dict) -> None:
-    """Fallback loop using time.sleep — no external dependency."""
+    """Fallback loop using time.sleep — no external dependency.
+
+    apscheduler is not listed in requirements.txt (and isn't installed in
+    this environment), so run_loop()'s ImportError fallback to this function
+    is the actual path taken by `--loop`, not a rare edge case. It must honor
+    cfg's serving.nightly_refresh_cron the same way run_loop() does --
+    previously it hardcoded hour=2/minute=0 and ignored the `cfg` parameter
+    entirely, so changing nightly_refresh_cron away from its "0 2 * * *"
+    default had no effect and this loop kept firing at 2am regardless.
+    """
+    cron = cfg.get("serving", {}).get("nightly_refresh_cron", "0 2 * * *")
+    minute_str, hour_str = cron.split()[0], cron.split()[1]
+    hour, minute = int(hour_str), int(minute_str)
+
     while True:
         now = datetime.now()
-        # Run at 2am
-        target = now.replace(hour=2, minute=0, second=0, microsecond=0)
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
         wait_secs = (target - now).total_seconds()
@@ -315,7 +362,7 @@ def main():
     parser.add_argument("--loop", action="store_true",
                         help="Keep running on a schedule (default: run once and exit)")
     parser.add_argument("--step", default=None,
-                        choices=["weather", "events", "merge", "validate", "forecast"],
+                        choices=["weather", "events", "merge", "features", "validate", "forecast"],
                         help="Run a single step only")
     args = parser.parse_args()
 
@@ -327,7 +374,8 @@ def main():
             "events":   step_fetch_events,
             "validate": step_validate,
             "forecast": step_forecast,
-            "merge":    lambda: run_step("Merge", "machine_learning_files/merge_pipeline.py"),
+            "merge":    lambda: run_step("Merge", "machine_learning_files/merge_pipeline.py", ["--no-split"]),
+            "features": lambda: run_step("Feature engineering", "Processing/feature_engineering.py"),
         }[args.step]
         ok = step_fn()
         sys.exit(0 if ok else 1)

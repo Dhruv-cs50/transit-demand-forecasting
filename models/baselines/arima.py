@@ -233,7 +233,7 @@ def run_arima_all_stations(
 ) -> pd.DataFrame:
     """
     Fit SARIMA for every station and generate forecasts.
-    Used by evaluation/benchmarks.py for head-to-head comparison.
+    Used by models/baselines/benchmarks.py for head-to-head comparison.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -259,6 +259,9 @@ def run_arima_all_stations(
         horizon_steps = int(horizon_hrs * steps_per_hour)
 
     train_df = df[df["timestamp"] <= cutoff]
+    train_start = cfg["data"].get("train_start")
+    if train_start:
+        train_df = train_df[train_df["timestamp"] >= _as_local_ts(train_start)]
     stations = df["station_id"].unique()
     all_preds = []
 

@@ -1,6 +1,6 @@
 """
-ingestion/fetch_bart_od.py
-──────────────────────────
+machine_learning_files/fetch_bart_od.py
+────────────────────────────────────────
 Downloads BART monthly origin-destination (OD) ridership XLS files
 from bart.gov, going back as far as 2005. Converts to tidy parquet files
 in data/raw/transit/bart/.
@@ -9,8 +9,8 @@ Each monthly OD file contains: (origin_station, dest_station, hour, riders)
 disaggregated across all station pairs and hours of the day.
 
 Usage:
-    python ingestion/fetch_bart_od.py
-    python ingestion/fetch_bart_od.py --start 2020 --end 2024
+    python machine_learning_files/fetch_bart_od.py
+    python machine_learning_files/fetch_bart_od.py --start 2020 --end 2024
 """
 
 import argparse
@@ -209,9 +209,16 @@ def fetch_all(start_year: int, end_year: int) -> None:
 
             out_path = RAW_DIR / f"bart_od_{year}_{month:02d}.parquet"
             if out_path.exists():
-                log.info(f"Already downloaded {out_path.name} — loading from cache")
-                all_frames.append(pd.read_parquet(out_path))
-                continue
+                try:
+                    log.info(f"Already downloaded {out_path.name} — loading from cache")
+                    all_frames.append(pd.read_parquet(out_path))
+                    continue
+                except Exception as e:
+                    # A truncated/corrupt cache file (killed process, OOM, full
+                    # disk mid-write) must not abort every remaining month in
+                    # the batch — remove it and fall through to re-download.
+                    log.warning(f"  Unreadable cache file {out_path.name} ({e}); re-downloading")
+                    out_path.unlink()
 
             log.info(f"Downloading BART OD for {year}-{month:02d} …")
             df = download_month(year, month)
