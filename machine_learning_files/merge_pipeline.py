@@ -103,6 +103,23 @@ def load_configs() -> tuple[dict, dict]:
 
 # ── Loaders ────────────────────────────────────────────────────────────────────
 
+def _read_parquet_safe(path) -> pd.DataFrame | None:
+    """
+    Read a parquet file, isolating one truncated/corrupt file from aborting an
+    entire batch load. Writes throughout this pipeline are non-atomic (plain
+    `df.to_parquet(path)`, no write-to-temp-then-rename), so a killed process,
+    OOM, or full disk mid-write is a realistic way to leave a corrupt file at
+    its final path -- one bad file must not sink every other file in the same
+    load. Returns None (and removes the file) on any read failure.
+    """
+    try:
+        return pd.read_parquet(path)
+    except Exception as e:
+        log.warning(f"  Unreadable parquet file {path.name} ({e}) — removing and skipping")
+        path.unlink(missing_ok=True)
+        return None
+
+
 def load_transit(freq: str) -> pd.DataFrame:
     """
     Load all transit parquet files, combine, resample to target frequency.
@@ -122,8 +139,12 @@ def load_transit(freq: str) -> pd.DataFrame:
 
     frames = []
     for f in sorted(files):
-        df = pd.read_parquet(f)
-        frames.append(df)
+        df = _read_parquet_safe(f)
+        if df is not None:
+            frames.append(df)
+    if not frames:
+        log.warning("No readable BART OD files found — transit column will be NaN")
+        return pd.DataFrame()
 
     combined = pd.concat(frames, ignore_index=True)
 
@@ -216,16 +237,23 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     if hist_files:
         hist_frames = []
         for f in hist_files:
-            hdf = pd.read_parquet(f)
+            hdf = _read_parquet_safe(f)
+            if hdf is None:
+                continue
             hdf["_source_mtime"] = f.stat().st_mtime
             hist_frames.append(hdf)
-        hist_df = pd.concat(hist_frames, ignore_index=True)
-        frames.append(hist_df)
+        if hist_frames:
+            hist_df = pd.concat(hist_frames, ignore_index=True)
+            frames.append(hist_df)
     if forecast_files:
         forecast_file = forecast_files[-1]  # most recent forecast file
-        forecast_df = pd.read_parquet(forecast_file)
-        forecast_df["_source_mtime"] = forecast_file.stat().st_mtime
-        frames.append(forecast_df)
+        forecast_df = _read_parquet_safe(forecast_file)
+        if forecast_df is not None:
+            forecast_df["_source_mtime"] = forecast_file.stat().st_mtime
+            frames.append(forecast_df)
+    if not frames:
+        log.warning("No readable weather files found")
+        return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     dedup_keys = [c for c in ("timestamp", "station") if c in df.columns]
     if dedup_keys:
@@ -274,7 +302,11 @@ def load_events() -> pd.DataFrame:
         log.warning("No events files found")
         return pd.DataFrame()
 
-    df = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    frames = [df for df in (_read_parquet_safe(f) for f in files) if df is not None]
+    if not frames:
+        log.warning("No readable events files found")
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
     df["timestamp_start"] = pd.to_datetime(df["timestamp_start"])
     dedup_keys = [c for c in ("timestamp_start", "venue", "event_name") if c in df.columns]
     if dedup_keys:

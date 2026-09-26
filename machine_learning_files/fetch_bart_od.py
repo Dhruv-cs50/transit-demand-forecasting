@@ -209,9 +209,16 @@ def fetch_all(start_year: int, end_year: int) -> None:
 
             out_path = RAW_DIR / f"bart_od_{year}_{month:02d}.parquet"
             if out_path.exists():
-                log.info(f"Already downloaded {out_path.name} — loading from cache")
-                all_frames.append(pd.read_parquet(out_path))
-                continue
+                try:
+                    log.info(f"Already downloaded {out_path.name} — loading from cache")
+                    all_frames.append(pd.read_parquet(out_path))
+                    continue
+                except Exception as e:
+                    # A truncated/corrupt cache file (killed process, OOM, full
+                    # disk mid-write) must not abort every remaining month in
+                    # the batch — remove it and fall through to re-download.
+                    log.warning(f"  Unreadable cache file {out_path.name} ({e}); re-downloading")
+                    out_path.unlink()
 
             log.info(f"Downloading BART OD for {year}-{month:02d} …")
             df = download_month(year, month)

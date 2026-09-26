@@ -312,7 +312,6 @@ def check_ridership_anomalies(df: pd.DataFrame) -> List[ValidationResult]:
 def check_weather_coverage(df: pd.DataFrame) -> List[ValidationResult]:
     """
     Verify that weather columns are present and not excessively null.
-    Also checks that weather data isn't stale (for serving pipeline).
     """
     results = []
     WEATHER_COLS = ["temp_f", "precip_mm", "is_raining", "windspeed_mph"]
