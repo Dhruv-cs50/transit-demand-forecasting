@@ -1,11 +1,12 @@
 """
-models/baselines/prophet.py
-────────────────────────────
+models/baselines/prophet_baseline.py
+─────────────────────────────────────
 Prophet baseline for Bay Area transit ridership forecasting.
 
 Prophet handles three things natively that matter for this project:
   - Multiple seasonalities (daily commute + weekly weekend pattern)
-  - Holidays (US/CA public holidays)
+  - Holidays (US federal holidays, via make_holiday_df/USFederalHolidayCalendar
+    -- not CA-specific state holidays despite this module's earlier claim)
   - Regressors (rain intensity, is_game_day as external covariates)
 
 This gives us a strong classical baseline. If Chronos-2 can't beat
@@ -13,8 +14,8 @@ Prophet on game nights and rainy days, the neural model isn't earning
 its complexity — and we need to know that.
 
 Usage:
-    python models/baselines/prophet.py
-    python models/baselines/prophet.py --station EMBR --horizon 24
+    python models/baselines/prophet_baseline.py
+    python models/baselines/prophet_baseline.py --station EMBR --horizon 24
 """
 
 from __future__ import annotations
@@ -66,13 +67,16 @@ def fit_station(
     """
     Fit a Prophet model for a single station.
 
-    Regressors added:
-      - precip_intensity : rain bucket 0–4 (nonlinear weather signal)
-      - is_game_day      : binary event flag
-      - is_sharks_game   : Sharks-specific spike
-      - is_holiday       : CA public holiday
+    Regressors added (whichever of these columns are actually present --
+    see the loop below for the authoritative list):
+      - precip_intensity      : rain bucket 0-4 (nonlinear weather signal)
+      - precip_mm             : raw precipitation amount
+      - is_game_day           : binary event flag (any venue)
+      - is_sharks_game        : Sharks-specific spike
+      - is_sharks_game_window : Sharks game +/- proximity window
+      - is_holiday            : US federal holiday flag
 
-    Returns (model, train_df) tuple.
+    Returns (model, train_df, regressors) tuple.
     """
     try:
         from prophet import Prophet
@@ -195,7 +199,7 @@ def run_prophet_all_stations(
 ) -> pd.DataFrame:
     """
     Fit Prophet for every station and generate forecasts.
-    Used by evaluation/benchmarks.py for head-to-head comparison.
+    Used by models/baselines/benchmarks.py for head-to-head comparison.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -221,6 +225,9 @@ def run_prophet_all_stations(
         horizon_steps  = int(horizon_hrs * steps_per_hour)
 
     train_df = df[df["timestamp"] <= cutoff]
+    train_start = cfg["data"].get("train_start")
+    if train_start:
+        train_df = train_df[train_df["timestamp"] >= _as_local_ts(train_start)]
     future_df = df[df["timestamp"] > cutoff]
 
     stations = df["station_id"].unique()
@@ -273,7 +280,7 @@ def main():
     if not path.exists():
         path = PROCESSED_DIR / "feature_store.parquet"
     if not path.exists():
-        log.error("Feature store not found. Run: python processing/merge_pipeline.py")
+        log.error("Feature store not found. Run: python machine_learning_files/merge_pipeline.py")
         return
 
     df = pd.read_parquet(path)

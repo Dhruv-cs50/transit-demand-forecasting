@@ -1,6 +1,6 @@
 """
-ingestion/fetch_pems_roads.py
-──────────────────────────────
+models/baselines/fetch_pems_roads.py
+───────────────────────────────────────
 Downloads Caltrans PeMS (Performance Measurement System) freeway sensor data
 for District 4 (Bay Area). Provides road traffic context for transit forecasting.
 
@@ -18,9 +18,9 @@ Note: PeMS requires a free account at pems.dot.ca.gov
 The PEMS-BAY ML-ready dataset (2017, 325 sensors) is also directly downloadable.
 
 Usage:
-    python ingestion/fetch_pems_roads.py --mode pems_bay    # ML-ready dataset
-    python ingestion/fetch_pems_roads.py --mode live        # live API (needs login)
-    python ingestion/fetch_pems_roads.py --mode stations    # station metadata only
+    python models/baselines/fetch_pems_roads.py --mode pems_bay    # ML-ready dataset
+    python models/baselines/fetch_pems_roads.py --mode live        # live API (needs login)
+    python models/baselines/fetch_pems_roads.py --mode stations    # station metadata only
 """
 
 from __future__ import annotations
@@ -79,21 +79,24 @@ def fetch_pems_bay_dataset() -> pd.DataFrame:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     cache = RAW_DIR / "pems_bay_raw.csv"
 
-    if cache.exists():
-        log.info(f"Loading cached PEMS-BAY dataset from {cache}")
-        df = pd.read_csv(cache, index_col=0, parse_dates=True)
-    else:
-        log.info(f"Downloading PEMS-BAY dataset from GitHub …")
-        try:
+    try:
+        if cache.exists():
+            log.info(f"Loading cached PEMS-BAY dataset from {cache}")
+            df = pd.read_csv(cache, index_col=0, parse_dates=True)
+        else:
+            log.info(f"Downloading PEMS-BAY dataset from GitHub …")
             resp = requests.get(PEMS_BAY_URL, timeout=120, stream=True)
             resp.raise_for_status()
             cache.write_bytes(resp.content)
             log.info(f"  Downloaded {len(resp.content)/1e6:.1f} MB → {cache}")
             df = pd.read_csv(cache, index_col=0, parse_dates=True)
-        except Exception as e:
-            log.error(f"PEMS-BAY download failed: {e}")
-            log.info("Falling back to synthetic road data for development …")
-            return _synthetic_road_data()
+    except Exception as e:
+        log.error(f"PEMS-BAY dataset unavailable: {e}")
+        if cache.exists():
+            log.info(f"Removing unreadable cache file {cache}")
+            cache.unlink()
+        log.info("Falling back to synthetic road data for development …")
+        return _synthetic_road_data()
 
     # Melt from wide (sensors as columns) to long format
     df.index.name = "timestamp"
