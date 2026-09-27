@@ -607,8 +607,15 @@ def main():
     # for the same fix.
     events = pd.DataFrame()
     event_files = sorted(events_path.glob("events_*.parquet"), key=lambda p: p.stat().st_mtime)
-    if event_files:
-        events = pd.concat([pd.read_parquet(f) for f in event_files], ignore_index=True)
+    event_frames = []
+    for f in event_files:
+        try:
+            event_frames.append(pd.read_parquet(f))
+        except Exception as e:
+            log.warning(f"  Unreadable events file {f.name} ({e}) — removing and skipping")
+            f.unlink(missing_ok=True)
+    if event_frames:
+        events = pd.concat(event_frames, ignore_index=True)
         events["timestamp_start"] = pd.to_datetime(events["timestamp_start"])
         dedup_keys = [c for c in ("timestamp_start", "venue", "event_name") if c in events.columns]
         if dedup_keys:

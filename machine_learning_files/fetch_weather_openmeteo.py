@@ -207,9 +207,13 @@ def fetch_historical_all_stations(
         out_path = RAW_DIR / f"weather_{station_name}_{start}_{end}.parquet"
 
         if out_path.exists():
-            log.info(f"Already exists: {out_path.name} — skipping")
-            all_frames.append(pd.read_parquet(out_path))
-            continue
+            try:
+                log.info(f"Already exists: {out_path.name} — skipping")
+                all_frames.append(pd.read_parquet(out_path))
+                continue
+            except Exception as e:
+                log.warning(f"  Unreadable cache file {out_path.name} ({e}); re-fetching")
+                out_path.unlink()
 
         log.info(f"Fetching historical weather for {station_name} ({lat}, {lng}) …")
         try:

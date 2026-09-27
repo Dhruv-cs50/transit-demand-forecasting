@@ -297,7 +297,15 @@ if _FASTAPI_AVAILABLE:
 
     @app.get("/stations", response_model=StationsResponse)
     def list_stations():
-        df = get_feature_store()
+        # get_feature_store() raises RuntimeError when the parquet is missing
+        # (e.g. a fresh checkout before the pipeline has run). /forecast maps
+        # that to a 503 with a helpful detail message; this endpoint used to
+        # leave it uncaught, so FastAPI's default handler turned it into a
+        # bare, non-JSON 500 instead of the same structured error.
+        try:
+            df = get_feature_store()
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=str(e))
         stations = sorted(df["station_id"].unique().tolist())
         return {"stations": stations, "count": len(stations)}
 

@@ -421,16 +421,32 @@ def run_benchmarks(
                     dm_results.append(dm)
 
     # ── Print report ───────────────────────────────────────────────────────────
+    # 2026-09-24 wired MASE into compute_metrics()'s output rows (so
+    # `leaderboard` genuinely carries a "MASE" column here), but never updated
+    # this console table or the LaTeX table below to display it -- the module's
+    # own docstring promises "Leaderboard table (WAPE, MAE, RMSE, MAPE, MASE)",
+    # yet the actual printed leaderboard and report-ready LaTeX table silently
+    # dropped the one metric that matches the project's own eval_metric
+    # (configs/model.yaml's finetune.eval_metric: "MASE"). Only the raw
+    # benchmark_leaderboard.csv (saved with all columns) ever carried it.
+    has_mase = "MASE" in leaderboard.columns
     print(f"\n{'═'*70}")
     print("  MODEL BENCHMARK LEADERBOARD")
     print(f"{'═'*70}")
-    print(f"\n{'Rank':<6}{'Model':<25}{'WAPE%':>8}{'MAE':>10}{'RMSE':>10}{'MAPE%':>9}{'Cov%':>8}")
+    header = f"\n{'Rank':<6}{'Model':<25}{'WAPE%':>8}{'MAE':>10}{'RMSE':>10}{'MAPE%':>9}{'Cov%':>8}"
+    if has_mase:
+        header += f"{'MASE':>8}"
+    print(header)
     print(f"{'─'*76}")
     for rank, row in leaderboard.iterrows():
         marker = " ← best" if rank == 1 else ""
-        print(f"  {rank:<4}{row['model']:<25}{row['WAPE_%']:>7.1f}%"
-              f"{row['MAE']:>10.0f}{row['RMSE']:>10.0f}"
-              f"{row['MAPE_%']:>8.1f}%{row['Coverage_%']:>7.1f}%{marker}")
+        line = (f"  {rank:<4}{row['model']:<25}{row['WAPE_%']:>7.1f}%"
+                f"{row['MAE']:>10.0f}{row['RMSE']:>10.0f}"
+                f"{row['MAPE_%']:>8.1f}%{row['Coverage_%']:>7.1f}%")
+        if has_mase:
+            mase_val = row.get("MASE")
+            line += f"{mase_val:>8.3f}" if pd.notna(mase_val) else f"{'n/a':>8}"
+        print(line + marker)
 
     if dm_results:
         print(f"\n{'─'*70}")
@@ -441,7 +457,10 @@ def run_benchmarks(
             print(f"  vs {dm['model_a']:<20} p={dm['p_value']:.4f}  {sig}")
 
     # ── Latex table ────────────────────────────────────────────────────────────
-    latex = leaderboard[["model","WAPE_%","MAE","RMSE","MAPE_%","Coverage_%"]].to_latex(
+    latex_cols = ["model","WAPE_%","MAE","RMSE","MAPE_%","Coverage_%"]
+    if has_mase:
+        latex_cols.append("MASE")
+    latex = leaderboard[latex_cols].to_latex(
         index=True,
         float_format="%.2f",
         caption="Model comparison on Bay Area transit test set (2025)",
