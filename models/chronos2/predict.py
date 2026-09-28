@@ -649,7 +649,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Run production forecast")
     parser.add_argument("--station",  default="EMBR",  help="Station ID")
-    parser.add_argument("--horizon",  type=int, default=24, help="Forecast horizon (hours)")
+    parser.add_argument("--horizon",  type=int, default=None, help="Forecast horizon (hours). Default: from config.")
     parser.add_argument("--all",      action="store_true", help="Forecast all stations")
     parser.add_argument("--output",   default=None, help="Output parquet path")
     args = parser.parse_args()
@@ -681,7 +681,8 @@ def main():
             lift = predictor.ridership_lift(args.station, preds)
             print(f"\n{'─'*50}")
             print(f"Station  : {args.station}")
-            print(f"Horizon  : {args.horizon}h | Steps: {len(preds)}")
+            horizon_label = f"{args.horizon}h" if args.horizon is not None else "config default"
+            print(f"Horizon  : {horizon_label} | Steps: {len(preds)}")
             print(f"Mode     : {preds['model_mode'].iloc[0]}")
             # lift.get(...) falls back to the string "N/A" when ridership_lift()
             # returned {} (e.g. no station data) — feeding that straight into the

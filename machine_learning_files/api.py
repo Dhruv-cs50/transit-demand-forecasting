@@ -199,6 +199,13 @@ def _run_forecast(
         # context-window comparisons in prepare_context() raise TypeError.
         try:
             as_of = pd.Timestamp(as_of)
+            if pd.isna(as_of):
+                # pd.Timestamp("") / "NaT" / "nan" parse successfully to NaT
+                # instead of raising -- left unchecked, comparisons against a
+                # NaT anchor in prepare_context() (`<= as_of` / `> as_of`) are
+                # all-False, silently producing an empty context/future window
+                # instead of a clean error.
+                raise ValueError(f"as_of parsed to NaT: {as_of!r}")
         except ValueError as e:
             # pandas raises a ValueError subclass (DateParseError) for an
             # unparseable as_of string. Left uncaught, that ValueError falls

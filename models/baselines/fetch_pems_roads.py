@@ -196,10 +196,14 @@ class PeMSClient:
         while cur <= end:
             out = RAW_DIR / f"pems_d{district}_{cur.strftime('%Y_%m_%d')}.parquet"
             if out.exists():
-                log.info(f"  Already downloaded: {out.name}")
-                all_frames.append(pd.read_parquet(out))
-                cur += __import__("datetime").timedelta(days=1)
-                continue
+                try:
+                    log.info(f"  Already downloaded: {out.name}")
+                    all_frames.append(pd.read_parquet(out))
+                    cur += __import__("datetime").timedelta(days=1)
+                    continue
+                except Exception as e:
+                    log.error(f"  Cached file {out.name} is unreadable ({e}); removing and re-fetching")
+                    out.unlink(missing_ok=True)
 
             log.info(f"  Downloading PeMS data for {cur} …")
             try:
