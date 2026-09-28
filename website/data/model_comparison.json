@@ -1,6 +1,6 @@
 [
   {
-    "model": "AutoETS (AutoGluon)",
+    "model": "AutoGluon_Ensemble",
     "MAE": 46783.0,
     "MAPE_pct": null,
     "WAPE_pct": 14.2,
