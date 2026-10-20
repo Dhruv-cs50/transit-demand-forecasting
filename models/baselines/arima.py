@@ -259,6 +259,14 @@ def run_arima_all_stations(
         horizon_steps = int(horizon_hrs * steps_per_hour)
 
     train_df = df[df["timestamp"] <= cutoff]
+    # Honour the configured training start, as the benchmark harness does when
+    # it builds its own train_df. Differencing makes SARIMA far less sensitive
+    # to the 2019 -> 2022 level break than Prophet, but training on a window
+    # the config excludes is wrong regardless.
+    train_start = cfg["data"].get("train_start")
+    if train_start:
+        train_df = train_df[train_df["timestamp"] >= _as_local_ts(train_start)]
+
     stations = df["station_id"].unique()
     all_preds = []
 
