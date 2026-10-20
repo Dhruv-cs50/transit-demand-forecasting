@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -61,6 +62,18 @@ def resolve_csv() -> Path | None:
 # merge_pipeline.load_bart() groups on these, so all four must be present.
 REQUIRED = ["period", "origin", "origin_name", "riders"]
 
+# BART station codes are two-to-four letters, plus four numeric ones (12th St,
+# 16th St Mission, 19th St, 24th St Mission). bart_clean.csv also carries rows
+# whose origin column holds stray numbers ("0.5", "103", "13.5"); load_bart()
+# only filters on length, so those would survive as 53 phantom stations
+# alongside the 50 real ones.
+STATION_CODE_RE = re.compile(r"^[A-Z]{2,4}$")
+NUMERIC_STATION_CODES = {"12", "16", "19", "24"}
+
+
+def is_station_code(code: str) -> bool:
+    return bool(STATION_CODE_RE.match(code)) or code in NUMERIC_STATION_CODES
+
 
 def build(csv_path: Path, out_dir: Path, start: int, end: int) -> int:
     if not csv_path.exists():
@@ -84,6 +97,13 @@ def build(csv_path: Path, out_dir: Path, start: int, end: int) -> int:
     for col in ("origin", "destination"):
         if col in df.columns:
             df[col] = df[col].str.replace(r"^(\d+)\.0$", r"\1", regex=True)
+
+    keep = df["origin"].map(is_station_code)
+    dropped_codes = df.loc[~keep, "origin"].nunique()
+    if dropped_codes:
+        log.info(f"Dropping {dropped_codes} non-station origin codes "
+                 f"({(~keep).sum():,} rows)")
+    df = df[keep]
 
     df["riders"] = pd.to_numeric(df["riders"], errors="coerce")
     bad_riders = df["riders"].isna().sum()
