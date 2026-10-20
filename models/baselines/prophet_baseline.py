@@ -158,6 +158,9 @@ def predict_station(
     if not future_df.empty:
         future_df_copy = future_df.copy()
         future_df_copy["ds"] = pd.to_datetime(future_df_copy["timestamp"]).dt.tz_localize(None)
+        # One row per ds: a duplicated ds would multiply `future`'s rows on
+        # merge and desync it from future_dates.
+        future_df_copy = future_df_copy.drop_duplicates(subset=["ds"], keep="first")
         for reg in regressors:
             if reg in future_df_copy.columns:
                 future = future.merge(
@@ -221,6 +224,16 @@ def run_prophet_all_stations(
         horizon_steps  = int(horizon_hrs * steps_per_hour)
 
     train_df = df[df["timestamp"] <= cutoff]
+    # Honour the configured training start. Without it Prophet trains from the
+    # first row in the feature store, which for BART spans the 2019 -> 2022
+    # discontinuity (~837k -> ~296k monthly riders per station, with 2020-21
+    # absent). A smooth trend fitted across that break anchors the forecast far
+    # above the post-2020 level. SARIMA survives the same data because
+    # differencing re-anchors it to the recent level; Prophet does not.
+    train_start = cfg["data"].get("train_start")
+    if train_start:
+        train_df = train_df[train_df["timestamp"] >= _as_local_ts(train_start)]
+
     future_df = df[df["timestamp"] > cutoff]
 
     stations = df["station_id"].unique()
