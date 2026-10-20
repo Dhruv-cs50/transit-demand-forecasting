@@ -46,8 +46,17 @@ logging.basicConfig(
 )
 log = logging.getLogger("bart_od_from_csv")
 
-CSV_PATH = Path("data/bart_clean.csv")
+# transit_eda/data/ is the tracked location; data/ is where some working copies
+# keep it. Checked in order so a clean checkout works without arguments.
+CSV_CANDIDATES = [
+    Path("transit_eda/data/bart_clean.csv"),
+    Path("data/bart_clean.csv"),
+]
 OUT_DIR = Path("data/raw/transit/bart")
+
+
+def resolve_csv() -> Path | None:
+    return next((p for p in CSV_CANDIDATES if p.exists()), None)
 
 # merge_pipeline.load_bart() groups on these, so all four must be present.
 REQUIRED = ["period", "origin", "origin_name", "riders"]
@@ -121,13 +130,20 @@ def build(csv_path: Path, out_dir: Path, start: int, end: int) -> int:
 
 def main():
     p = argparse.ArgumentParser(description="Build BART OD parquets from bart_clean.csv")
-    p.add_argument("--csv", default=str(CSV_PATH))
+    p.add_argument("--csv", default=None, help="defaults to the first of "
+                   + ", ".join(str(c) for c in CSV_CANDIDATES) + " that exists")
     p.add_argument("--out", default=str(OUT_DIR))
     p.add_argument("--start", type=int, default=2019)
     p.add_argument("--end", type=int, default=pd.Timestamp.now().year)
     args = p.parse_args()
 
-    written = build(Path(args.csv), Path(args.out), args.start, args.end)
+    csv_path = Path(args.csv) if args.csv else resolve_csv()
+    if csv_path is None:
+        log.error("bart_clean.csv not found in "
+                  + ", ".join(str(c) for c in CSV_CANDIDATES))
+        sys.exit(1)
+
+    written = build(csv_path, Path(args.out), args.start, args.end)
     if written == 0:
         # Unlike fetch_bart_od.py, do not exit 0 having produced nothing.
         log.error("No files written")
