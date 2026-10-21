@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -102,6 +103,35 @@ def seasonal_naive_forecast(
 
 
 # ── Metrics computation ────────────────────────────────────────────────────────
+
+# A model predicting a flat zero scores WAPE 100%. Anything worse has
+# diverged, and no diverged fit belongs on a published leaderboard: the
+# original 176.3% Prophet figure and a 29,423% SARIMA fit were both ranked as
+# ordinary results because nothing checked whether the output was plausible.
+MAX_PLAUSIBLE_WAPE = float(os.environ.get("MAX_PLAUSIBLE_WAPE", "100"))
+
+
+def accept_model_rows(rows: list[dict], model_name: str) -> list[dict]:
+    """Keep a model's metrics only if its overall WAPE is physically sensible.
+
+    Rejected models are reported loudly and left off the leaderboard. They are
+    a failure to investigate, not a ranking to publish.
+    """
+    overall = next((r for r in rows if r.get("slice") == "overall"), None)
+    if overall is None:
+        return rows
+
+    wape_pct = overall.get("WAPE_%")
+    if wape_pct is not None and wape_pct > MAX_PLAUSIBLE_WAPE:
+        log.error(
+            f"  {model_name} REJECTED: WAPE {wape_pct:,.1f}% exceeds "
+            f"{MAX_PLAUSIBLE_WAPE:.0f}%, so it is worse than forecasting a "
+            f"flat zero — the fit has diverged. Excluded from the leaderboard; "
+            f"diagnose before reporting it."
+        )
+        return []
+    return rows
+
 
 def compute_metrics(
     actuals: pd.DataFrame,
@@ -276,6 +306,7 @@ def run_benchmarks(
     if not naive_preds.empty:
         model_preds["SeasonalNaive"] = naive_preds
         rows = compute_metrics(test_df, naive_preds, "SeasonalNaive")
+        rows = accept_model_rows(rows, "SeasonalNaive")
         all_rows.extend(rows)
         log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
 
@@ -290,6 +321,7 @@ def run_benchmarks(
             if not arima_preds.empty:
                 model_preds["SARIMA"] = arima_preds
                 rows = compute_metrics(test_df, arima_preds, "SARIMA")
+                rows = accept_model_rows(rows, "SARIMA")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -305,6 +337,7 @@ def run_benchmarks(
             if not prophet_preds.empty:
                 model_preds["Prophet"] = prophet_preds
                 rows = compute_metrics(test_df, prophet_preds, "Prophet")
+                rows = accept_model_rows(rows, "Prophet")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -342,6 +375,7 @@ def run_benchmarks(
         elif not zs_preds.empty:
             model_preds["Chronos2_ZeroShot"] = zs_preds
             rows = compute_metrics(test_df, zs_preds, "Chronos2_ZeroShot")
+            rows = accept_model_rows(rows, "Chronos2_ZeroShot")
             all_rows.extend(rows)
             log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
     except Exception as e:
@@ -362,6 +396,7 @@ def run_benchmarks(
             if not ft_preds.empty:
                 model_preds["AutoGluon_Ensemble"] = ft_preds
                 rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble")
+                rows = accept_model_rows(rows, "AutoGluon_Ensemble")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
