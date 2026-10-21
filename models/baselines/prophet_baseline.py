@@ -1,20 +1,18 @@
 """
-models/baselines/prophet.py
-────────────────────────────
+models/baselines/prophet_baseline.py
+────────────────────────────────────
 Prophet baseline for Bay Area transit ridership forecasting.
 
-Prophet handles three things natively that matter for this project:
-  - Multiple seasonalities (daily commute + weekly weekend pattern)
-  - Holidays (US/CA public holidays)
-  - Regressors (rain intensity, is_game_day as external covariates)
+Trend, yearly seasonality and US federal holidays, fitted per station on the
+month-start ridership target. Deliberately no external regressors — see
+fit_station() for the measurements behind that.
 
-This gives us a strong classical baseline. If Chronos-2 can't beat
-Prophet on game nights and rainy days, the neural model isn't earning
-its complexity — and we need to know that.
+This gives us a strong classical baseline to hold the neural models against:
+if Chronos-2 cannot beat it, the extra complexity is not earning its place.
 
 Usage:
-    python models/baselines/prophet.py
-    python models/baselines/prophet.py --station EMBR --horizon 24
+    python models/baselines/prophet_baseline.py
+    python models/baselines/prophet_baseline.py --station EMBR --horizon 24
 """
 
 from __future__ import annotations
@@ -66,11 +64,13 @@ def fit_station(
     """
     Fit a Prophet model for a single station.
 
-    Regressors added:
-      - precip_intensity : rain bucket 0–4 (nonlinear weather signal)
-      - is_game_day      : binary event flag
-      - is_sharks_game   : Sharks-specific spike
-      - is_holiday       : CA public holiday
+    No external regressors: on the month-start BART target they cost 23 WAPE
+    points (15.9% -> 39.1% on the test window), measured against the rebuilt
+    feature store. Twelve training points per station cannot identify six
+    regressor coefficients alongside a trend and yearly seasonality, and three
+    of the six (is_game_day, is_sharks_game, is_sharks_game_window) are
+    constant zero whenever events data is unavailable. Holidays are still
+    passed through Prophet's own `holidays` argument.
 
     Returns (model, train_df) tuple.
     """
@@ -87,22 +87,7 @@ def fit_station(
     train["y"]  = train["ridership"].clip(lower=0)
     train = train.dropna(subset=["y"])
 
-    # Build regressor list from available columns. BART OD is monthly, so the
-    # event signal is a month-level count/flag rather than an hourly window.
-    regressors = []
-    for col in [
-        "precip_intensity",
-        "precip_mm",
-        "is_game_day",
-        "is_sharks_game",
-        "is_sharks_game_window",
-        "is_holiday",
-    ]:
-        if col in train.columns:
-            train[col] = train[col].astype(float).fillna(0)
-            regressors.append(col)
-
-    log.info(f"  Station {station_id}: {len(train):,} rows | regressors: {regressors}")
+    log.info(f"  Station {station_id}: {len(train):,} rows")
 
     holidays_df = make_holiday_df("2019-01-01", "2027-01-01")
 
@@ -126,55 +111,25 @@ def fit_station(
         uncertainty_samples = 200,
     )
 
-    # Add regressors
-    for reg in regressors:
-        model.add_regressor(reg, standardize=True)
-
-    model.fit(train[["ds", "y"] + regressors])
-    return model, train, regressors
+    model.fit(train[["ds", "y"]])
+    return model, train
 
 
 def predict_station(
     model,
-    future_df: pd.DataFrame,
-    regressors: list[str],
     horizon_steps: int,
     last_ds: pd.Timestamp,
     freq: str,
 ) -> pd.DataFrame:
     """
     Run Prophet prediction for `horizon_steps` steps beyond `last_ds`.
-    Attaches future regressor values from future_df if available.
     """
-    # Build future DataFrame
     future_dates = pd.date_range(
         start=last_ds + pd.tseries.frequencies.to_offset(freq),
         periods=horizon_steps,
         freq=freq,
     )
-    future = pd.DataFrame({"ds": future_dates})
-
-    # Attach regressor values from future_df
-    if not future_df.empty:
-        future_df_copy = future_df.copy()
-        future_df_copy["ds"] = pd.to_datetime(future_df_copy["timestamp"]).dt.tz_localize(None)
-        # One row per ds: a duplicated ds would multiply `future`'s rows on
-        # merge and desync it from future_dates.
-        future_df_copy = future_df_copy.drop_duplicates(subset=["ds"], keep="first")
-        for reg in regressors:
-            if reg in future_df_copy.columns:
-                future = future.merge(
-                    future_df_copy[["ds", reg]],
-                    on="ds", how="left"
-                )
-                future[reg] = future[reg].fillna(0).astype(float)
-            else:
-                future[reg] = 0.0
-    else:
-        for reg in regressors:
-            future[reg] = 0.0
-
-    forecast = model.predict(future)
+    forecast = model.predict(pd.DataFrame({"ds": future_dates}))
 
     # Build output with P10/P50/P90
     result = pd.DataFrame({
@@ -234,7 +189,6 @@ def run_prophet_all_stations(
     if train_start:
         train_df = train_df[train_df["timestamp"] >= _as_local_ts(train_start)]
 
-    future_df = df[df["timestamp"] > cutoff]
 
     stations = df["station_id"].unique()
     all_preds = []
@@ -242,18 +196,15 @@ def run_prophet_all_stations(
     for station_id in stations:
         log.info(f"\nFitting Prophet for station: {station_id}")
         station_train = train_df[train_df["station_id"] == station_id]
-        station_future = future_df[future_df["station_id"] == station_id]
 
         if len(station_train) < 3:   # need at least 3 data points
             log.warning(f"  Skipping {station_id} — not enough training data")
             continue
 
         try:
-            model, _, regressors = fit_station(station_train, station_id, cfg)
+            model, _ = fit_station(station_train, station_id, cfg)
             last_ds = pd.to_datetime(station_train["timestamp"].max()).tz_localize(None)
-            preds = predict_station(
-                model, station_future, regressors, horizon_steps, last_ds, freq
-            )
+            preds = predict_station(model, horizon_steps, last_ds, freq)
             preds["station_id"] = station_id
             preds["model"]      = "Prophet"
             all_preds.append(preds)
