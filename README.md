@@ -50,6 +50,7 @@ These values come from `website/data/model_comparison.json`. Re-run the pipeline
 |-- machine_learning_files/
 |   |-- fetch_511_transit.py       # 511 SF Bay transit feed ingestion
 |   |-- fetch_bart_od.py           # BART OD ridership report ingestion
+|   |-- bart_od_from_csv.py        # Offline BART OD parquet builder from bart_clean.csv
 |   |-- fetch_weather_openmeteo.py # Open-Meteo station weather ingestion
 |   |-- fetch_events.py            # NHL and Ticketmaster event ingestion
 |   |-- merge_pipeline.py          # raw sources -> feature_store.parquet + splits
@@ -346,7 +347,7 @@ Additional project documentation:
 | --- | --- |
 | `Feature store not found` | Run `python machine_learning_files/merge_pipeline.py`. |
 | `feature_store_enriched.parquet` missing | Run `python Processing/feature_engineering.py`. |
-| `No BART OD files found` | Run `python machine_learning_files/fetch_bart_od.py` or place BART parquet files in `data/raw/transit/bart/`. |
+| `No BART OD files found` | Run `python machine_learning_files/fetch_bart_od.py` (or `bart_od_from_csv.py` if bart.gov is blocked) or place BART parquet files in `data/raw/transit/bart/`. |
 | AutoGluon import/install failures | Recreate the environment with Python 3.11. |
 | Chronos device errors | Change `chronos2.device` in `configs/model.yaml`. |
 | Website shows stale data | Re-run `scripts/export_website_data.py` before deploying. |
