@@ -45,6 +45,11 @@ finetune:
 # ── Prophet baseline ──────────────────────────────────────────────────────────
 prophet:
   yearly_seasonality: true
+  # Fourier terms for the yearly cycle. Prophet's own default when
+  # yearly_seasonality is simply `true` is 10, which is 20 regressors — far too
+  # many for ~30 monthly observations per station, and it collapses the
+  # prediction interval. Raise only with substantially more history.
+  yearly_fourier_order: 4
   weekly_seasonality: false
   daily_seasonality: false
   changepoint_prior_scale: 0.05   # flexibility of trend — low = smooth
