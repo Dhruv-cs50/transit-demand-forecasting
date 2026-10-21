@@ -19,19 +19,27 @@ Produces:
 This is what powers the "MAPE 11.8%" number on your website hero.
 
 Usage:
-    python evaluation/benchmarks.py
-    python evaluation/benchmarks.py --quick   # skip slow baselines
+    python models/baselines/benchmarks.py
+    python models/baselines/benchmarks.py --quick   # skip slow baselines
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import yaml
+
+# Run as a script, sys.path[0] is models/baselines/, so sibling top-level
+# packages are not importable and `from evaluation.metrics import ...` raises
+# ModuleNotFoundError before anything executes. run_pipeline.sh invokes this
+# file exactly that way, so step 6 never produced a leaderboard — which is why
+# export_website_data.py kept taking its validation-split fallback.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from evaluation.metrics import wape, mae, rmse, mape, smape, coverage
 
@@ -318,7 +326,20 @@ def run_benchmarks(
             output_path=EVAL_DIR / "chronos2_zeroshot_preds.parquet",
             force_mode="zeroshot",
         )
-        if not zs_preds.empty:
+        # Predictor falls back to seasonal naive when Chronos cannot be
+        # imported, and returns those forecasts without raising. Publishing
+        # them as "Chronos2_ZeroShot" puts a foundation-model result on the
+        # leaderboard that was never computed — and it outranked the real
+        # baselines when this was last run with `chronos` missing.
+        actual_mode = getattr(predictor, "mode", None)
+        if actual_mode != "zeroshot":
+            log.error(
+                f"  Chronos-2 zero-shot did NOT run (backend mode="
+                f"{actual_mode!r}); install `chronos-forecasting` to benchmark "
+                f"it. Omitting from the leaderboard rather than attributing "
+                f"fallback forecasts to Chronos."
+            )
+        elif not zs_preds.empty:
             model_preds["Chronos2_ZeroShot"] = zs_preds
             rows = compute_metrics(test_df, zs_preds, "Chronos2_ZeroShot")
             all_rows.extend(rows)
@@ -395,21 +416,30 @@ def run_benchmarks(
             sig = "✅ significant" if dm.get("significant_at_5pct") else "— not significant"
             print(f"  vs {dm['model_a']:<20} p={dm['p_value']:.4f}  {sig}")
 
-    # ── Latex table ────────────────────────────────────────────────────────────
-    latex = leaderboard[["model","WAPE_%","MAE","RMSE","MAPE_%","Coverage_%"]].to_latex(
-        index=True,
-        float_format="%.2f",
-        caption="Model comparison on Bay Area transit test set (2025)",
-        label="tab:benchmark",
-    )
-
     # ── Save ───────────────────────────────────────────────────────────────────
+    # The leaderboard is written first and on its own. It is the artifact
+    # export_website_data.py reads to build the published comparison table, and
+    # it used to be written after the LaTeX export below — so a missing jinja2
+    # (an optional pandas dependency needed only for the paper table) took the
+    # whole run down and left no leaderboard behind.
     results_df.to_csv(EVAL_DIR / "benchmark_results.csv", index=False)
     leaderboard.to_csv(EVAL_DIR / "benchmark_leaderboard.csv")
-    (EVAL_DIR / "benchmark_latex.tex").write_text(latex)
+    log.info(f"Leaderboard saved → {EVAL_DIR / 'benchmark_leaderboard.csv'}")
 
     if dm_results:
         pd.DataFrame(dm_results).to_csv(EVAL_DIR / "diebold_mariano.csv", index=False)
+
+    # ── Latex table (cosmetic; never fatal) ────────────────────────────────────
+    try:
+        latex = leaderboard[["model", "WAPE_%", "MAE", "RMSE", "MAPE_%", "Coverage_%"]].to_latex(
+            index=True,
+            float_format="%.2f",
+            caption="Model comparison on Bay Area transit test set",
+            label="tab:benchmark",
+        )
+        (EVAL_DIR / "benchmark_latex.tex").write_text(latex)
+    except ImportError as e:
+        log.warning(f"Skipping LaTeX table ({e}); leaderboard CSV is unaffected")
 
     log.info(f"\nAll benchmark outputs saved → {EVAL_DIR}/")
     return results_df

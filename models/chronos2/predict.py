@@ -76,6 +76,17 @@ class Predictor:
         self._mode       = None   # "finetuned" | "zeroshot" | "naive"
         self._initialised = True
 
+    @property
+    def mode(self) -> str | None:
+        """Which backend actually produced the most recent forecasts.
+
+        "naive" means neither the fine-tuned predictor nor Chronos could be
+        loaded and the seasonal-naive fallback ran instead. Callers that
+        attribute results to a named model must check this: the fallback is
+        silent by design, so forecasts come back looking normal.
+        """
+        return self._mode
+
     # ── Feature store ──────────────────────────────────────────────────────────
 
     def get_feature_store(self) -> pd.DataFrame:
