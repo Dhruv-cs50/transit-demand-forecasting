@@ -13,9 +13,18 @@ data:
   # train: everything up to train_end
   # val  : train_end < ts <= val_end
   # test : ts > val_end
-  train_start: "2021-01-01"  # first continuous BART OD month available in current feature store
-  train_end: "2022-12-31"   # train: Jan 2021-Dec 2022
-  val_end:   "2023-06-30"   # val: Jan–Jun 2023 | test: Jul–Dec 2023
+  # Windows sit entirely after the 2020 ridership collapse. The feature store
+  # jumps 2019 -> 2022 (no 2020-21 data at all), so training that starts
+  # earlier straddles a ~2.8x level break. 2024 became available once
+  # bart_od_from_csv.py could rebuild the store, which is what allows these
+  # windows to move forward and still leave 24 training months.
+  train_start: "2022-01-01"
+  train_end: "2023-12-31"   # train: Jan 2022 - Dec 2023 (24 months)
+  val_end:   "2024-06-30"   # val: Jan-Jun 2024 | test: Jul-Dec 2024
+  # Test spans 6 months, matching forecast_horizon_steps below, so every
+  # model is scored over the same window. Previously the test split ran 18
+  # months while the baselines forecast 6, so SeasonalNaive was scored on
+  # 852 rows against Prophet's 300 and the ranking was not like-for-like.
 
 # ── Chronos-2 ─────────────────────────────────────────────────────────────────
 chronos2:

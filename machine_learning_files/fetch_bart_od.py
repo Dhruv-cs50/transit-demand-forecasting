@@ -16,6 +16,7 @@ Usage:
 import argparse
 import io
 import logging
+import sys
 import time
 from pathlib import Path
 
@@ -195,8 +196,12 @@ def parse_bart_od_excel(content: bytes, year: int, month: int) -> pd.DataFrame:
     return result
 
 
-def fetch_all(start_year: int, end_year: int) -> None:
-    """Download and save all months in the given year range."""
+def fetch_all(start_year: int, end_year: int) -> int:
+    """Download and save all months in the given year range.
+
+    Returns the number of months actually obtained, so the caller can fail
+    rather than report success after downloading nothing.
+    """
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     all_frames = []
 
@@ -228,6 +233,8 @@ def fetch_all(start_year: int, end_year: int) -> None:
         log.info(f"\nConsolidated dataset: {len(combined):,} rows → {out}")
         print(combined.describe())
 
+    return len(all_frames)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Download BART OD ridership data")
@@ -239,7 +246,22 @@ def parse_args():
 def main():
     args = parse_args()
     log.info(f"Fetching BART OD ridership from {args.start} to {args.end}")
-    fetch_all(args.start, args.end)
+    months = fetch_all(args.start, args.end)
+    if months == 0:
+        # bart.gov sits behind a Cloudflare bot challenge and answers every
+        # candidate URL with HTTP 403 and a JavaScript interstitial. Exiting 0
+        # here previously reported success while the pipeline was left with no
+        # ridership data at all, which is how an unreproducible benchmark
+        # reached the published site.
+        log.error(
+            "No BART OD months were downloaded. bart.gov may be blocking "
+            "automated requests (HTTP 403 + bot challenge). Fetch the "
+            "workbooks manually into data/raw/transit/bart/, or build the "
+            "monthly parquets from the checked-in CSV:\n"
+            "    python machine_learning_files/bart_od_from_csv.py"
+        )
+        sys.exit(1)
+    log.info(f"Obtained {months} month(s) of BART OD data")
 
 
 if __name__ == "__main__":
