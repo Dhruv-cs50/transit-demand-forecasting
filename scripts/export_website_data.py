@@ -26,6 +26,9 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("export_website_data")
 
+# Set by --allow-val-fallback. Off by default: see export_model_comparison().
+ALLOW_FALLBACK = False
+
 # Mapping from BART 4-letter station codes (machine_learning_files/fetch_bart_od.py's
 # STATION_NAMES — the actual `station_id` values produced by merge_pipeline.py) →
 # website station IDs used in website/transit-demo.html's station array.
@@ -242,16 +245,41 @@ def export_model_comparison(out_dir: Path) -> None:
                 "WAPE_pct": round(float(row["WAPE_%"]), 1) if pd.notna(row["WAPE_%"]) else None,
                 "Coverage_pct": round(float(row["Coverage_%"]), 1) if "Coverage_%" in row and pd.notna(row["Coverage_%"]) else None,
                 "n_predictions": int(row["n"]) if "n" in row and pd.notna(row["n"]) else None,
+                # Which code path produced this row. The two paths score
+                # different splits, so a number is meaningless without it.
+                "source": "benchmark_leaderboard",
+                "scored_split": "test",
             })
         with open(out_dir / "model_comparison.json", "w") as f:
             json.dump(comparison, f, indent=2)
         log.info(f"model_comparison.json → {out_dir / 'model_comparison.json'}  ({len(comparison)} models from benchmark leaderboard)")
         return
 
+    # No leaderboard means benchmarks.py did not complete. The branch below
+    # scores whatever forecast parquets happen to be on disk against the
+    # VALIDATION split, while the leaderboard scores the TEST split — so the
+    # two paths are not interchangeable, and silently taking this one is how
+    # Prophet's unreproducible 176.3% WAPE reached the published site and sat
+    # there for five months. Require it to be asked for explicitly.
+    if not ALLOW_FALLBACK:
+        log.error(
+            "evaluation/outputs/benchmark_leaderboard.csv not found — "
+            "benchmarks.py has not produced a leaderboard.\n"
+            "  Run: python models/baselines/benchmarks.py\n"
+            "  The fallback path scores saved forecasts against the VALIDATION "
+            "split rather than the test split, so its numbers are not "
+            "comparable to a leaderboard run. To use it anyway, pass "
+            "--allow-val-fallback."
+        )
+        raise SystemExit(1)
+
+    log.warning("Using validation-split fallback — numbers are NOT comparable "
+                "to a benchmarks.py leaderboard run")
+
     actuals_path = Path("data/processed/splits/val.parquet")
     if not actuals_path.exists():
-        log.warning("No val split — skipping model_comparison.json")
-        return
+        log.error("No val split either — cannot write model_comparison.json")
+        raise SystemExit(1)
     actuals = pd.read_parquet(actuals_path)
     actuals["timestamp"] = pd.to_datetime(actuals["timestamp"])
     _ts = actuals["timestamp"].dt.tz_localize(None) if actuals["timestamp"].dt.tz is not None else actuals["timestamp"]
@@ -290,6 +318,8 @@ def export_model_comparison(out_dir: Path) -> None:
             "MAPE_pct": round(mape, 1) if math.isfinite(mape) else None,
             "WAPE_pct": round(wape, 1) if math.isfinite(wape) else None,
             "n_predictions": len(merged),
+            "source": "val_split_fallback",
+            "scored_split": "val",
         })
     with open(out_dir / "model_comparison.json", "w") as f:
         json.dump(comparison, f, indent=2)
@@ -308,7 +338,18 @@ def main():
         default="website/data",
         help="Output directory for JSON files",
     )
+    parser.add_argument(
+        "--allow-val-fallback",
+        action="store_true",
+        help="Permit scoring saved forecasts against the validation split when "
+             "no benchmark leaderboard exists. Those numbers are not comparable "
+             "to a benchmarks.py run; off by default so a missing leaderboard "
+             "fails instead of publishing silently.",
+    )
     args = parser.parse_args()
+
+    global ALLOW_FALLBACK
+    ALLOW_FALLBACK = args.allow_val_fallback
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
