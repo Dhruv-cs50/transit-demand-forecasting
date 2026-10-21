@@ -29,7 +29,16 @@ import numpy as np
 import pandas as pd
 import yaml
 
-warnings.filterwarnings("ignore")
+# Quieten statsmodels' routine chatter, but never convergence failures: the
+# blanket filter that used to live here hid ConvergenceWarning for the stations
+# whose fits had diverged, so a model that never converged looked exactly like
+# one that had.
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("always", category=ConvergenceWarning)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -62,8 +71,13 @@ SARIMA_ORDERS = {
         "seasonal_order": (1, 1, 1, 96),   # 96 steps = 24hrs at 15min
     },
     "monthly": {
-        "order":          (1, 1, 1),
-        "seasonal_order": (1, 1, 0, 12),   # annual seasonal period for monthly BART data
+        # Airline model. The BART target has ~30 monthly observations per
+        # station; with d=1 and D=1 at s=12 that leaves ~17 effective points,
+        # which cannot support the 4 parameters of (1,1,1)(1,1,0,12). Two MA
+        # terms fit that budget, and measured 6.89% WAPE against 7.32% for the
+        # larger order on the same split.
+        "order":          (0, 1, 1),
+        "seasonal_order": (0, 1, 1, 12),   # annual seasonal period for monthly BART data
     },
 }
 
@@ -133,9 +147,18 @@ def fit_station(
         series,
         order=orders["order"],
         seasonal_order=orders["seasonal_order"],
-        enforce_stationarity=False,
-        enforce_invertibility=False,
-        trend="c",
+        # Without these constraints, MLE on a short series wanders to explosive
+        # AR roots: 27 of 50 stations fitted |ar.L1| > 1 (one reached -13.8),
+        # and their forecasts oscillated with growing amplitude — 4e4, -3e5,
+        # 5e6, ... -1e10 against a training mean of 13,309. predict_station's
+        # clip at zero then published an alternating 0 / astronomical series,
+        # which is how SARIMA scored 29,423% WAPE.
+        enforce_stationarity=True,
+        enforce_invertibility=True,
+        # No constant. With d=1 and D=1 the constant enters a twice-differenced
+        # series, implying quadratic drift in levels; it was worth 4.65 WAPE
+        # points of error on its own.
+        trend="n",
     )
 
     # Use a faster optimiser for large datasets
@@ -145,7 +168,16 @@ def fit_station(
         maxiter=100,
     )
 
-    log.info(f"  ✅ AIC={fit.aic:.1f} | BIC={fit.bic:.1f}")
+    # The module-level warnings filter hides ConvergenceWarning, so a station
+    # that never converged used to look identical to one that did.
+    converged = fit.mle_retvals.get("converged") if hasattr(fit, "mle_retvals") else None
+    if converged is False:
+        log.warning(
+            f"  {station_id}: optimiser did NOT converge within maxiter — "
+            f"treat this station's forecast as unreliable"
+        )
+
+    log.info(f"  ✅ AIC={fit.aic:.1f} | BIC={fit.bic:.1f} | converged={converged}")
     return fit, series.index[-1]
 
 
