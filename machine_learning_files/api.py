@@ -186,7 +186,6 @@ def _run_forecast(
     from machine_learning_files.zero_shot import prepare_context, run_zero_shot_forecast
 
     df = get_feature_store()
-    pipeline = get_pipeline()
 
     station_df = df[df["station_id"] == station_id]
     if station_df.empty:
@@ -234,6 +233,11 @@ def _run_forecast(
         context_steps=context_steps,
     )
 
+    # Load the model only after the station and as_of are validated: an unknown
+    # station / malformed as_of would otherwise pay the full model load, or get a
+    # 503 when chronos is absent (e.g. Dockerfile.api), instead of the 404 / 400.
+    pipeline = get_pipeline()
+
     pred_df = run_zero_shot_forecast(
         pipeline, context_df, future_df,
         station_id, min(prediction_length, horizon_hours),
@@ -271,7 +275,7 @@ def _run_forecast(
 
 if _FASTAPI_AVAILABLE:
     app = FastAPI(
-        title="Bay Area Traffic Forecast API",
+        title="Bay Area Transit Forecast API",
         description="Chronos-2 powered ridership forecasting for Bay Area transit stations",
         version="1.0.0",
     )
@@ -296,7 +300,7 @@ if _FASTAPI_AVAILABLE:
     def health():
         return {
             "status":       "ok",
-            "timestamp":    datetime.utcnow().isoformat(),
+            "timestamp":    datetime.utcnow().isoformat() + "Z",
             "model":        _get_config()["chronos2"]["model_id"],
             "store_loaded": _feature_store is not None,
             "model_loaded": _pipeline is not None,
@@ -328,7 +332,7 @@ if _FASTAPI_AVAILABLE:
             raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
             log.exception("Forecast failed")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail="Internal forecast error")
 
         return {
             "station_id":    req.station_id,
@@ -346,7 +350,7 @@ if _FASTAPI_AVAILABLE:
     @app.get("/")
     def root():
         return {
-            "service":  "Bay Area Traffic Forecast API",
+            "service":  "Bay Area Transit Forecast API",
             "docs":     "/docs",
             "health":   "/health",
             "stations": "/stations",
