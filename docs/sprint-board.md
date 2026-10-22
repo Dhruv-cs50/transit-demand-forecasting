@@ -60,6 +60,9 @@ each delta traced to a named change; website export no worse than `main`
 
 ## Triage result (S3.2, 397 content-unique items, all ruled)
 
+Every item, its source PRs, ruling, reason and evidence: `docs/sprint3-triage-rulings.jsonl`
+(one JSON object per line; item ids such as `H23` are the ones cited in commit messages and PR close comments).
+
 | Ruling | Count |
 |---|---|
 | KEEP_116 | 135 |
