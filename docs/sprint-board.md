@@ -14,7 +14,7 @@ Sprint 2's published numbers do not move unless a named change explains it.
 | Conflict with `main` | 87; the 17 clean ones are mostly log-only |
 | Linear chains | #84→#116 (33 PRs, tip #116); #62→#65; #118→#119 |
 | Already-merged cumulative tips | #26, #38, #42, #83 (#83 carried #43–#82) |
-| Hunks across non-contained tips | 979: 123 already on main, 84 logs, 415 apply, 336 stale |
+| Hunks across non-contained tips | 979: 123 already on main, 84 logs, 415 apply, 336 stale, 21 new root-level log files |
 
 **Gates for closing the sprint.** Leaderboard bit-identical to Sprint 2
 (SARIMA 3.21 / Prophet 5.75 / Chronos-1 9.70 / SeasonalNaive 10.75, n=300) or
@@ -33,14 +33,14 @@ each delta traced to a named change; website export no worse than `main`
 | S3.2e | Triage: `benchmarks`, `ablation`, `metrics`, `prophet_baseline`, `arima`, `export_website_data` | principal-engineer | S3.1 | Ruling per item; #135 checked against #132 | done — 70 items: KEEP_116 25, ADAPT_116 7, REJECT_116 4, PORT 2; leaderboard recomputed from saved forecasts, unchanged; #135 compatible but closable |
 | S3.2f | Triage: website JSX/CSS/JSON, README, `docs/`, EDA notebook | principal-engineer | S3.1 | Ruling per item in report | done — 60 items: KEEP_116 31, ADAPT_116 6, REJECT_116 6, PORT 6 |
 | S3.3 | Identify the routine that opens a PR daily | orchestrator | — | Routine named, with a pause/reconfigure proposal | done — remote routine "Test" (`trig_01ML7Tvxyi698UL1sgXPRXa4`), daily 13:00 UTC since 2026-05-03; proposal goes to the user, not changed by us |
-| — | **Gate: push, PR closes and the routine change wait for the user** | orchestrator | S3.2*, S3.3 | User's explicit yes | todo — branch built and verified locally first, nothing pushed |
+| — | **Gate: push, PR closes and the routine change wait for the user** | orchestrator | S3.2*, S3.3 | User's explicit yes | done — 2026-10-22 the user said yes to all three: push and open the PR once review has no open BLOCKER; close the 61 after they merge; pause the routine |
 | S3.4 | Merge #116 into this branch; resolve conflicts toward Sprint 2; revert rejected hunks | implementer | Gate | Diff matches S3.2 rulings | done (f919788 merge, ports 7386f5a 42471da 276a21c aa16f59 5e126ec) — rulings checker 0 unexplained failures, invariants 32/32 |
 | S3.5 | Merge the log-only PRs | orchestrator | S3.4 | Each merges; only `updates/*.md` change | done (8ce12dc, octopus of 10) |
 | S3.6 | Port KEEP fixes from superseded old PRs, credited to source PR | implementer | S3.5 | One commit per cluster | done — folded into S3.4's port commits |
-| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | in progress — two reviewers on disjoint file sets |
-| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | done — see Gate results |
+| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | in progress — R2 (eval/site/docs): 2 BLOCKER, 2 MAJOR, fixes B1/B2 in progress; R1 (pipeline/serving) in progress |
+| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | rerun required — first run green (see Gate results), but S3.7 fixes land after it |
 | S3.9 | Audit board against git | delivery-auditor | S3.8 | No unresolved disagreement | todo |
-| S3.10 | Open consolidation PR; after the user merges it, close the superseded list | orchestrator | S3.9 | Needs user's yes for the closes | todo |
+| S3.10 | Open consolidation PR; after the user merges it, close the superseded list | orchestrator | S3.9 | Needs user's yes for the closes | in progress — routine paused (`enabled: false`) 2026-10-22; yes given for the closes |
 
 ## Rulings
 
@@ -70,7 +70,7 @@ each delta traced to a named change; website export no worse than `main`
 | OBSOLETE | 12 |
 | REJECT | 63 |
 
-## Merge plan (executes only after the user's Go Ahead)
+## Merge plan (built locally; push, PR closes and the routine change waited for the user's yes, given 2026-10-22)
 
 On `sprint3/pr-backlog`, in this order:
 
@@ -112,3 +112,15 @@ disposition comment, only on the user's yes.
 | Feature store | Rebuilt from the same raw files by `main` and by this branch: target identical (0 rows added or lost, max abs diff 0, 50/50 stations). Differences, each traced: new `precip_in`, `humidity_pct` columns (#91); `is_rain_onset` false on 250 rainy months that follow a rainy month (bool-upcast fix, #102: `main` flagged every rainy month as an onset); `hours_to_next_event`/`hours_since_last_event` NaN instead of 0.0 when there are no events (#90: 0.0 meant "event now"); splits now cut from the enriched store (H233). |
 | Website export | All five JSON files byte-identical between `main`'s code and this branch; `model_comparison.json` identical to the committed file. Station JSONs export empty on both (known gap). |
 | py_compile / JSX | 20 changed .py files compile; both changed .jsx files parse (TypeScript 5.9.3). |
+- Review R2 BLOCKER B1 (introduced by #116's metrics hunks): rows with a NaN
+  prediction were dropped, so a model that skipped its hardest stations scored
+  better (WAPE 2.0 vs 14.86 in the reviewer's repro) and still ranked first.
+  Ruling: a missing actual is left out; a missing prediction or interval bound
+  where an actual exists makes the metric NaN, and `accept_model_rows` rejects a
+  NaN or missing WAPE loudly. Cost if wrong: a model with a legitimately partial
+  forecast is excluded instead of scored on what it forecast.
+- Review R2 BLOCKER B2 (already on `main`): published text claiming a forecast
+  cache baked into the Docker image, a SARIMA(2,1,2) label, 2023 or "validation"
+  captions over 2025-H2 test data, and "Chronos-2". Fixed here as one text-only
+  commit marked as not from any backlog PR, because this branch's own new text
+  contradicts it. The Docker 503 itself is a follow-up.
