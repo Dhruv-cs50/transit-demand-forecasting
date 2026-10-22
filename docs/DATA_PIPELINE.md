@@ -141,7 +141,7 @@ Common optional columns include:
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `No BART OD files found` | Raw BART parquet files are missing. | Run `fetch_bart_od.py` or place files in `data/raw/transit/bart/`. |
+| `No BART OD files found` | Raw BART parquet files are missing. | Run `fetch_bart_od.py`, or if bart.gov blocks it (Cloudflare 403), run `python machine_learning_files/bart_od_from_csv.py` to build them from `transit_eda/data/bart_clean.csv`; or place files in `data/raw/transit/bart/`. |
 | `Feature store not found` | Merge pipeline has not run. | Run `python machine_learning_files/merge_pipeline.py`. |
 | `feature_store_enriched.parquet` missing | Feature engineering has not run. | Run `python Processing/feature_engineering.py`. |
 | Validation flags missing windows | Split cadence or source coverage changed. | Confirm `configs/model.yaml` frequency and inspect source coverage by station. |
