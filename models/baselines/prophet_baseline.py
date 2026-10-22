@@ -189,7 +189,6 @@ def run_prophet_all_stations(
     if train_start:
         train_df = train_df[train_df["timestamp"] >= _as_local_ts(train_start)]
 
-
     stations = df["station_id"].unique()
     all_preds = []
 
