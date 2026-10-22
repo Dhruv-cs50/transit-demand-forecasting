@@ -41,6 +41,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import sys
 import time
@@ -55,6 +56,18 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 log = logging.getLogger("scheduler")
+
+# Run as `python models/baselines/scheduler.py`, sys.path[0] is models/baselines/,
+# so the repo-root packages the in-process steps import (machine_learning_files,
+# evaluation, models) are not importable and every such step fails with
+# ModuleNotFoundError (caught and logged as a step failure). Same fix as
+# models/baselines/benchmarks.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+# stderr lines worth surfacing even when a step exits 0 (e.g. the covariate
+# loaders' "Unreadable ... file ... - skipping" warnings, which Python logging
+# writes to stderr).
+_STDERR_ALERT = re.compile(r"warn|error|skip", re.IGNORECASE)
 
 CONFIG_PATH   = Path("configs/model.yaml")
 PROCESSED_DIR = Path("data/processed")
@@ -85,6 +98,12 @@ def run_step(name: str, script: str, args: list[str] = None) -> bool:
             if result.stdout:
                 for line in result.stdout.strip().split("\n")[-5:]:
                     log.info(f"      {line}")
+            # A step can exit 0 and still have skipped something (a corrupt
+            # covariate file is skipped, not fatal). Its warnings go to stderr,
+            # which used to be discarded on success, so surface them here.
+            for line in (result.stderr or "").splitlines():
+                if line.strip() and _STDERR_ALERT.search(line):
+                    log.warning(f"      [{name}] stderr: {line.strip()}")
             return True
         else:
             log.error(f"   ❌ Failed (exit {result.returncode}) in {elapsed:.0f}s")
