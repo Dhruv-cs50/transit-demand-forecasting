@@ -1,23 +1,32 @@
 [
   {
-    "model": "AutoETS (AutoGluon)",
-    "MAE": 46783.0,
-    "MAPE_pct": null,
-    "WAPE_pct": 14.2,
-    "n_predictions": 300
-  },
-  {
     "model": "SARIMA",
-    "MAE": 73955.0,
-    "MAPE_pct": 17.8,
-    "WAPE_pct": 22.5,
-    "n_predictions": 300
+    "MAE": 3086.0,
+    "MAPE_pct": 3.4,
+    "WAPE_pct": 3.2,
+    "Coverage_pct": 96.7,
+    "n_predictions": 300,
+    "source": "benchmark_leaderboard",
+    "scored_split": "test"
   },
   {
     "model": "Prophet",
-    "MAE": 580181.0,
-    "MAPE_pct": 212.0,
-    "WAPE_pct": 176.3,
-    "n_predictions": 300
+    "MAE": 5526.0,
+    "MAPE_pct": 5.7,
+    "WAPE_pct": 5.8,
+    "Coverage_pct": 46.0,
+    "n_predictions": 300,
+    "source": "benchmark_leaderboard",
+    "scored_split": "test"
+  },
+  {
+    "model": "SeasonalNaive",
+    "MAE": 10333.0,
+    "MAPE_pct": 10.2,
+    "WAPE_pct": 10.8,
+    "Coverage_pct": 94.3,
+    "n_predictions": 300,
+    "source": "benchmark_leaderboard",
+    "scored_split": "test"
   }
 ]
