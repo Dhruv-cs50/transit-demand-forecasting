@@ -25,7 +25,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
   const bestWAPE = Math.min(...data.map(r => r.WAPE_pct).filter(v => v != null));
 
   const labelFor = m => ({
-    'SARIMA': 'SARIMA(2,1,2)',
+    'SARIMA': 'SARIMA (0,1,1)(0,1,1,12)',
     'Prophet': 'Prophet',
   }[m] || m);
 
@@ -82,7 +82,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
       <text
         x={pad.l + W / 2} y={height - 4}
         textAnchor="middle" fontSize="11" fill="var(--ink-muted)"
-      >WAPE % on Jan–Jun 2023 validation set · lower is better</text>
+      >WAPE % on the Jul–Dec 2025 test split · lower is better</text>
     </svg>
   );
 };

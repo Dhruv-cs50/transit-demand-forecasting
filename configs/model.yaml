@@ -30,7 +30,9 @@ data:
   # airline order were both selected by inspecting 2024-H2, so that window
   # can no longer serve as a test set. Tune on validation only.
 
-# ── Chronos-2 ─────────────────────────────────────────────────────────────────
+# ── Chronos (chronos-t5-small) ────────────────────────────────────────────────
+# The config key stays `chronos2` because code reads cfg["chronos2"]; the
+# checkpoint named below is from the Chronos-1 (T5) family.
 chronos2:
   model_id: "amazon/chronos-t5-small"   # options: tiny / mini / small / base / large
   device: "cpu"                          # "cuda" if GPU, "mps" for Apple Silicon, "cpu" for Cloud Run
@@ -48,7 +50,8 @@ chronos2:
 finetune:
   time_limit_seconds: 3600        # 1 hour budget; increase for best_quality
   presets: "medium_quality"       # fast_training | medium_quality | best_quality
-  eval_metric: "MASE"             # scale-independent; MASE < 1 beats seasonal naive
+  eval_metric: "MASE"             # scale-independent; MASE < 1 means MAE below the in-sample seasonal-naive error;
+                                  # not a comparison with the SeasonalNaive model on the test window
 
 # ── Prophet baseline ──────────────────────────────────────────────────────────
 prophet:

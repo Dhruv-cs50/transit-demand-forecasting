@@ -298,7 +298,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>{chart === 'roc' ? 'WAPE by model — test set' : 'Forecast intervals — Embarcadero'}</h3>
-                <p>{chart === 'roc' ? 'Jan–Jun 2023 · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 zero-shot forecast · Jan–Jun 2024 · Embarcadero (highest-volume BART station)'}</p>
+                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 zero-shot forecast · Jan–Jun 2024 · Embarcadero (highest-volume BART station)'}</p>
               </div>
               <div className="chip-grp">
                 <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>WAPE</button>
@@ -311,7 +311,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>Forecast error bands</h3>
-                <p>Station-months · test period Jul–Dec 2023 · 50 BART stations</p>
+                <p>Station-months · test period Jul–Dec 2025 · 50 BART stations</p>
               </div>
             </div>
             <div className="cm">
@@ -835,7 +835,7 @@ const BARTForecasts = () => {
               </table>
               <div style={{ marginTop:12, fontSize:12, color:'var(--ink-muted)' }}>
                 ▶ Forecast months (Jan–Jun 2024) shown in blue. Bars sized by ridership volume.
-                BART OD monthly data: 2019, 2022, 2023.
+                Actuals shown are the exported ridership_actuals.json (BART OD monthly: 2019, 2022, 2023); it does not contain the 2025 test months scored in the table below.
               </div>
             </div>
           )}
@@ -843,7 +843,7 @@ const BARTForecasts = () => {
 
         {comparison.length > 0 && (
           <Reveal className="card" style={{ padding:'24px' }}>
-            <h3 style={{ fontSize:16, marginBottom:16 }}>Model comparison — Jan–Jun 2023 validation set, 50 stations</h3>
+            <h3 style={{ fontSize:16, marginBottom:16 }}>Model comparison — Jul–Dec 2025 test split, 50 stations</h3>
             <table style={{ width:'100%', fontSize:13, borderCollapse:'collapse' }}>
               <thead>
                 <tr style={{ borderBottom:'1px solid var(--line)' }}>
@@ -864,12 +864,6 @@ const BARTForecasts = () => {
                     <td style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>{r.n_predictions}</td>
                   </tr>
                 ))}
-                <tr>
-                  <td style={{ padding:'6px 10px', fontWeight:600, color:'var(--primary)' }}>Chronos-1 (chronos-t5-small) (zero-shot)</td>
-                  <td colSpan={4} style={{ padding:'6px 10px', color:'var(--ink-muted)', fontSize:12 }}>
-                    Forecasting Jan–Jun 2024 (beyond available actuals — qualitative evaluation only)
-                  </td>
-                </tr>
               </tbody>
             </table>
           </Reveal>
