@@ -162,11 +162,15 @@ def _run_forecast(
     from machine_learning_files.zero_shot import prepare_context, run_zero_shot_forecast
 
     df = get_feature_store()
-    pipeline = get_pipeline()
 
+    # Validate the station before loading the model: otherwise an unknown station
+    # returns 503 (chronos missing, e.g. Dockerfile.api) or pays the full model
+    # load before the 404.
     station_df = df[df["station_id"] == station_id]
     if station_df.empty:
         raise ValueError(f"Unknown station: {station_id}")
+
+    pipeline = get_pipeline()
 
     if as_of is None:
         as_of = station_df["timestamp"].max()
@@ -212,14 +216,20 @@ def _run_forecast(
         "p90": next((c for c in pred_df.columns if "0.9" in str(c)), None),
     }
 
+    # NaN is not JSON-serializable (response validation would 500), so a missing
+    # quantile column is reported as an explicit error instead.
+    missing = [k for k, v in q_cols.items() if v is None]
+    if missing:
+        raise RuntimeError(f"Forecast output is missing quantile column(s): {', '.join(missing)}")
+
     results = []
     for _, row in pred_df.iterrows():
         ts = row.get("timestamp", "")
         results.append({
             "timestamp": str(ts),
-            "p10": max(0.0, float(row[q_cols["p10"]])) if q_cols["p10"] else float("nan"),
-            "p50": max(0.0, float(row[q_cols["p50"]])) if q_cols["p50"] else float("nan"),
-            "p90": max(0.0, float(row[q_cols["p90"]])) if q_cols["p90"] else float("nan"),
+            "p10": max(0.0, float(row[q_cols["p10"]])),
+            "p50": max(0.0, float(row[q_cols["p50"]])),
+            "p90": max(0.0, float(row[q_cols["p90"]])),
         })
 
     return results
