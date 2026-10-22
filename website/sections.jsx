@@ -156,7 +156,7 @@ const AtAGlance = () => {
 /* ── Methodology timeline ──────────────────────────────────────── */
 const Method = () => {
   const steps = [
-    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public 511 API (2019 + 2022–2023), joined with Open-Meteo hourly weather and a Bay Area events calendar. Stored as Parquet in a local feature store.", tools:['BART API','Open-Meteo','Parquet'] },
+    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public ridership reports (bart.gov workbooks, 2019 + 2022–2025; BART published none for 2020–21), joined with Open-Meteo hourly weather and a Bay Area events calendar. Stored as Parquet in a local feature store.", tools:['BART reports','Open-Meteo','Parquet'] },
     { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built covariates including lag windows, rolling means, holiday and school-calendar flags, weather, and event proximity indicators as known-future inputs. The event covariates are currently constant zero — the pipeline has no Ticketmaster key — and the Chronos checkpoint cannot accept covariates at all.', tools:['pandas','scikit-learn'] },
     { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline. AutoGluon fine-tuning is scaffolded but has never been run — autogluon.timeseries will not install on this Python.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
     { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations. Intervals are not yet calibrated.', tools:['WAPE','MAE'] },
@@ -191,9 +191,9 @@ const Method = () => {
 /* ── Dataset ───────────────────────────────────────────────────── */
 const Dataset = () => {
   const splits = [
-    { nm:'Train (2019 + Jan–Dec 2022)', v:1200, w:0.667 },
-    { nm:'Validation (Jan–Jun 2023)', v:300, w:0.167 },
-    { nm:'Test (Jul–Dec 2023)', v:300, w:0.167 },
+    { nm:'Train (Jan 2022–Dec 2024)', v:1800, w:0.75 },
+    { nm:'Validation (Jan–Jun 2025)', v:300, w:0.125 },
+    { nm:'Test (Jul–Dec 2025)', v:300, w:0.125 },
   ];
   const cohort = [
     { nm:'East Bay commuter stations', v:44.0, w:0.44 },
@@ -212,13 +212,13 @@ const Dataset = () => {
         <div className="section-h">
           <Reveal><div className="eyebrow"><span className="pip" /> Dataset</div></Reveal>
           <Reveal delay="1"><div className="row">
-            <h2>BART OD · 1,800 station‑months across 50 stations.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public 511 API, fused with Open-Meteo weather and a curated Bay Area events calendar. Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
+            <h2>BART OD · 3,000 station‑months across 50 stations.</h2>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public ridership reports (bart.gov), fused with Open-Meteo weather and a curated Bay Area events calendar. Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
           </div></Reveal>
         </div>
         <div className="ds-grid">
           <Reveal className="card ds-card">
-            <h3>Temporal splits <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· n = 1,800 station-months</span></h3>
+            <h3>Temporal splits <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· n = 2,400 station-months</span></h3>
             <div className="flex flex-col gap-md">
               {splits.map(s => (
                 <div key={s.nm} className="bar-row">
@@ -353,7 +353,7 @@ const Results = () => {
 /* ── Live demo: teaser card linking to standalone map page ─────── */
 const Demo = () => {
   const features = [
-    { icon: '🗺', title: 'Real Google Maps', desc: 'All 50 BART and 39 VTA stations plotted at true lat/lng.' },
+    { icon: '🗺', title: 'Real Google Maps', desc: '41 BART and 39 VTA stations plotted at true lat/lng.' },
     { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded ridership load: green → amber → coral as demand rises.' },
     { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to animate demand through a full 24-hour day.' },
     { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to see how the model adjusts boardings.' },
@@ -782,9 +782,9 @@ const BARTForecasts = () => {
                 {(liveData.forecasts || []).map(f => (
                   <div key={f.timestamp || f.date} style={{ fontSize:13 }}>
                     <div style={{ color:'var(--ink-muted)', fontSize:11, marginBottom:2 }}>{(f.timestamp || f.date || '').slice(0,7)}</div>
-                    <div><span style={{ color:'var(--accent)' }}>P10 </span><b style={{ fontFamily:'var(--mono)' }}>{fmt(f.p10)}</b></div>
-                    <div><span style={{ color:'var(--primary)' }}>P50 </span><b style={{ fontFamily:'var(--mono)', fontWeight:700 }}>{fmt(f.p50)}</b></div>
-                    <div><span style={{ color:'var(--accent)' }}>P90 </span><b style={{ fontFamily:'var(--mono)' }}>{fmt(f.p90)}</b></div>
+                    <div><span style={{ color:'var(--accent)' }}>P10 </span><b style={{ fontFamily:'var(--mono)' }}>{f.p10 != null ? fmt(f.p10) : '—'}</b></div>
+                    <div><span style={{ color:'var(--primary)' }}>P50 </span><b style={{ fontFamily:'var(--mono)', fontWeight:700 }}>{f.p50 != null ? fmt(f.p50) : '—'}</b></div>
+                    <div><span style={{ color:'var(--accent)' }}>P90 </span><b style={{ fontFamily:'var(--mono)' }}>{f.p90 != null ? fmt(f.p90) : '—'}</b></div>
                   </div>
                 ))}
               </div>

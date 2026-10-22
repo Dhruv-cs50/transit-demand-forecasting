@@ -1,6 +1,6 @@
 """
-ingestion/fetch_events.py
-─────────────────────────
+machine_learning_files/fetch_events.py
+─────────────────────────────────────────
 Fetches Bay Area event schedules from:
   1. NHL API  — San Jose Sharks games (free, no key required)
   2. Ticketmaster Discovery API — concerts, sports at SAP Center,
@@ -8,13 +8,13 @@ Fetches Bay Area event schedules from:
 
 Produces a unified events DataFrame:
   timestamp_start, timestamp_end, venue, event_name, event_type,
-  is_sharks_game, expected_attendance, lat, lng
+  is_sharks_game, lat, lng
 
 Output: data/raw/events/events_{start}_{end}.parquet
 
 Usage:
-    python ingestion/fetch_events.py
-    python ingestion/fetch_events.py --start 2020-01-01 --end 2024-12-31
+    python machine_learning_files/fetch_events.py
+    python machine_learning_files/fetch_events.py --start 2020-01-01 --end 2024-12-31
 """
 
 import argparse
@@ -181,15 +181,32 @@ class TicketmasterClient:
                     continue
 
                 try:
-                    ts_start = pd.to_datetime(dt_str).tz_convert("America/Los_Angeles") \
-                        if "T" in dt_str else pd.to_datetime(dt_str)
+                    ts_start = pd.to_datetime(dt_str)
+                    # Ticketmaster returns a full dateTime (tz-aware after
+                    # parsing) for most events, but falls back to a
+                    # date-only localDate (tz-naive) for TBD-time events.
+                    # Normalize both to tz-aware so downstream concat with
+                    # other tz-aware sources (e.g. NHLClient) never mixes
+                    # tz-aware/tz-naive values in one column.
+                    ts_start = ts_start.tz_convert("America/Los_Angeles") \
+                        if ts_start.tzinfo is not None \
+                        else ts_start.tz_localize("America/Los_Angeles")
                 except Exception:
                     continue
 
-                # Estimate event duration by type
-                classification = ev.get("classifications", [{}])[0]
-                segment = classification.get("segment", {}).get("name", "")
-                event_type = classification.get("genre", {}).get("name", segment or "Other")
+                # Estimate event duration by type. dict.get(key, default) only
+                # substitutes when the key is absent -- Ticketmaster can return
+                # "classifications": [] (key present, empty list) for events
+                # with no classification data, and [][0] raises an uncaught
+                # IndexError that isn't caught by the try/except above (that
+                # one only wraps date parsing), crashing the whole venue's
+                # pagination loop and every venue after it in get_all_venues().
+                # Same reasoning applies one level deeper: "segment"/"genre"
+                # can be present but explicitly null for uncategorized events,
+                # and None.get(...) raises AttributeError.
+                classification = (ev.get("classifications") or [{}])[0]
+                segment = (classification.get("segment") or {}).get("name", "")
+                event_type = (classification.get("genre") or {}).get("name", segment or "Other")
                 duration_hrs = {"Sports": 3.0, "Music": 3.0, "Arts & Theatre": 2.5}.get(segment, 2.5)
 
                 priceRanges = ev.get("priceRanges", [{}])

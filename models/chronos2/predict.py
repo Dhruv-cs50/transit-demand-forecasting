@@ -3,10 +3,14 @@ models/chronos2/predict.py
 ───────────────────────────
 Production inference wrapper for the fine-tuned Chronos-2 model.
 
-This is the single entry point called by:
-  - serving/api.py        (FastAPI endpoint → Live demo on website)
-  - serving/scheduler.py  (nightly batch forecast run)
-  - evaluation scripts    (metrics, ablation)
+This is the entry point called by:
+  - models/baselines/scheduler.py  (nightly batch forecast run)
+  - evaluation scripts             (metrics, ablation)
+
+Note: machine_learning_files/api.py's live FastAPI endpoint does NOT call
+this module -- it runs its own independent zero-shot-only path via
+machine_learning_files/zero_shot.py (prepare_context/run_zero_shot_forecast),
+never touching the fine-tuned AutoGluon model or the Predictor class below.
 
 It handles:
   - Loading the fine-tuned model (cached after first load)
@@ -108,8 +112,32 @@ class Predictor:
                 return self._store
 
         raise FileNotFoundError(
-            "No feature store found. Run: python processing/merge_pipeline.py"
+            "No feature store found. Run: python machine_learning_files/merge_pipeline.py"
         )
+
+    def reset_cache(self) -> None:
+        """
+        Clear the cached feature store / loaded model / selected mode so the
+        next call re-reads everything from disk.
+
+        `Predictor` is a process-wide singleton (see `__new__`): once
+        `get_feature_store()` caches a DataFrame on `self._store`, it is never
+        re-read for the rest of the process's life. `models/baselines/scheduler.py`'s
+        `--loop` mode (`_simple_loop`/`run_loop`, both documented there as the
+        actual long-running path that deployment mode takes) keeps a single
+        Python process alive across many nightly runs, each of which rewrites
+        `data/processed/feature_store_enriched.parquet` with fresh weather/
+        events/ridership data in steps 1-4 — but every night after the first,
+        `step_forecast()`'s `Predictor()` call returned the same cached
+        instance, so `forecast_all_stations()` silently kept forecasting off
+        night one's snapshot forever (with no error), while every other
+        pipeline stage correctly refreshed on disk. Call this before each
+        nightly forecast run to force a fresh read.
+        """
+        self._store = None
+        self._predictor = None
+        self._pipeline = None
+        self._mode = None
 
     # ── Model loading ──────────────────────────────────────────────────────────
 
@@ -238,8 +266,13 @@ class Predictor:
         if freq.upper() in {"MS", "M", "ME"} or "month" in freq.lower():
             period = min(12, len(context_df))
         else:
-            # 168 hours = 1 week at hourly; at 15min → 672 steps
-            period = int(pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)) * 168
+            # 168 hours = 1 week. Steps-per-week = 168 / hours-per-step, not
+            # hours-per-step * 168 — the old formula truncated hours-per-step
+            # to int() *before* multiplying, so any sub-hourly freq (e.g.
+            # 15min, hours_per_step=0.25) rounded down to 0 and produced
+            # period=0, making `i % period` below raise ZeroDivisionError.
+            hours_per_step = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
+            period = max(1, int(round(168 / hours_per_step)))
         series = context_df.set_index("timestamp")["ridership"]
 
         last_ts  = series.index.max()
@@ -254,7 +287,12 @@ class Predictor:
         for i, ts in enumerate(future_ts):
             lag_idx = len(series) - period + (i % period)
             lag_val = float(series.iloc[max(0, lag_idx)]) if len(series) > 0 else 0.0
-            noise   = np.random.normal(0, lag_val * 0.05)
+            # np.random.normal's scale must be >= 0. lag_val can legitimately
+            # be negative (e.g. a sensor-error row that validators.py flags
+            # but doesn't strip before this emergency fallback ever sees it),
+            # and this is the last-resort path that's supposed to always
+            # succeed -- abs() so a negative lag still produces a scale.
+            noise   = np.random.normal(0, abs(lag_val) * 0.05)
             rows.append({
                 "timestamp":  ts,
                 "p10": max(0, lag_val * 0.80),
@@ -279,7 +317,11 @@ class Predictor:
 
         Args:
             station_id     : transit station code (e.g. "DIRIDON", "EMBR")
-            horizon_hours  : hours to forecast ahead (default from config)
+            horizon_hours  : legacy knob, only consulted when neither
+                              data.forecast_horizon_steps nor
+                              chronos2.prediction_length_steps is set in
+                              configs/model.yaml; otherwise the config's step
+                              count wins (Sprint 2: one horizon for every model)
             as_of          : forecast origin timestamp (default: latest in store)
             force_mode     : "finetuned" | "zeroshot" — bypass the cached
                               finetuned-first auto-selection and load this
@@ -399,8 +441,13 @@ class Predictor:
                 timestamp_column="timestamp",
             )
 
+        # TimeSeriesPredictor.predict() has no `prediction_length` parameter --
+        # the horizon is fixed at fit() time (build_predictor() in finetune.py
+        # already passes prediction_length=horizon_steps there). Passing it
+        # here raised "TypeError: predict() got an unexpected keyword argument
+        # 'prediction_length'" on every finetuned-mode forecast call.
         preds = self._predictor.predict(
-            ts_df, known_covariates=known_covariates, prediction_length=horizon_steps
+            ts_df, known_covariates=known_covariates
         )
         preds_df = preds.reset_index()
 
@@ -471,7 +518,7 @@ class Predictor:
     ) -> pd.DataFrame:
         """
         Run forecasts for every station in the feature store.
-        Used by serving/scheduler.py for nightly batch runs.
+        Used by models/baselines/scheduler.py for nightly batch runs.
         """
         df = self.get_feature_store()
         stations = df["station_id"].unique()
@@ -546,7 +593,18 @@ class Predictor:
         typical_median = station_df[typical_mask]["ridership"].median()
         forecast_p50   = forecast_df["p50"].iloc[0]
 
-        lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
+        # typical_mask can match zero rows (e.g. a station whose every
+        # historical occurrence of this calendar month had a Sharks game,
+        # so not_game_day excludes all of them), making typical_median NaN.
+        # max(typical_median, 1) does NOT guard against this -- max(nan, 1)
+        # returns nan, since nan compares False against everything -- so the
+        # NaN would silently propagate into lift_pct and print as "+nan%"
+        # (the caller's `is not None` guard doesn't catch NaN). Guard here
+        # instead of relying on max()'s argument order.
+        if pd.isna(typical_median):
+            lift_pct = None
+        else:
+            lift_pct = ((forecast_p50 - typical_median) / max(typical_median, 1)) * 100
 
         # Build reason string
         # `now` is forecast_df's own first timestamp, which exactly matches a row
@@ -574,8 +632,8 @@ class Predictor:
                 reason = "Rain in forecast · ridership shift expected"
 
         return {
-            "lift_pct":       round(lift_pct, 1),
-            "typical_median": round(float(typical_median), 1),
+            "lift_pct":       round(lift_pct, 1) if lift_pct is not None else None,
+            "typical_median": round(float(typical_median), 1) if pd.notna(typical_median) else None,
             "forecast_p50":   round(float(forecast_p50), 1),
             "reason":         reason,
         }
@@ -593,7 +651,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Run production forecast")
     parser.add_argument("--station",  default="EMBR",  help="Station ID")
-    parser.add_argument("--horizon",  type=int, default=24, help="Forecast horizon (hours)")
+    parser.add_argument("--horizon",  type=int, default=None, help="Forecast horizon (hours). Default: from config.")
     parser.add_argument("--all",      action="store_true", help="Forecast all stations")
     parser.add_argument("--output",   default=None, help="Output parquet path")
     args = parser.parse_args()
@@ -608,15 +666,25 @@ def main():
             horizon_hours=args.horizon,
             output_path=output,
         )
-        print(f"\nBatch complete: {len(combined):,} rows across "
-              f"{combined['station_id'].nunique()} stations")
+        # forecast_all_stations() returns a bare pd.DataFrame() (no columns)
+        # when every station's forecast came back empty -- indexing
+        # combined['station_id'] on that raised an unhandled KeyError right
+        # at the finish line instead of the clean message every other
+        # caller (scheduler.py, benchmarks.py, the single-station branch
+        # below) already gives this same empty-result case.
+        if combined.empty:
+            print("\nBatch complete: no forecasts generated")
+        else:
+            print(f"\nBatch complete: {len(combined):,} rows across "
+                  f"{combined['station_id'].nunique()} stations")
     else:
         preds = predictor.forecast(args.station, horizon_hours=args.horizon)
         if not preds.empty:
             lift = predictor.ridership_lift(args.station, preds)
             print(f"\n{'─'*50}")
             print(f"Station  : {args.station}")
-            print(f"Horizon  : {args.horizon}h | Steps: {len(preds)}")
+            horizon_label = f"{args.horizon}h" if args.horizon is not None else "config default"
+            print(f"Horizon  : {horizon_label} | Steps: {len(preds)}")
             print(f"Mode     : {preds['model_mode'].iloc[0]}")
             # lift.get(...) falls back to the string "N/A" when ridership_lift()
             # returned {} (e.g. no station data) — feeding that straight into the

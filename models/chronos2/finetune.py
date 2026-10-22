@@ -55,7 +55,9 @@ def load_config() -> dict:
 def load_train_val(cfg: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Load the chronological train and val splits from the feature store.
-    These were created by processing/merge_pipeline.py.
+    These are (re)written by Processing/feature_engineering.py's main()
+    from the enriched feature store, after merge_pipeline.py first writes
+    them from the raw store.
 
     Returns (train_df, val_df) — both in AutoGluon TimeSeriesDataFrame format.
     """
@@ -66,7 +68,7 @@ def load_train_val(cfg: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     if not train_path.exists():
         raise FileNotFoundError(
-            "Train split not found. Run: python processing/merge_pipeline.py"
+            "Train split not found. Run: python machine_learning_files/merge_pipeline.py"
         )
 
     log.info("Loading train split …")
@@ -153,17 +155,17 @@ KNOWN_FUTURE_COLS = [
     "hour_sin", "hour_cos", "dow_sin", "dow_cos", "month_sin", "month_cos",
     # Weather forecast (7-day ahead from Open-Meteo)
     "temp_f", "precip_mm", "precip_in", "windspeed_mph",
-    "is_raining", "weather_code", "cloud_cover_pct",
+    "is_raining", "weather_code", "cloud_cover_pct", "humidity_pct",
     "precip_intensity", "weather_discomfort",
     "is_very_cold", "is_very_hot", "is_windy", "temp_deviation",
     # Event schedule (known from NHL/Ticketmaster calendar)
     "is_game_day", "is_sharks_game_window", "game_start_hour",
     "is_pre_event_window", "is_post_event_window", "is_playoff",
     "is_any_event_day", "nearest_event_attendance_tier",
-    "hours_to_next_event",
+    "hours_to_next_event", "hours_to_event", "event_proximity_score",
     # Station static (never changes)
     "is_hub_station", "capacity_tier", "in_event_catchment",
-    "dist_from_diridon_km",
+    "dist_from_diridon_km", "transit_mode",
 ]
 
 
@@ -197,6 +199,9 @@ def _default_covariate_cols(df: pd.DataFrame) -> list[str]:
         # Rolling weather — cumulative rain over past N hours
         "precip_3hr_sum", "precip_6hr_sum", "precip_24hr_sum",
         "is_rain_onset",
+        # Event recency — only knowable after the fact (how long ago the
+        # last event ended), not a forecastable future value.
+        "hours_since_last_event",
     ]
 
     present_known   = [c for c in known_future if c in df.columns]
@@ -212,6 +217,7 @@ def _default_covariate_cols(df: pd.DataFrame) -> list[str]:
 
 def build_predictor(
     train_ts: "TimeSeriesDataFrame",
+    tuning_ts: "TimeSeriesDataFrame",
     cfg: dict,
     time_limit: int = None,
     preset: str = None,
@@ -224,10 +230,16 @@ def build_predictor(
       1. Fine-tune Chronos-2 on your ridership data
       2. Train lightweight baselines (SeasonalNaive, ETS, DeepAR)
       3. Fit a weighted ensemble that combines all models
-      4. Use the val split internally to select best weights
+      4. Use the val split (passed as `tuning_ts`) to select best weights
 
     The ensemble approach means even if Chronos-2 has a bad day on
     a particular station, a simpler model can cover for it.
+
+    `tuning_ts` must include each item's train-period history alongside the
+    val window (not the val window alone) — AutoGluon's `tuning_data` uses
+    only the last `prediction_length` steps of each series as the held-out
+    target and needs the preceding steps as forecast context, exactly like
+    `evaluate_on_val()` needs `train_df + val_df` rather than `val_df` alone.
     """
     try:
         from autogluon.timeseries import TimeSeriesPredictor
@@ -276,6 +288,7 @@ def build_predictor(
 
     predictor.fit(
         train_data=train_ts,
+        tuning_data=tuning_ts,
         time_limit=time_budget,
         presets=model_preset,
         hyperparameters={
@@ -297,8 +310,6 @@ def build_predictor(
                 "batch_size": 32,
             },
         },
-        num_val_windows=2,
-        val_step_size=prediction_length,
     )
 
     log.info("\nFit complete. Leaderboard:")
@@ -330,8 +341,15 @@ def evaluate_on_val(
     log.info(f"\n{'─'*50}")
     log.info("Validation Scores")
     log.info(f"{'─'*50}")
+    # AutoGluon reports all metrics in "higher is better" format, which means
+    # error metrics (all four requested here) come back with their sign
+    # flipped (e.g. a 12.34% WAPE is returned as -12.3400) -- negate for a
+    # human-readable log line. `scores` itself is returned unmodified so any
+    # future caller comparing it against AutoGluon's own leaderboard()/
+    # fit_summary() output (which use the same signed convention) still sees
+    # values in that convention.
     for metric, score in scores.items():
-        log.info(f"  {metric:6s}: {score:.4f}")
+        log.info(f"  {metric:6s}: {-score:.4f}")
 
     log.info("(Per-station breakdown skipped — use predictor.leaderboard() for full details)")
 
@@ -372,7 +390,7 @@ def evaluate_event_days(
 
     # This is a simplified slice — in production you'd build proper
     # game-day/non-game-day TimeSeriesDataFrame subsets
-    log.info("  (Full event-day slice evaluation available in evaluation/ablation.py)")
+    log.info("  (Full event-day slice evaluation available in Processing/ablation.py)")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -404,18 +422,23 @@ def main():
     log.info("Converting to AutoGluon TimeSeriesDataFrame …")
     train_ts = to_autogluon_format(train_df)
     val_ts   = to_autogluon_format(val_df)
+    # train+val so the frame has context rows ahead of the held-out window
+    # (val alone is exactly prediction_length rows — too short for AutoGluon
+    # to slice a forecast-context window plus a validation target from).
+    full_ts  = to_autogluon_format(pd.concat([train_df, val_df], ignore_index=True))
 
-    # 3. Fine-tune
+    # 3. Fine-tune — tuning_data=full_ts makes AutoGluon use our chronological
+    # val split (not its own internal train-tail windows) for model/ensemble
+    # selection.
     predictor = build_predictor(
-        train_ts, cfg,
+        train_ts, full_ts, cfg,
         time_limit=args.time_limit,
         preset=args.preset,
         output_dir=output_dir,
     )
 
-    # 4. Evaluate — pass train+val so predictor has context rows (val alone = prediction_length rows)
+    # 4. Evaluate on the same held-out window
     if not args.skip_eval:
-        full_ts = to_autogluon_format(pd.concat([train_df, val_df], ignore_index=True))
         scores = evaluate_on_val(predictor, full_ts, cfg)
         evaluate_event_days(predictor, val_ts, feature_store)
 
@@ -423,8 +446,10 @@ def main():
         print(f"Fine-tuning complete!")
         print(f"  Model saved → {output_dir}")
         def _fmt(key):
+            # See evaluate_on_val()'s comment: AutoGluon's returned scores
+            # are sign-flipped error metrics -- negate back for display.
             val = scores.get(key)
-            return f"{val:.4f}" if val is not None else "N/A"
+            return f"{-val:.4f}" if val is not None else "N/A"
 
         print(f"  WAPE  : {_fmt('WAPE')}")
         print(f"  MASE  : {_fmt('MASE')}")

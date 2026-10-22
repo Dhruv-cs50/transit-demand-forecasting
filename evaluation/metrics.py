@@ -48,14 +48,40 @@ EVAL_DIR      = Path("evaluation/outputs")
 
 # ── Core metric functions ──────────────────────────────────────────────────────
 
+def _valid_mask(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
+    """
+    Rows where neither the actual nor the prediction is NaN.
+
+    predict.py's forecast() documents (see its "ensure all three quantile
+    columns exist" guard) that p10/p50/p90 can legitimately be NaN for a
+    station whose upstream model didn't return a matching quantile column
+    -- a real, reachable case, not a theoretical one. Without this guard,
+    a *single* NaN row anywhere in the slice silently poisoned every one of
+    mae/rmse/mape/wape/smape to NaN for the WHOLE slice (np.mean/np.sum
+    over an array containing NaN returns NaN, with no warning) -- not just
+    that one row -- e.g. one station's missing p50 in a 500-row "Overall"
+    slice reported NaN for every metric on the project's primary evaluation
+    report. Excluding invalid rows here mirrors the same fix already
+    applied to coverage()/interval_width() (2026-09-13) for prediction
+    intervals.
+    """
+    return ~(np.isnan(y_true) | np.isnan(y_pred))
+
+
 def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Mean Absolute Error."""
-    return float(np.mean(np.abs(y_pred - y_true)))
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.mean(np.abs(y_pred[valid] - y_true[valid])))
 
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Root Mean Squared Error."""
-    return float(np.sqrt(np.mean((y_pred - y_true) ** 2)))
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.sqrt(np.mean((y_pred[valid] - y_true[valid]) ** 2)))
 
 
 def mape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
@@ -64,8 +90,12 @@ def mape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
     Uses epsilon floor on actuals to avoid division by near-zero values
     (common in late-night windows with minimal ridership).
     """
-    denom = np.maximum(np.abs(y_true), epsilon)
-    return float(np.mean(np.abs(y_pred - y_true) / denom) * 100)
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    yt, yp = y_true[valid], y_pred[valid]
+    denom = np.maximum(np.abs(yt), epsilon)
+    return float(np.mean(np.abs(yp - yt) / denom) * 100)
 
 
 def wape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
@@ -76,10 +106,14 @@ def wape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
 
     WAPE = sum(|y_pred - y_true|) / sum(|y_true|)
     """
-    denom = np.sum(np.abs(y_true))
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    yt, yp = y_true[valid], y_pred[valid]
+    denom = np.sum(np.abs(yt))
     if denom < epsilon:
         return float("nan")
-    return float(np.sum(np.abs(y_pred - y_true)) / denom * 100)
+    return float(np.sum(np.abs(yp - yt)) / denom * 100)
 
 
 def smape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
@@ -88,8 +122,12 @@ def smape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float
     Useful because transit agencies care about both over-provisioning
     (wasted vehicles) and under-provisioning (overcrowded trains).
     """
-    denom = (np.abs(y_true) + np.abs(y_pred)) / 2 + epsilon
-    return float(np.mean(np.abs(y_pred - y_true) / denom) * 100)
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    yt, yp = y_true[valid], y_pred[valid]
+    denom = (np.abs(yt) + np.abs(yp)) / 2 + epsilon
+    return float(np.mean(np.abs(yp - yt) / denom) * 100)
 
 
 def mase(
@@ -130,7 +168,13 @@ def mase(
     scale = np.mean(naive_errors)
     if scale < 1e-8:
         return float("nan")
-    return float(np.mean(np.abs(y_pred - y_true)) / scale)
+    # Same NaN-poisoning risk as mae/rmse/mape/wape/smape (see _valid_mask):
+    # a single NaN y_true/y_pred row would otherwise make np.mean(...) NaN
+    # for the whole slice instead of just excluding that row.
+    valid = _valid_mask(y_true, y_pred)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.mean(np.abs(y_pred[valid] - y_true[valid])) / scale)
 
 
 def _infer_seasonal_period(train_df: pd.DataFrame) -> int:
@@ -166,14 +210,37 @@ def coverage(
     For P10/P90 intervals, we expect ~80% coverage.
     Significantly below 80% = intervals too narrow (overconfident).
     Significantly above 80% = intervals too wide (underconfident).
+
+    Rows where the actual or either bound is NaN (e.g. predict.py's
+    forecast() fills p10/p90 with NaN for an entire station when the
+    upstream model never produced that quantile column -- see its
+    "ensure all three quantile columns exist" guard) are excluded from
+    both the numerator and denominator. A plain `>=`/`<=` comparison
+    against NaN is always False, so without this guard those rows
+    silently counted as "not covered" instead of being left out,
+    dragging the reported coverage rate toward 0% for reasons that have
+    nothing to do with actual interval quality.
     """
-    covered = (y_true >= y_lower) & (y_true <= y_upper)
+    valid = ~(np.isnan(y_true) | np.isnan(y_lower) | np.isnan(y_upper))
+    if not np.any(valid):
+        return float("nan")
+    covered = (y_true[valid] >= y_lower[valid]) & (y_true[valid] <= y_upper[valid])
     return float(np.mean(covered) * 100)
 
 
 def interval_width(y_lower: np.ndarray, y_upper: np.ndarray) -> float:
-    """Average width of the prediction interval (P90 - P10)."""
-    return float(np.mean(y_upper - y_lower))
+    """
+    Average width of the prediction interval (P90 - P10).
+
+    Ignores rows where either bound is NaN instead of letting a single
+    missing row propagate NaN through the whole slice's average (same
+    NaN-exclusion as coverage(), for the same reason).
+    """
+    width = y_upper - y_lower
+    valid = ~np.isnan(width)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.mean(width[valid]))
 
 
 # ── Result container ───────────────────────────────────────────────────────────
@@ -601,6 +668,13 @@ def main():
         default=str(PROCESSED_DIR / "splits/train.parquet"),
         help="Training data path for MASE scaling",
     )
+    parser.add_argument(
+        "--feature-store",
+        default=str(PROCESSED_DIR / "feature_store_enriched.parquet"),
+        help="Enriched feature store, used to backfill diagnostic columns "
+             "(is_sharks_game_window, precip_intensity, ...) missing from "
+             "--actuals when it points at the raw train/test split",
+    )
     args = parser.parse_args()
 
     # Load data
@@ -616,6 +690,43 @@ def main():
 
     actuals_df     = pd.read_parquet(actuals_path)
     predictions_df = pd.read_parquet(preds_path)
+
+    # --actuals (defaults to data/processed/splits/test.parquet) may be an
+    # older split written by merge_pipeline.py's make_splits() from the RAW
+    # feature store -- it never goes through feature_engineering.py's
+    # build_features(), so it lacks is_sharks_game_window/precip_intensity.
+    # event_day_metrics()'s/weather_day_metrics()'s `if <col> in merged.columns`
+    # guards then silently skip the Sharks-game and heavy-rain breakdowns on
+    # every default run. Backfill them from --feature-store (the enriched
+    # store) so those diagnostics actually run, same fix as ablation.py's
+    # run_ablation() (2026-09-04).
+    #
+    # is_raining is NOT actually missing from a raw test_df -- merge_pipeline.py's
+    # build_feature_store() already writes it there as a per-station-month MEAN
+    # FRACTION (agg_kwargs' is_raining=("is_raining", "mean")), not the enriched
+    # boolean feature_engineering.py recomputes. A plain "missing" filter would
+    # skip it here, leaving weather_day_metrics()'s `merged["is_raining"] == True`
+    # comparing a fraction against True (i.e. == 1.0), which only matches a
+    # month that rained every single hour -- silently zeroing out the "rainy"
+    # breakdown on every run. Always overwrite it from feature_store; only
+    # backfill the rest when genuinely absent (same fix as ablation.py's
+    # run_ablation(), 2026-09-06).
+    diagnostic_cols = ["is_sharks_game_window", "precip_intensity", "is_raining"]
+    always_overwrite = {"is_raining"}
+    feature_store_path = Path(args.feature_store)
+    if feature_store_path.exists():
+        feature_store = pd.read_parquet(feature_store_path)
+        cols_to_pull = [
+            c for c in diagnostic_cols
+            if c in feature_store.columns and (c not in actuals_df.columns or c in always_overwrite)
+        ]
+        if cols_to_pull:
+            actuals_df = actuals_df.drop(columns=[c for c in cols_to_pull if c in actuals_df.columns])
+            actuals_df = actuals_df.merge(
+                feature_store[["timestamp", "station_id"] + cols_to_pull],
+                on=["timestamp", "station_id"],
+                how="left",
+            )
 
     train_df = None
     train_path = Path(args.train)
