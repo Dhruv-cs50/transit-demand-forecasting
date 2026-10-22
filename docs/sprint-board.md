@@ -37,7 +37,7 @@ each delta traced to a named change; website export no worse than `main`
 | S3.4 | Merge #116 into this branch; resolve conflicts toward Sprint 2; revert rejected hunks | implementer | Gate | Diff matches S3.2 rulings | done (f919788 merge, ports 7386f5a 42471da 276a21c aa16f59 5e126ec) — rulings checker 0 unexplained failures, invariants 32/32 |
 | S3.5 | Merge the log-only PRs | orchestrator | S3.4 | Each merges; only `updates/*.md` change | done (8ce12dc, octopus of 10) |
 | S3.6 | Port KEEP fixes from superseded old PRs, credited to source PR | implementer | S3.5 | One commit per cluster | done — folded into S3.4's port commits |
-| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | in progress — R2 (eval/site/docs): 2 BLOCKER, 2 MAJOR, fixes B1/B2 in progress; R1 (pipeline/serving) in progress |
+| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | in progress — R1: spec pass, 0 BLOCKER, 2 MAJOR; R2: 2 BLOCKER, 2 MAJOR. Fixes landed: a565f4b + c7de29c (B1), a317cdf (B2), 825df57 (R1 M1/M2). Scoped re-review and gate rerun in progress |
 | S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | rerun required — first run green (see Gate results), but S3.7 fixes land after it |
 | S3.9 | Audit board against git | delivery-auditor | S3.8 | No unresolved disagreement | todo |
 | S3.10 | Open consolidation PR; after the user merges it, close the superseded list | orchestrator | S3.9 | Needs user's yes for the closes | in progress — routine paused (`enabled: false`) 2026-10-22; yes given for the closes |
@@ -124,3 +124,11 @@ disposition comment, only on the user's yes.
   captions over 2025-H2 test data, and "Chronos-2". Fixed here as one text-only
   commit marked as not from any backlog PR, because this branch's own new text
   contradicts it. The Docker 503 itself is a follow-up.
+- B1 extended in a fix round: `compute_metrics` inner-joined predictions onto
+  actuals, so a model that omitted rows (rather than emitting NaN) was scored on
+  its chosen subset (probe: n=240, WAPE 2.0, accepted). Pre-existing on `main` and
+  live (SARIMA, Prophet and SeasonalNaive skip short-history stations). Same rule:
+  scored on every test row or rejected, with the missing stations named.
+- Review R1 M2 (pre-existing): `scheduler.py` could not import repo packages when
+  run as documented. The deferred X1 one-line fix is included after all, because
+  #116's ruled scheduler steps (H330, H350) cannot run without it.
