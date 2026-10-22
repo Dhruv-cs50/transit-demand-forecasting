@@ -20,6 +20,16 @@
     "scored_split": "test"
   },
   {
+    "model": "Chronos1_ZeroShot (chronos-t5-small)",
+    "MAE": 9321.0,
+    "MAPE_pct": 9.3,
+    "WAPE_pct": 9.7,
+    "Coverage_pct": 51.0,
+    "n_predictions": 300,
+    "source": "benchmark_leaderboard",
+    "scored_split": "test"
+  },
+  {
     "model": "SeasonalNaive",
     "MAE": 10333.0,
     "MAPE_pct": 10.2,

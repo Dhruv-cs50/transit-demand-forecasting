@@ -121,6 +121,14 @@ def fit_station(
         uncertainty_samples = 200,
     )
 
+    # Prophet draws `uncertainty_samples` paths to build yhat_lower/upper, so the
+    # interval — and therefore coverage — is stochastic. Unseeded, coverage moved
+    # between 44.0% and 46.0% across otherwise identical runs while WAPE stayed
+    # fixed, which makes a published coverage figure unverifiable.
+    seed = cfg_prophet.get("seed", cfg.get("chronos2", {}).get("seed"))
+    if seed is not None:
+        np.random.seed(int(seed))
+
     model.fit(train[["ds", "y"]])
     return model, train
 

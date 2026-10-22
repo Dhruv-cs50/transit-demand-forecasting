@@ -27,15 +27,54 @@ The current production path models BART origin-destination ridership at a month-
 
 ## Current Results
 
-The checked-in website comparison data currently reports:
+Produced by a single `models/baselines/benchmarks.py` run against BART's actual
+monthly trip counts, scored on **Jul–Dec 2025** — a holdout not used for model
+selection. Each row of `website/data/model_comparison.json` carries `source`
+and `scored_split` so any figure can be traced to the run that made it.
 
-| Model | MAE | WAPE | Predictions |
-| --- | ---: | ---: | ---: |
-| AutoETS (AutoGluon) | 46,783 | 14.2% | 300 |
-| SARIMA | 73,955 | 22.5% | 300 |
-| Prophet | 580,181 | 176.3% | 300 |
+| Model | MAE | WAPE | Coverage (nominal 80%) | Predictions |
+| --- | ---: | ---: | ---: | ---: |
+| SARIMA airline (0,1,1)(0,1,1,12) | 3,086 | 3.21% | 96.7% | 300 |
+| Prophet (per-station) | 5,526 | 5.75% | 46.0% | 300 |
+| Chronos-1 zero-shot (`chronos-t5-small`) | 9,321 | 9.70% | 51.0% | 300 |
+| Seasonal naive | 10,333 | 10.75% | 94.3% | 300 |
 
-These values come from `website/data/model_comparison.json`. Re-run the pipeline and website export to refresh them after changing source data, features, or models.
+All models are scored on the same 300 station-months (50 stations × 6 forecast
+steps). Reproduce with `bash scripts/run_pipeline.sh`.
+
+Prophet and Chronos both sample, so `configs/model.yaml` seeds them
+(`prophet.seed`, `chronos2.seed`). Unseeded, Chronos moved between 8.06% and
+9.70% WAPE and Prophet's coverage between 44% and 46% across otherwise
+identical runs — a figure nobody can reproduce is not a result. Two consecutive
+runs of the table above are bit-identical.
+
+**Point accuracy is sound; interval calibration is not.** Prophet's p10–p90 band
+covers 46% of actuals against a nominal 80%, and SARIMA's is over-wide at 96.7%.
+Do not read either band as an 80% interval.
+
+**AutoETS (AutoGluon) carries no row, deliberately rather than silently.**
+`autogluon.timeseries` requires Python <3.14 and cannot be installed here, and
+no code path in this repository has ever emitted an AutoETS result. A
+previously published figure of 14.2% WAPE was hand-entered, not computed.
+
+Two caveats on the Chronos row:
+
+- The pinned checkpoint is `amazon/chronos-t5-small`, which is Chronos-**1**.
+  Earlier material called it "Chronos-2"; the leaderboard label is now derived
+  from the checkpoint so it cannot drift again.
+- It runs **univariate**. `ChronosPipeline.predict_df` takes no `future_df`, so
+  the covariate path in `zero_shot.py` raises and every station falls back to
+  no covariates. The 9.70% is a no-covariate result.
+
+`benchmarks.py` also refuses to publish what it did not measure: if
+`chronos-forecasting` is absent the predictor silently falls back to seasonal
+naive, and the row is omitted rather than credited to Chronos. Any model whose
+WAPE exceeds 100% — worse than forecasting a flat zero — is rejected outright.
+
+Earlier published figures (Prophet 176.3%, SARIMA 22.5%, AutoETS 14.2%) are
+superseded. `benchmarks.py` could not execute at all — it failed on import — so
+no leaderboard existed and the website export silently scored a different split.
+See `updates/` for the audit trail.
 
 ## Repository Map
 
@@ -84,9 +123,9 @@ The active configuration in `configs/model.yaml` uses:
 | Target | BART station-month ridership |
 | Context window | 24 months |
 | Forecast horizon | 6 months |
-| Train period | January 2021 through December 2022 |
-| Validation period | January 2023 through June 2023 |
-| Test period | July 2023 onward |
+| Train period | January 2022 through December 2024 (36 months) |
+| Validation period | January 2025 through June 2025 |
+| Test period | July 2025 through December 2025 |
 | Forecast quantiles | P10, P50, P90 |
 
 The merge pipeline aggregates BART OD records to origin station-month totals, joins monthly weather summaries, computes monthly event indicators, adds calendar features, and writes chronological splits.
@@ -322,7 +361,7 @@ Endpoints:
 }
 ```
 
-The API serves from cached parquet in `models/chronos2/outputs/`. Cache miss triggers live Chronos-2 inference.
+The API serves from cached parquet in `models/chronos2/outputs/` when present; that directory is not committed, so in a fresh checkout every request takes the live-inference path (`amazon/chronos-t5-small`, i.e. Chronos-1).
 
 ## Documentation
 
