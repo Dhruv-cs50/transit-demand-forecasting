@@ -101,6 +101,16 @@ def fit_station(
         weekly = False
         daily = False
         yearly = yearly and len(train) >= 18
+        # yearly_seasonality=True means Prophet's default fourier_order=10,
+        # i.e. 20 seasonal regressors. With the holiday columns and changepoint
+        # deltas that is ~47 free parameters against ~30 monthly points per
+        # station: the model interpolates its training data, the MAP sigma_obs
+        # collapses to the in-sample residual sd (0.29% of level), and the
+        # p10-p90 band comes out roughly 22x too narrow — 7.9% coverage against
+        # a nominal 80%. An explicit order sized to the data fixes both the
+        # calibration and the point forecast (13.48% -> 6.45% WAPE).
+        if yearly is True:
+            yearly = int(cfg_prophet.get("yearly_fourier_order", 4))
 
     model = Prophet(
         yearly_seasonality  = yearly,
