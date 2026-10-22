@@ -273,6 +273,14 @@ const Dataset = () => {
 /* ── Results ───────────────────────────────────────────────────── */
 const Results = () => {
   const [chart, setChart] = useState('roc');
+  // Best-model tile is derived from the same file the WAPE chart and the
+  // Benchmarks table read, so its model name, WAPE and model count cannot drift.
+  const [cmp, setCmp] = React.useState(null);
+  React.useEffect(() => {
+    fetch('data/model_comparison.json').then(r => r.json()).catch(() => []).then(setCmp);
+  }, []);
+  const cmpRows = Array.isArray(cmp) ? cmp.filter(r => r.WAPE_pct != null) : [];
+  const bestRow = cmpRows.length ? cmpRows.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a)) : null;
   const cm = { tp: 168240, tn: 51820, fp: 14380, fn: 6360 };
   const shap = [
     {n:'Is game day', v: 0.46, dir:'pos'},
@@ -315,7 +323,7 @@ const Results = () => {
               </div>
             </div>
             <div className="cm">
-              <div className="cm-cell tp"><div className="v">3.2%</div><div className="l">WAPE · SARIMA</div><div className="text-muted" style={{ fontSize:11 }}>best of 4 models</div></div>
+              <div className="cm-cell tp"><div className="v">{bestRow ? bestRow.WAPE_pct.toFixed(1) + '%' : '—'}</div><div className="l">WAPE · {bestRow ? bestRow.model : 'best model'}</div><div className="text-muted" style={{ fontSize:11 }}>{bestRow ? `best of ${cmpRows.length} models` : 'loading…'}</div></div>
               <div className="cm-cell tn"><div className="v">3.1k</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>vs 5.5k Prophet</div></div>
               <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>44–97% vs nominal 80%</div></div>
               <div className="cm-cell fn"><div className="v">50 sta.</div><div className="l">all BART stations</div><div className="text-muted" style={{ fontSize:11 }}>no station excluded</div></div>
@@ -733,10 +741,11 @@ const BARTForecasts = () => {
         <div className="section-h">
           <Reveal><div className="eyebrow"><span className="pip" /> Real BART Data</div></Reveal>
           <Reveal delay="1"><div className="row">
-            <h2>Live model outputs — 50 stations, 6-month forecast.</h2>
+            <h2>Model outputs — 50 stations, 6-month forecast.</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
-              Chronos-1 (chronos-t5-small) zero-shot forecasts trained on 2019–2022 BART origin-destination data.
-              Forecasting Jan–Jun 2024 monthly ridership with P10/P50/P90 uncertainty bands.
+              Static export of zero-shot Chronos forecasts (forecasts.json): P10/P50/P90 monthly ridership for Jan–Jun 2024,
+              plotted after the last exported actuals (Dec 2023). These are not the Jul–Dec 2025 test-split forecasts scored
+              under Results. The button below requests a forecast from the Cloud Run API.
             </p>
           </div></Reveal>
         </div>

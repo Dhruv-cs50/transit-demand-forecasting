@@ -1,6 +1,8 @@
 # ── FastAPI serving image ────────────────────────────────────────────────────
-# Serves pre-computed Chronos-2 forecasts via REST API.
-# Does NOT include Chronos/AutoGluon — uses cached parquet files only.
+# Serves Chronos (chronos-t5-small) forecasts via REST API from cached parquet files,
+# but this image ships NO forecast cache and does NOT include Chronos/AutoGluon, so
+# /forecast returns 503 for known stations until a cache is provided in
+# models/chronos2/outputs/ (known gap).
 # Target: Google Cloud Run (linux/amd64)
 #
 # Build & push (Apple Silicon — MUST use Cloud Build, not local docker build):
@@ -40,13 +42,15 @@ COPY machine_learning_files/zero_shot.py  ./machine_learning_files/zero_shot.py
 # Config
 COPY configs/model.yaml ./configs/model.yaml
 
-# Pre-computed data baked into the image (small: ~200 KB total)
+# Feature-store data copied into the image
 COPY data/processed/feature_store_enriched.parquet ./data/processed/feature_store_enriched.parquet
 COPY data/processed/feature_store.parquet          ./data/processed/feature_store.parquet
 # models/chronos2/outputs/ is NOT copied: the directory does not exist in the
 # repository, and a COPY of a missing path fails the build. It was only ever
 # produced by a local zero_shot.py run, and nothing committed depends on it —
-# api.py falls back to live inference when cached forecasts are absent.
+# api.py tries live inference when cached forecasts are absent, but this image
+# installs no chronos-forecasting, so /forecast returns 503 for a known station
+# (unknown station: 404).
 # Re-add this line only alongside a step that actually creates the directory.
 
 # Cloud Run injects PORT env var; default 8080

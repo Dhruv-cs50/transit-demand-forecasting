@@ -1,7 +1,7 @@
 """
 machine_learning_files/api.py
 ───────────────
-FastAPI service exposing the Chronos-2 forecast as a REST API.
+FastAPI service exposing the Chronos (chronos-t5-small) forecast as a REST API.
 
 Endpoints:
     POST /forecast   — returns P10/P50/P90 ridership for a station
@@ -101,21 +101,21 @@ def get_pipeline():
         try:
             from chronos import ChronosPipeline
         except ImportError as e:
-            # Dockerfile.api deliberately omits chronos-forecasting ("uses cached
-            # parquet files only") — a request that falls through to live inference
-            # (e.g. an explicit `as_of` with no matching cache) can't be served here.
+            # Dockerfile.api does not install chronos-forecasting, so a request that
+            # falls through to live inference (no cache present, or an explicit
+            # `as_of`) can't be served in that image.
             raise RuntimeError(
-                "Live Chronos-2 inference is unavailable in this deployment "
+                "Live Chronos inference is unavailable in this deployment "
                 "(chronos-forecasting not installed) — retry without `as_of`, "
                 "or use a deployment image that includes it."
             ) from e
         cfg = _get_config()
-        log.info("Loading Chronos-2 pipeline …")
+        log.info("Loading Chronos pipeline …")
         _pipeline = ChronosPipeline.from_pretrained(
             cfg["chronos2"]["model_id"],
             device_map=cfg["chronos2"]["device"],
         )
-        log.info("Chronos-2 ready")
+        log.info("Chronos ready")
     return _pipeline
 
 
@@ -276,7 +276,7 @@ def _run_forecast(
 if _FASTAPI_AVAILABLE:
     app = FastAPI(
         title="Bay Area Transit Forecast API",
-        description="Chronos-2 powered ridership forecasting for Bay Area transit stations",
+        description="Chronos (chronos-t5-small) powered ridership forecasting for Bay Area transit stations",
         version="1.0.0",
     )
 
