@@ -346,6 +346,60 @@ def diebold_mariano_test(
 
 # ── Main benchmark runner ──────────────────────────────────────────────────────
 
+# MASE here is the forecast's MAE divided by the in-sample seasonal-naive MAE
+# on the TRAINING series (evaluation.metrics.mase). Its value is not a
+# comparison with the SeasonalNaive model scored on the test window, which is
+# a separate row of this table and routinely has MASE > 1 itself. The CSV
+# column stays "MASE" (stable schema for readers of the CSV); the printed and
+# LaTeX tables label it so it cannot be read as a comparison with that row.
+MASE_LABEL = "MASE (in-sample)"
+MASE_NOTE_LINES = (
+    "MASE (in-sample) = forecast MAE / in-sample seasonal-naive MAE, training series.",
+    "Below 1 = below that in-sample error; NOT a comparison with the SeasonalNaive row.",
+)
+
+
+def format_leaderboard_console(leaderboard: pd.DataFrame) -> str:
+    """Render the console leaderboard table (and the MASE note, once, below it)."""
+    has_mase = "MASE" in leaderboard.columns
+    out = [f"\n{'═'*70}", "  MODEL BENCHMARK LEADERBOARD", f"{'═'*70}"]
+    header = f"\n{'Rank':<6}{'Model':<25}{'WAPE%':>8}{'MAE':>10}{'RMSE':>10}{'MAPE%':>9}{'Cov%':>8}"
+    if has_mase:
+        header += f"{MASE_LABEL:>18}"
+    out.append(header)
+    out.append(f"{'─'*76}")
+    for rank, row in leaderboard.iterrows():
+        marker = " ← best" if rank == 1 else ""
+        line = (f"  {rank:<4}{row['model']:<25}{row['WAPE_%']:>7.1f}%"
+                f"{row['MAE']:>10.0f}{row['RMSE']:>10.0f}"
+                f"{row['MAPE_%']:>8.1f}%{row['Coverage_%']:>7.1f}%")
+        if has_mase:
+            mase_val = row.get("MASE")
+            line += f"{mase_val:>18.3f}" if pd.notna(mase_val) else f"{'n/a':>18}"
+        out.append(line + marker)
+    if has_mase:
+        out.append("")
+        out.extend(f"  {note}" for note in MASE_NOTE_LINES)
+    return "\n".join(out)
+
+
+def leaderboard_latex(leaderboard: pd.DataFrame) -> str:
+    """Render the report-ready LaTeX table. Needs jinja2 (raises ImportError without it)."""
+    has_mase = "MASE" in leaderboard.columns
+    latex_cols = ["model", "WAPE_%", "MAE", "RMSE", "MAPE_%", "Coverage_%"]
+    caption = "Model comparison on Bay Area transit test set"
+    if has_mase:
+        latex_cols.append("MASE")
+        caption += ". " + " ".join(MASE_NOTE_LINES)
+    table = leaderboard[latex_cols].rename(columns={"MASE": MASE_LABEL})
+    return table.to_latex(
+        index=True,
+        float_format="%.2f",
+        caption=caption,
+        label="tab:benchmark",
+    )
+
+
 def run_benchmarks(
     df: pd.DataFrame,
     cfg: dict,
@@ -536,24 +590,7 @@ def run_benchmarks(
     # dropped the one metric that matches the project's own eval_metric
     # (configs/model.yaml's finetune.eval_metric: "MASE"). Only the raw
     # benchmark_leaderboard.csv (saved with all columns) ever carried it.
-    has_mase = "MASE" in leaderboard.columns
-    print(f"\n{'═'*70}")
-    print("  MODEL BENCHMARK LEADERBOARD")
-    print(f"{'═'*70}")
-    header = f"\n{'Rank':<6}{'Model':<25}{'WAPE%':>8}{'MAE':>10}{'RMSE':>10}{'MAPE%':>9}{'Cov%':>8}"
-    if has_mase:
-        header += f"{'MASE':>8}"
-    print(header)
-    print(f"{'─'*76}")
-    for rank, row in leaderboard.iterrows():
-        marker = " ← best" if rank == 1 else ""
-        line = (f"  {rank:<4}{row['model']:<25}{row['WAPE_%']:>7.1f}%"
-                f"{row['MAE']:>10.0f}{row['RMSE']:>10.0f}"
-                f"{row['MAPE_%']:>8.1f}%{row['Coverage_%']:>7.1f}%")
-        if has_mase:
-            mase_val = row.get("MASE")
-            line += f"{mase_val:>8.3f}" if pd.notna(mase_val) else f"{'n/a':>8}"
-        print(line + marker)
+    print(format_leaderboard_console(leaderboard))
 
     if dm_results:
         print(f"\n{'─'*70}")
@@ -578,16 +615,7 @@ def run_benchmarks(
 
     # ── Latex table (cosmetic; never fatal) ────────────────────────────────────
     try:
-        latex_cols = ["model", "WAPE_%", "MAE", "RMSE", "MAPE_%", "Coverage_%"]
-        if has_mase:
-            latex_cols.append("MASE")
-        latex = leaderboard[latex_cols].to_latex(
-            index=True,
-            float_format="%.2f",
-            caption="Model comparison on Bay Area transit test set",
-            label="tab:benchmark",
-        )
-        (EVAL_DIR / "benchmark_latex.tex").write_text(latex)
+        (EVAL_DIR / "benchmark_latex.tex").write_text(leaderboard_latex(leaderboard))
     except ImportError as e:
         log.warning(f"Skipping LaTeX table ({e}); leaderboard CSV is unaffected")
 

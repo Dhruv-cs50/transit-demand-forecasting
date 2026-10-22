@@ -293,7 +293,14 @@ class MetricsReport:
             f"  sMAPE   : {self.smape:>10.2f}  %",
         ]
         if self.mase is not None and not np.isnan(self.mase):
-            lines.append(f"  MASE    : {self.mase:>10.4f}  ({'beats' if self.mase < 1 else 'trails'} naive)")
+            # MASE scales by the in-sample seasonal-naive error on the TRAINING
+            # series. It says nothing about how this forecast compares with the
+            # SeasonalNaive model scored on the test window.
+            relation = "below" if self.mase < 1 else "at or above"
+            lines.append(
+                f"  MASE    : {self.mase:>10.4f}  (MAE {relation} the in-sample "
+                f"seasonal-naive error on the training series)"
+            )
         elif self.mase is not None:
             lines.append(f"  MASE    : {'n/a':>10}  (undefined — insufficient seasonal history)")
         if self.coverage is not None:
