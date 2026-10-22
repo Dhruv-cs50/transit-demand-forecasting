@@ -13,7 +13,7 @@ Sprint 2's published numbers do not move unless a named change explains it.
 | Open PRs | 104, all drafts from the daily `claude/nifty-goodall-*` audit routine |
 | Conflict with `main` | 87; the 17 clean ones are mostly log-only |
 | Linear chains | #84→#116 (33 PRs, tip #116); #62→#65; #118→#119 |
-| Already-merged cumulative tips | #26, #38, #42, #83 (#83 carried #43–#82) |
+| Already-merged cumulative tips | #26, #38, #42, #83 (#83 carried the fixes of #43–#82 by content; by ancestry it contains #68–#82) |
 | Hunks across non-contained tips | 979: 123 already on main, 84 logs, 415 apply, 336 stale, 21 new root-level log files |
 
 **Gates for closing the sprint.** Leaderboard bit-identical to Sprint 2
@@ -25,21 +25,21 @@ each delta traced to a named change; website export no worse than `main`
 
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
-| S3.1 | Map chains, conflicts and hunk residue for all 104 PRs | orchestrator | — | Tables in this board's starting state | done |
-| S3.2a | Triage: `api.py`, `scheduler.py`, `Dockerfile.api`, `requirements.txt` | principal-engineer | S3.1 | Ruling per item in report | done — 61 items: KEEP_116 18, ADAPT_116 1, PORT 6 (incl. #122 reworked) |
-| S3.2b | Triage: `predict.py`, `finetune.py`, `zero_shot.py` | principal-engineer | S3.1 | Ruling per item in report | done — 86 items: KEEP_116 26, ADAPT_116 1, REJECT_116 5, PORT 3, rest closable |
-| S3.2c | Triage: `merge_pipeline.py`, `validators.py`, `fetch_bart_od.py` | principal-engineer | S3.1 | Ruling per item in report | done — 63 items: KEEP_116 14, ADAPT_116 4, REJECT_116 3, PORT 1 (H58, from #12) |
-| S3.2d | Triage: `feature_engineering.py`, other `fetch_*`, `fetch_pems_roads.py`, `run_pipeline.sh` | principal-engineer | S3.1 | Ruling per item in report | done — 57 items: KEEP_116 21, ADAPT_116 2 (H232, H233), PORT 0, REJECT 4 (2 unverified) |
-| S3.2e | Triage: `benchmarks`, `ablation`, `metrics`, `prophet_baseline`, `arima`, `export_website_data` | principal-engineer | S3.1 | Ruling per item; #135 checked against #132 | done — 70 items: KEEP_116 25, ADAPT_116 7, REJECT_116 4, PORT 2; leaderboard recomputed from saved forecasts, unchanged; #135 compatible but closable |
-| S3.2f | Triage: website JSX/CSS/JSON, README, `docs/`, EDA notebook | principal-engineer | S3.1 | Ruling per item in report | done — 60 items: KEEP_116 31, ADAPT_116 6, REJECT_116 6, PORT 6 |
-| S3.3 | Identify the routine that opens a PR daily | orchestrator | — | Routine named, with a pause/reconfigure proposal | done — remote routine "Test" (`trig_01ML7Tvxyi698UL1sgXPRXa4`), daily 13:00 UTC since 2026-05-03; proposal goes to the user, not changed by us |
+| S3.1 | Map chains, conflicts and hunk residue for all 104 PRs | orchestrator | — | Tables in this board's starting state | done (recorded in 6c82330) |
+| S3.2a | Triage: `api.py`, `scheduler.py`, `Dockerfile.api`, `requirements.txt` | principal-engineer | S3.1 | Ruling per item in report | done — 61 items: KEEP_116 18, ADAPT_116 1, PORT 6 (incl. #122 reworked) — rulings committed in 6b9f48e |
+| S3.2b | Triage: `predict.py`, `finetune.py`, `zero_shot.py` | principal-engineer | S3.1 | Ruling per item in report | done — 86 items: KEEP_116 26, ADAPT_116 1, REJECT_116 5, PORT 3, rest closable — rulings committed in 6b9f48e |
+| S3.2c | Triage: `merge_pipeline.py`, `validators.py`, `fetch_bart_od.py` | principal-engineer | S3.1 | Ruling per item in report | done — 63 items: KEEP_116 14, ADAPT_116 4, REJECT_116 3, PORT 1 (H58, from #12) — rulings committed in 6b9f48e |
+| S3.2d | Triage: `feature_engineering.py`, other `fetch_*`, `fetch_pems_roads.py`, `run_pipeline.sh` | principal-engineer | S3.1 | Ruling per item in report | done — 57 items: KEEP_116 21, ADAPT_116 2 (H232, H233), PORT 0, REJECT 4 (2 unverified) — rulings committed in 6b9f48e |
+| S3.2e | Triage: `benchmarks`, `ablation`, `metrics`, `prophet_baseline`, `arima`, `export_website_data` | principal-engineer | S3.1 | Ruling per item; #135 checked against #132 | done — 70 items: KEEP_116 25, ADAPT_116 7, REJECT_116 4, PORT 2; leaderboard recomputed from saved forecasts, unchanged; #135 compatible but closable — rulings committed in 6b9f48e |
+| S3.2f | Triage: website JSX/CSS/JSON, README, `docs/`, EDA notebook | principal-engineer | S3.1 | Ruling per item in report | done — 60 items: KEEP_116 31, ADAPT_116 6, REJECT_116 6, PORT 6 — rulings committed in 6b9f48e |
+| S3.3 | Identify the routine that opens a PR daily | orchestrator | — | Routine named, with a pause/reconfigure proposal | done (recorded in ded24a6) — remote routine "Test" (`trig_01ML7Tvxyi698UL1sgXPRXa4`), daily 13:00 UTC since 2026-05-03; proposal goes to the user, not changed by us |
 | — | **Gate: push, PR closes and the routine change wait for the user** | orchestrator | S3.2*, S3.3 | User's explicit yes | done — 2026-10-22 the user said yes to all three: push and open the PR once review has no open BLOCKER; close the 61 after they merge; pause the routine |
 | S3.4 | Merge #116 into this branch; resolve conflicts toward Sprint 2; revert rejected hunks | implementer | Gate | Diff matches S3.2 rulings | done (f919788 merge, ports 7386f5a 42471da 276a21c aa16f59 5e126ec) — rulings checker 0 unexplained failures, invariants 32/32 |
-| S3.5 | Merge the log-only PRs | orchestrator | S3.4 | Each merges; only `updates/*.md` change | done (8ce12dc, octopus of 10) |
+| S3.5 | Merge the log-only PRs | orchestrator | S3.4 | Each merges; only `updates/*.md` change | done (8ce12dc, octopus of 10; 7d3b491, #118 added after the audit) |
 | S3.6 | Port KEEP fixes from superseded old PRs, credited to source PR | implementer | S3.5 | One commit per cluster | done — folded into S3.4's port commits |
-| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | done — R1 0 BLOCKER; R2 2 BLOCKER fixed (a565f4b, c7de29c, a317cdf); scoped re-review: all findings closed, no new BLOCKER/MAJOR; follow-up rounds 5cef2c5 (MASE labels), 39349b2 (remaining captions/labels), cf728d5 (coverage range); R1 MAJORs fixed in 825df57 |
-| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | in progress — final rerun on the post-review HEAD (first run and post-fix rerun at 3364157 both green) |
-| S3.9 | Audit board against git | delivery-auditor | S3.8 | No unresolved disagreement | in progress |
+| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | in progress — R1: 0 BLOCKER, 2 MAJOR, fixed in 825df57. R2: 2 BLOCKER and 2 MAJOR, fixed in a565f4b, c7de29c and a317cdf. Scoped re-review closed B1, B2, R1-M1 and R1-M2, but left R2-M1 and a B2 residual open. Those were fixed in 5cef2c5, 39349b2 and cf728d5, which are under a final scoped review now |
+| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | done on 8608710 (gate3): leaderboard identical, n = n_expected = 300, 0 rejected, two runs byte-identical; store target identical; export identical; py_compile and JSX re-run by the auditor: pass. Rerun required if the final review changes code |
+| S3.9 | Audit board against git | delivery-auditor | S3.8 | No unresolved disagreement | done — 10 disagreements (1 MEDIUM, 9 LOW), all addressed in this board revision and 7d3b491; started before S3.8 closed |
 | S3.10 | Open consolidation PR; after the user merges it, close the superseded list | orchestrator | S3.9 | Needs user's yes for the closes | in progress — routine paused (`enabled: false`) 2026-10-22; yes given for the closes |
 
 ## Rulings
@@ -81,14 +81,18 @@ On `sprint3/pr-backlog`, in this order:
    `benchmarks.py`, `arima.py`, `prophet_baseline.py`, `README.md`,
    `sections.jsx`, `model_comparison.json` resolve to `main`. The 18 REJECT_116
    reverts and 21 ADAPT_116 replacements land **inside the merge commit**, so no
-   commit on the branch ever has the data-deleting or day-type-summing state.
+   commit on the branch's first-parent line has the data-deleting or
+   day-type-summing state. #116's own commits stay reachable through the merge's
+   second parent, as history.
 2. **Port the 18 PORT items**, one commit per cluster, each crediting its source PRs.
-3. **Merge the log-only PRs**: #56, #57, #66, #67, #117, #120, #121, #123, #124, #126.
+3. **Merge the log-only PRs**: #56, #57, #66, #67, #117, #118, #120, #121, #123, #124, #126.
+   (#67 also touches two code files, but its changes there are already on `main`;
+   merging it changed only its log.)
 4. Review, gates, audit, push, open the consolidation PR.
 
 User merges the consolidation PR with **"Create a merge commit"** (not squash or
-rebase), which marks #84–#116 and the ten log-only PRs merged, as happened to
-#131–#133 when #134 landed. The remaining 61 PRs are closed with a per-PR
+rebase), which marks #84–#116 and the eleven log-only PRs merged, as happened to
+#131–#133 when #134 landed. The remaining 60 PRs are closed with a per-PR
 disposition comment, only on the user's yes.
 
 - #122 is not merged as a PR: its second hunk would revert #116's NaN handling.
@@ -138,8 +142,20 @@ disposition comment, only on the user's yes.
 - After the fixes, the leaderboard CSV gains an `n_expected` column (appended, so
   existing columns keep their order) and the console/LaTeX tables label MASE
   "in-sample". The CSV column `MASE` and every value are unchanged.
-- The invariant "scheduler: X1 sys.path patch NOT included" from S3.4's checker is
-  now intentionally false (see the R1 M2 ruling above); 31/32 is the expected result.
+- S3.4's invariant checker now reports 29/32, all three expected: "X1 NOT included"
+  is intentionally false (R1 M2 ruling), and two `benchmarks.py` pattern checks are
+  stale after 5cef2c5 moved the LaTeX code into `leaderboard_latex()`. At runtime the
+  CSV is still written first (`to_csv` at :610) and the LaTeX call (:618) is still
+  inside `try/except ImportError`.
+- Nine triaged items were rewritten by review fixes (H247–H252, H313, H319, H320);
+  each carries a `post_review` note in `docs/sprint3-triage-rulings.jsonl`.
+- Store-gate footnotes: `precip_mm` differs only by float noise (max 1.4e-17);
+  `forecasts.json` compares identical because the export skips it when no forecast
+  run exists, so that comparison is vacuous.
+- B1's omission rule covers `benchmarks.py`, which produces the published
+  leaderboard. `evaluation/metrics.py` `compute_all_metrics` and `zero_shot.py`
+  `evaluate_predictions` still inner-merge and report `n = len(merged)`; neither
+  feeds a published number (follow-up).
 
 ## Follow-ups (found during this sprint, not caused by the backlog, not fixed here)
 
@@ -152,3 +168,6 @@ disposition comment, only on the user's yes.
 - Diebold-Mariano tests still run against models the leaderboard rejected; duplicate prediction rows are not checked.
 - "Chronos-2" wording remains in code comments (`feature_engineering.py`, `models/`, `zero_shot.py`, `run_pipeline.sh`).
 - `fetch_pems_roads.py` deletes the PEMS-BAY CSV on a read error and falls back to synthetic data (standalone module, no automated caller).
+- `.gcloudignore:2-3` still says forecast outputs "must be baked into Dockerfile.api".
+- `machine_learning_files/README.md:109` still points to `fetch_bart_od.py` for "No BART OD files found" (the working path is `bart_od_from_xlsx.py`).
+- `compute_all_metrics` (`evaluation/metrics.py`) and `zero_shot.evaluate_predictions` inner-merge forecasts onto actuals and report `n = len(merged)` (unpublished paths).
