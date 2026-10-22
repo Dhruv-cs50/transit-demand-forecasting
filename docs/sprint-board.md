@@ -37,9 +37,9 @@ each delta traced to a named change; website export no worse than `main`
 | S3.4 | Merge #116 into this branch; resolve conflicts toward Sprint 2; revert rejected hunks | implementer | Gate | Diff matches S3.2 rulings | done (f919788 merge, ports 7386f5a 42471da 276a21c aa16f59 5e126ec) — rulings checker 0 unexplained failures, invariants 32/32 |
 | S3.5 | Merge the log-only PRs | orchestrator | S3.4 | Each merges; only `updates/*.md` change | done (8ce12dc, octopus of 10) |
 | S3.6 | Port KEEP fixes from superseded old PRs, credited to source PR | implementer | S3.5 | One commit per cluster | done — folded into S3.4's port commits |
-| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | in progress — R1: spec pass, 0 BLOCKER, 2 MAJOR; R2: 2 BLOCKER, 2 MAJOR. Fixes landed: a565f4b + c7de29c (B1), a317cdf (B2), 825df57 (R1 M1/M2). Scoped re-review and gate rerun in progress |
-| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | rerun required — first run green (see Gate results), but S3.7 fixes land after it |
-| S3.9 | Audit board against git | delivery-auditor | S3.8 | No unresolved disagreement | todo |
+| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | done — R1 0 BLOCKER; R2 2 BLOCKER fixed (a565f4b, c7de29c, a317cdf); scoped re-review: all findings closed, no new BLOCKER/MAJOR; follow-up rounds 5cef2c5 (MASE labels), 39349b2 (remaining captions/labels), cf728d5 (coverage range); R1 MAJORs fixed in 825df57 |
+| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | in progress — final rerun on the post-review HEAD (first run and post-fix rerun at 3364157 both green) |
+| S3.9 | Audit board against git | delivery-auditor | S3.8 | No unresolved disagreement | in progress |
 | S3.10 | Open consolidation PR; after the user merges it, close the superseded list | orchestrator | S3.9 | Needs user's yes for the closes | in progress — routine paused (`enabled: false`) 2026-10-22; yes given for the closes |
 
 ## Rulings
@@ -135,3 +135,20 @@ disposition comment, only on the user's yes.
 - Review R1 M2 (pre-existing): `scheduler.py` could not import repo packages when
   run as documented. The deferred X1 one-line fix is included after all, because
   #116's ruled scheduler steps (H330, H350) cannot run without it.
+- After the fixes, the leaderboard CSV gains an `n_expected` column (appended, so
+  existing columns keep their order) and the console/LaTeX tables label MASE
+  "in-sample". The CSV column `MASE` and every value are unchanged.
+- The invariant "scheduler: X1 sys.path patch NOT included" from S3.4's checker is
+  now intentionally false (see the R1 M2 ruling above); 31/32 is the expected result.
+
+## Follow-ups (found during this sprint, not caused by the backlog, not fixed here)
+
+- The Docker image ships no forecast cache and no chronos, so `/forecast` returns 503 for known stations; the 503 message still suggests retrying without `as_of`.
+- Station-level website JSON exports empty: `export_website_data.py` and `STATION_TO_WEATHER_STATION` use 4-letter station codes; the store uses BART's 2-letter codes. Per-station weather never applies for the same reason.
+- `ridership_daily_est` is the monthly Total / 22 and is published, overstating daily riders.
+- The raw weather archive ends 2023-12, so 2024-25 weather covariates are NaN.
+- Prediction intervals are uncalibrated: Prophet 46%, SARIMA 96.7% against nominal 80%.
+- The benchmark test window has no upper bound (`benchmarks.py`), so one more month of data or one failed station fit gets a model rejected; the export then publishes only the survivors.
+- Diebold-Mariano tests still run against models the leaderboard rejected; duplicate prediction rows are not checked.
+- "Chronos-2" wording remains in code comments (`feature_engineering.py`, `models/`, `zero_shot.py`, `run_pipeline.sh`).
+- `fetch_pems_roads.py` deletes the PEMS-BAY CSV on a read error and falls back to synthetic data (standalone module, no automated caller).
