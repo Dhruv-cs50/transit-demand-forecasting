@@ -18,18 +18,20 @@ Sprint 2's published numbers do not move unless a named change explains it.
 
 **Gates for closing the sprint.** Leaderboard bit-identical to Sprint 2
 (SARIMA 3.21 / Prophet 5.75 / Chronos-1 9.70 / SeasonalNaive 10.75, n=300) or
-each delta traced to a named change; website export emits non-empty JSON;
+each delta traced to a named change; website export no worse than `main`
+(`model_comparison.json` identical; the station JSONs already export empty on
+`main` because of the 4-letter vs 2-letter code gap, a known Sprint 2 follow-up);
 `py_compile` passes on every touched file; JSX parses.
 
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
 | S3.1 | Map chains, conflicts and hunk residue for all 104 PRs | orchestrator | — | Tables in this board's starting state | done |
-| S3.2a | Triage: `api.py`, `scheduler.py`, `Dockerfile.api`, `requirements.txt` | principal-engineer | S3.1 | Ruling per item in report | in progress |
-| S3.2b | Triage: `predict.py`, `finetune.py`, `zero_shot.py` | principal-engineer | S3.1 | Ruling per item in report | in progress |
-| S3.2c | Triage: `merge_pipeline.py`, `validators.py`, `fetch_bart_od.py` | principal-engineer | S3.1 | Ruling per item in report | in progress |
-| S3.2d | Triage: `feature_engineering.py`, other `fetch_*`, `fetch_pems_roads.py`, `run_pipeline.sh` | principal-engineer | S3.1 | Ruling per item in report | in progress |
-| S3.2e | Triage: `benchmarks`, `ablation`, `metrics`, `prophet_baseline`, `arima`, `export_website_data` | principal-engineer | S3.1 | Ruling per item; #135 checked against #132 | in progress |
-| S3.2f | Triage: website JSX/CSS/JSON, README, `docs/`, EDA notebook | principal-engineer | S3.1 | Ruling per item in report | in progress |
+| S3.2a | Triage: `api.py`, `scheduler.py`, `Dockerfile.api`, `requirements.txt` | principal-engineer | S3.1 | Ruling per item in report | done — 61 items: KEEP_116 18, ADAPT_116 1, PORT 6 (incl. #122 reworked) |
+| S3.2b | Triage: `predict.py`, `finetune.py`, `zero_shot.py` | principal-engineer | S3.1 | Ruling per item in report | done — 86 items: KEEP_116 26, ADAPT_116 1, REJECT_116 5, PORT 3, rest closable |
+| S3.2c | Triage: `merge_pipeline.py`, `validators.py`, `fetch_bart_od.py` | principal-engineer | S3.1 | Ruling per item in report | done — 63 items: KEEP_116 14, ADAPT_116 4, REJECT_116 3, PORT 1 (H58, from #12) |
+| S3.2d | Triage: `feature_engineering.py`, other `fetch_*`, `fetch_pems_roads.py`, `run_pipeline.sh` | principal-engineer | S3.1 | Ruling per item in report | done — 57 items: KEEP_116 21, ADAPT_116 2 (H232, H233), PORT 0, REJECT 4 (2 unverified) |
+| S3.2e | Triage: `benchmarks`, `ablation`, `metrics`, `prophet_baseline`, `arima`, `export_website_data` | principal-engineer | S3.1 | Ruling per item; #135 checked against #132 | done — 70 items: KEEP_116 25, ADAPT_116 7, REJECT_116 4, PORT 2; leaderboard recomputed from saved forecasts, unchanged; #135 compatible but closable |
+| S3.2f | Triage: website JSX/CSS/JSON, README, `docs/`, EDA notebook | principal-engineer | S3.1 | Ruling per item in report | done — 60 items: KEEP_116 31, ADAPT_116 6, REJECT_116 6, PORT 6 |
 | S3.3 | Identify the routine that opens a PR daily | orchestrator | — | Routine named, with a pause/reconfigure proposal | done — remote routine "Test" (`trig_01ML7Tvxyi698UL1sgXPRXa4`), daily 13:00 UTC since 2026-05-03; proposal goes to the user, not changed by us |
 | — | **Gate: merge order and close list shown to the user; wait for Go Ahead** | orchestrator | S3.2*, S3.3 | User's explicit yes | todo |
 | S3.4 | Merge #116 into this branch; resolve conflicts toward Sprint 2; revert rejected hunks | implementer | Gate | Diff matches S3.2 rulings | todo |
@@ -49,3 +51,46 @@ each delta traced to a named change; website export emits non-empty JSON;
   improvements, create a file for the day's updates") gives it no rule for what
   to do when its previous PR is unmerged, so it opens a new one every day and
   carries the old one forward. Changing the routine is the user's call.
+- #116 must never be merged as-is (S3.2c, executed): its side of the
+  `merge_pipeline.py` conflict drops Sprint 2's `combined[is_total]` filter, so all
+  four BART day-type blocks would be summed; and its new parquet-read helper
+  deletes files on any read error, which deleted every BART parquet file when no
+  parquet engine was installed. Resolve the conflict to `main`'s side and land the
+  S3.2c patches P1–P3 inside the merge commit itself.
+
+## Triage result (S3.2, 397 content-unique items, all ruled)
+
+| Ruling | Count |
+|---|---|
+| KEEP_116 | 135 |
+| ADAPT_116 | 21 |
+| REJECT_116 | 18 |
+| PORT (from older PRs) | 18 |
+| SUPERSEDED | 130 |
+| OBSOLETE | 12 |
+| REJECT | 63 |
+
+## Merge plan (executes only after the user's Go Ahead)
+
+On `sprint3/pr-backlog`, in this order:
+
+1. **Merge #116** (brings #84–#115 by ancestry). Conflicts in `merge_pipeline.py`,
+   `benchmarks.py`, `arima.py`, `prophet_baseline.py`, `README.md`,
+   `sections.jsx`, `model_comparison.json` resolve to `main`. The 18 REJECT_116
+   reverts and 21 ADAPT_116 replacements land **inside the merge commit**, so no
+   commit on the branch ever has the data-deleting or day-type-summing state.
+2. **Port the 18 PORT items**, one commit per cluster, each crediting its source PRs.
+3. **Merge the log-only PRs**: #56, #57, #66, #67, #117, #120, #121, #123, #124, #126.
+4. Review, gates, audit, push, open the consolidation PR.
+
+User merges the consolidation PR with **"Create a merge commit"** (not squash or
+rebase), which marks #84–#116 and the ten log-only PRs merged, as happened to
+#131–#133 when #134 landed. The remaining 61 PRs are closed with a per-PR
+disposition comment, only on the user's yes.
+
+- #122 is not merged as a PR: its second hunk would revert #116's NaN handling.
+  Its validate-before-load idea is ported, reworked (S3.2a H392).
+- #128's doc text is replaced: it recommends `bart_od_from_csv.py`, whose output
+  `load_transit` rejects; the working path is `bart_od_from_xlsx.py` (S3.2f P5).
+- #135 only deletes a blank line and its log calls the backlog solved: closed.
+- #119's bare-except fix is ported in the form from #17 (H84), not #119's (H391).
