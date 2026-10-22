@@ -118,16 +118,36 @@ MAX_PLAUSIBLE_WAPE = float(os.environ.get("MAX_PLAUSIBLE_WAPE", "100"))
 
 
 def accept_model_rows(rows: list[dict], model_name: str) -> list[dict]:
-    """Keep a model's metrics only if its overall WAPE is valid and physically sensible.
+    """Keep a model's metrics only if it forecast every test row and its overall
+    WAPE is valid and physically sensible.
 
-    A model is rejected when its overall WAPE is missing or NaN (at least one
-    forecast was missing) or exceeds MAX_PLAUSIBLE_WAPE. Rejected models are
-    reported loudly and left off the leaderboard. They are a failure to
-    investigate, not a ranking to publish.
+    A model is rejected when it did not forecast every test row (overall n <
+    n_expected), when its overall WAPE is missing or NaN (at least one
+    forecast was missing), or when it exceeds MAX_PLAUSIBLE_WAPE. A model is
+    scored on every test row or not at all. Rejected models are reported
+    loudly and left off the leaderboard. They are a failure to investigate,
+    not a ranking to publish.
     """
     overall = next((r for r in rows if r.get("slice") == "overall"), None)
     if overall is None:
         return rows
+
+    n_scored = overall.get("n")
+    n_expected = overall.get("n_expected")
+    if n_scored is not None and n_expected is not None and n_scored < n_expected:
+        missing = overall.get("missing_stations") or []
+        if missing:
+            shown = ", ".join(str(m) for m in missing[:10])
+            more = f" (+{len(missing) - 10} more)" if len(missing) > 10 else ""
+            where = f" No forecast for {len(missing)} station(s): {shown}{more}."
+        else:
+            where = ""
+        log.error(
+            f"  {model_name} REJECTED: forecast {n_scored:,} of {n_expected:,} "
+            f"test rows.{where} A model is scored on every test row or not at "
+            f"all; excluded from the leaderboard; diagnose before reporting it."
+        )
+        return []
 
     wape_pct = overall.get("WAPE_%")
     if wape_pct is None or np.isnan(wape_pct):
@@ -164,15 +184,23 @@ def compute_metrics(
     train_df: training data used to scale MASE (mirrors evaluation.metrics._compute's
         contract). Omitted -> "MASE" is left out of every row, same as before this
         param existed.
+
+    Every test row is kept (left merge), so a test row the model did not
+    forecast reaches the metrics as a missing forecast (NaN metric) instead of
+    silently dropping out of the score. Each row reports "n" (rows scored:
+    actual and forecast both present) and "n_expected" (rows with an actual).
+    When a slice has n < n_expected, the row also lists "missing_stations".
     """
     merged = actuals.merge(
         preds[["timestamp", "station_id", "p10", "p50", "p90"]],
         on=["timestamp", "station_id"],
-        how="inner",
+        how="left",
+        indicator="_forecast_merge",
     )
-    if merged.empty:
+    if merged.empty or not (merged["_forecast_merge"] == "both").any():
         log.warning(f"No overlapping rows for {model_name}")
         return []
+    merged = merged.drop(columns="_forecast_merge")
 
     rows = []
 
@@ -193,10 +221,12 @@ def compute_metrics(
             return None
         y_true = subset["ridership"].values.astype(float)
         y_pred = np.maximum(subset["p50"].values.astype(float), 0)
+        has_actual = ~np.isnan(y_true)
+        has_forecast = ~np.isnan(y_pred)
         row = {
             "model":   model_name,
             "slice":   label,
-            "n":       len(subset),
+            "n":       int(np.sum(has_actual & has_forecast)),
             "WAPE_%":  round(wape(y_true, y_pred),  2),
             "MAE":     round(mae(y_true, y_pred),   2),
             "RMSE":    round(rmse(y_true, y_pred),  2),
@@ -206,6 +236,11 @@ def compute_metrics(
         }
         if y_train is not None:
             row["MASE"] = round(mase(y_true, y_pred, y_train, seasonality=seasonal_period, ids=ids), 4)
+        # Appended last so every existing column keeps its position.
+        row["n_expected"] = int(np.sum(has_actual))
+        if row["n"] < row["n_expected"]:
+            unforecast = subset.loc[has_actual & ~has_forecast, "station_id"]
+            row["missing_stations"] = sorted(unforecast.unique().tolist(), key=str)
         return row
 
     # Overall
@@ -280,16 +315,14 @@ def diebold_mariano_test(
     p50_a  = common["p50_a"].values.astype(float)
     p50_b  = common["p50_b"].values.astype(float)
 
-    # Exclude NaN rows before computing -- predict.py's forecast() documents
-    # that p10/p50/p90 can legitimately be NaN for a station whose upstream
-    # model didn't return a matching quantile column, and ridership itself
-    # can have null rows (same NaN-propagation family already fixed in
-    # evaluation/metrics.py's mae/rmse/mape/wape/smape/mase on 2026-09-15).
-    # A single NaN row here silently poisoned d.mean()/t_stat/p_value to NaN
-    # for the WHOLE comparison, and `p_value < 0.05` against that NaN is
-    # always False -- so the result wasn't just mislabeled "not significant",
-    # `winner` fell through to model_a even when model_b (the challenger)
-    # was actually better, misreporting an undefined test as a clean loss.
+    # Pair only the rows where the actual and both models' p50 are present.
+    # This is a significance test between two models, not a score for either
+    # of them (the leaderboard rejects any model that missed test rows; see
+    # accept_model_rows). A single NaN row would poison d.mean()/t_stat/
+    # p_value to NaN for the WHOLE comparison, and `p_value < 0.05` against
+    # that NaN is always False -- so `winner` would fall through to model_a
+    # even when model_b (the challenger) was actually better, misreporting an
+    # undefined test as a clean loss.
     valid = ~(np.isnan(y_true) | np.isnan(p50_a) | np.isnan(p50_b))
     if valid.sum() < 2:
         return {}
