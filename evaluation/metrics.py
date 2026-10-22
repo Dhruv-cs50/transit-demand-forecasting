@@ -48,38 +48,46 @@ EVAL_DIR      = Path("evaluation/outputs")
 
 # ── Core metric functions ──────────────────────────────────────────────────────
 
-def _valid_mask(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
+def _scorable_rows(y_true: np.ndarray, *forecasts: np.ndarray):
     """
-    Rows where neither the actual nor the prediction is NaN.
+    Rows a metric may be computed on, or None if the slice cannot be scored.
 
-    predict.py's forecast() documents (see its "ensure all three quantile
-    columns exist" guard) that p10/p50/p90 can legitimately be NaN for a
-    station whose upstream model didn't return a matching quantile column
-    -- a real, reachable case, not a theoretical one. Without this guard,
-    a *single* NaN row anywhere in the slice silently poisoned every one of
-    mae/rmse/mape/wape/smape to NaN for the WHOLE slice (np.mean/np.sum
-    over an array containing NaN returns NaN, with no warning) -- not just
-    that one row -- e.g. one station's missing p50 in a 500-row "Overall"
-    slice reported NaN for every metric on the project's primary evaluation
-    report. Excluding invalid rows here mirrors the same fix already
-    applied to coverage()/interval_width() (2026-09-13) for prediction
-    intervals.
+    Two different kinds of "missing" are handled differently on purpose:
+
+    * Missing ACTUAL (``y_true`` is NaN) is missing ground truth: there is
+      nothing to score the forecast against, so that row is excluded.
+    * Missing FORECAST (any array in ``forecasts`` is NaN on a row whose
+      actual is present) is a model failure: the model was asked to forecast
+      that row and did not. The metric is undefined for the slice, so this
+      returns None and the caller returns NaN. Dropping such rows would score
+      the model only on the rows it chose to forecast -- typically the easy
+      ones -- and let a model that skips its hardest stations outrank one that
+      forecasts everything.
+
+    Returns a boolean mask of the rows to score (actual present), or None when
+    a forecast is missing on any present actual, or when no actual is present.
     """
-    return ~(np.isnan(y_true) | np.isnan(y_pred))
+    actual_present = ~np.isnan(y_true)
+    for forecast in forecasts:
+        if np.any(actual_present & np.isnan(forecast)):
+            return None
+    if not np.any(actual_present):
+        return None
+    return actual_present
 
 
 def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Mean Absolute Error."""
-    valid = _valid_mask(y_true, y_pred)
-    if not np.any(valid):
+    valid = _scorable_rows(y_true, y_pred)
+    if valid is None:
         return float("nan")
     return float(np.mean(np.abs(y_pred[valid] - y_true[valid])))
 
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Root Mean Squared Error."""
-    valid = _valid_mask(y_true, y_pred)
-    if not np.any(valid):
+    valid = _scorable_rows(y_true, y_pred)
+    if valid is None:
         return float("nan")
     return float(np.sqrt(np.mean((y_pred[valid] - y_true[valid]) ** 2)))
 
@@ -90,8 +98,8 @@ def mape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
     Uses epsilon floor on actuals to avoid division by near-zero values
     (common in late-night windows with minimal ridership).
     """
-    valid = _valid_mask(y_true, y_pred)
-    if not np.any(valid):
+    valid = _scorable_rows(y_true, y_pred)
+    if valid is None:
         return float("nan")
     yt, yp = y_true[valid], y_pred[valid]
     denom = np.maximum(np.abs(yt), epsilon)
@@ -106,8 +114,8 @@ def wape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float:
 
     WAPE = sum(|y_pred - y_true|) / sum(|y_true|)
     """
-    valid = _valid_mask(y_true, y_pred)
-    if not np.any(valid):
+    valid = _scorable_rows(y_true, y_pred)
+    if valid is None:
         return float("nan")
     yt, yp = y_true[valid], y_pred[valid]
     denom = np.sum(np.abs(yt))
@@ -122,8 +130,8 @@ def smape(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1.0) -> float
     Useful because transit agencies care about both over-provisioning
     (wasted vehicles) and under-provisioning (overcrowded trains).
     """
-    valid = _valid_mask(y_true, y_pred)
-    if not np.any(valid):
+    valid = _scorable_rows(y_true, y_pred)
+    if valid is None:
         return float("nan")
     yt, yp = y_true[valid], y_pred[valid]
     denom = (np.abs(yt) + np.abs(yp)) / 2 + epsilon
@@ -140,7 +148,9 @@ def mase(
     """
     Mean Absolute Scaled Error.
     Scales MAE by the in-sample MAE of a seasonal naive forecast.
-    MASE < 1.0 means the model beats the seasonal naive baseline.
+    MASE < 1.0 means the forecast's mean absolute error is below the
+    in-sample seasonal-naive error on the training series. It is NOT a
+    comparison with the SeasonalNaive model scored on the test window.
 
     seasonality=96 → compare vs same-time-yesterday (24hrs at 15min freq)
 
@@ -168,11 +178,11 @@ def mase(
     scale = np.mean(naive_errors)
     if scale < 1e-8:
         return float("nan")
-    # Same NaN-poisoning risk as mae/rmse/mape/wape/smape (see _valid_mask):
-    # a single NaN y_true/y_pred row would otherwise make np.mean(...) NaN
-    # for the whole slice instead of just excluding that row.
-    valid = _valid_mask(y_true, y_pred)
-    if not np.any(valid):
+    # Same missing-value rule as mae/rmse/mape/wape/smape (see _scorable_rows):
+    # rows with a missing actual are excluded; a missing forecast on a row
+    # with an actual makes the slice's MASE NaN.
+    valid = _scorable_rows(y_true, y_pred)
+    if valid is None:
         return float("nan")
     return float(np.mean(np.abs(y_pred[valid] - y_true[valid])) / scale)
 
@@ -211,18 +221,15 @@ def coverage(
     Significantly below 80% = intervals too narrow (overconfident).
     Significantly above 80% = intervals too wide (underconfident).
 
-    Rows where the actual or either bound is NaN (e.g. predict.py's
-    forecast() fills p10/p90 with NaN for an entire station when the
-    upstream model never produced that quantile column -- see its
-    "ensure all three quantile columns exist" guard) are excluded from
-    both the numerator and denominator. A plain `>=`/`<=` comparison
-    against NaN is always False, so without this guard those rows
-    silently counted as "not covered" instead of being left out,
-    dragging the reported coverage rate toward 0% for reasons that have
-    nothing to do with actual interval quality.
+    Rows whose actual is NaN (missing ground truth) are excluded. If the
+    actual is present but p10 or p90 is NaN, the model failed to produce its
+    interval for that row and the slice's coverage is NaN: counting such rows
+    as "not covered" would drag coverage toward 0% for reasons unrelated to
+    interval quality, and dropping them would report coverage only on the
+    rows the model chose to forecast.
     """
-    valid = ~(np.isnan(y_true) | np.isnan(y_lower) | np.isnan(y_upper))
-    if not np.any(valid):
+    valid = _scorable_rows(y_true, y_lower, y_upper)
+    if valid is None:
         return float("nan")
     covered = (y_true[valid] >= y_lower[valid]) & (y_true[valid] <= y_upper[valid])
     return float(np.mean(covered) * 100)
@@ -232,15 +239,15 @@ def interval_width(y_lower: np.ndarray, y_upper: np.ndarray) -> float:
     """
     Average width of the prediction interval (P90 - P10).
 
-    Ignores rows where either bound is NaN instead of letting a single
-    missing row propagate NaN through the whole slice's average (same
-    NaN-exclusion as coverage(), for the same reason).
+    There is no actual here, so there is no "missing ground truth" case: a NaN
+    bound on any row means the model failed to produce that interval and the
+    average width is NaN, not an average over the rows that happened to have
+    bounds (same rule as coverage()).
     """
     width = y_upper - y_lower
-    valid = ~np.isnan(width)
-    if not np.any(valid):
+    if width.size == 0 or np.any(np.isnan(width)):
         return float("nan")
-    return float(np.mean(width[valid]))
+    return float(np.mean(width))
 
 
 # ── Result container ───────────────────────────────────────────────────────────

@@ -16,8 +16,6 @@ Produces:
   - Statistical significance tests (Diebold-Mariano)
   - Latex-ready table for your project report
 
-This is what powers the "MAPE 11.8%" number on your website hero.
-
 Usage:
     python models/baselines/benchmarks.py
     python models/baselines/benchmarks.py --quick   # skip slow baselines
@@ -120,16 +118,28 @@ MAX_PLAUSIBLE_WAPE = float(os.environ.get("MAX_PLAUSIBLE_WAPE", "100"))
 
 
 def accept_model_rows(rows: list[dict], model_name: str) -> list[dict]:
-    """Keep a model's metrics only if its overall WAPE is physically sensible.
+    """Keep a model's metrics only if its overall WAPE is valid and physically sensible.
 
-    Rejected models are reported loudly and left off the leaderboard. They are
-    a failure to investigate, not a ranking to publish.
+    A model is rejected when its overall WAPE is missing or NaN (at least one
+    forecast was missing) or exceeds MAX_PLAUSIBLE_WAPE. Rejected models are
+    reported loudly and left off the leaderboard. They are a failure to
+    investigate, not a ranking to publish.
     """
     overall = next((r for r in rows if r.get("slice") == "overall"), None)
     if overall is None:
         return rows
 
     wape_pct = overall.get("WAPE_%")
+    if wape_pct is None or np.isnan(wape_pct):
+        # evaluation.metrics returns NaN when a forecast is missing on a row
+        # whose actual is present. A model must never be ranked on only the
+        # rows it chose to forecast, so a NaN overall score is a failure.
+        log.error(
+            f"  {model_name} REJECTED: no valid score — at least one forecast "
+            f"is missing; excluded from the leaderboard; diagnose before "
+            f"reporting it."
+        )
+        return []
     if wape_pct is not None and wape_pct > MAX_PLAUSIBLE_WAPE:
         log.error(
             f"  {model_name} REJECTED: WAPE {wape_pct:,.1f}% exceeds "
