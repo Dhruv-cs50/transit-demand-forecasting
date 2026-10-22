@@ -186,8 +186,10 @@ def check_missing_windows(
         max_gap = max(pd.Timedelta(hours=max_gap_hours), step_td * 2)
     except ValueError:
         # Month-start/month-end offsets are calendar based, not fixed-width.
-        # Two months plus a little slack catches missing station-month rows.
-        max_gap = pd.Timedelta(days=62)
+        # Consecutive months are 28-31 days apart; one missing month leaves a
+        # 59-62 day gap, which a 62-day threshold under the strict `>` below
+        # never flagged. 35 days catches any single missing month.
+        max_gap = pd.Timedelta(days=35)
     large_gaps = []
 
     for station, grp in df.groupby("station_id"):
