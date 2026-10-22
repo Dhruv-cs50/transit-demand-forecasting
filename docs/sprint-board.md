@@ -30,7 +30,7 @@ each delta traced to a named change; website export emits non-empty JSON;
 | S3.2d | Triage: `feature_engineering.py`, other `fetch_*`, `fetch_pems_roads.py`, `run_pipeline.sh` | principal-engineer | S3.1 | Ruling per item in report | in progress |
 | S3.2e | Triage: `benchmarks`, `ablation`, `metrics`, `prophet_baseline`, `arima`, `export_website_data` | principal-engineer | S3.1 | Ruling per item; #135 checked against #132 | in progress |
 | S3.2f | Triage: website JSX/CSS/JSON, README, `docs/`, EDA notebook | principal-engineer | S3.1 | Ruling per item in report | in progress |
-| S3.3 | Identify the routine that opens a PR daily | orchestrator | — | Routine named, with a pause/reconfigure proposal | todo |
+| S3.3 | Identify the routine that opens a PR daily | orchestrator | — | Routine named, with a pause/reconfigure proposal | done — remote routine "Test" (`trig_01ML7Tvxyi698UL1sgXPRXa4`), daily 13:00 UTC since 2026-05-03; proposal goes to the user, not changed by us |
 | — | **Gate: merge order and close list shown to the user; wait for Go Ahead** | orchestrator | S3.2*, S3.3 | User's explicit yes | todo |
 | S3.4 | Merge #116 into this branch; resolve conflicts toward Sprint 2; revert rejected hunks | implementer | Gate | Diff matches S3.2 rulings | todo |
 | S3.5 | Merge the vetted small PRs and log-only PRs | implementer | S3.4 | Each merges; rulings honoured | todo |
@@ -45,3 +45,7 @@ each delta traced to a named change; website export emits non-empty JSON;
 - `.claude/` was gitignored wholesale. Narrowed to `.claude/*` plus
   `!.claude/agents/` so agent definitions are tracked and local settings stay
   out. Cost if wrong: one `.gitignore` line.
+- Root cause of the backlog: the routine's prompt ("check for bugs, prepare
+  improvements, create a file for the day's updates") gives it no rule for what
+  to do when its previous PR is unmerged, so it opens a new one every day and
+  carries the old one forward. Changing the routine is the user's call.
