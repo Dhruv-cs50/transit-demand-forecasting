@@ -89,6 +89,8 @@ See `updates/` for the audit trail.
 |-- machine_learning_files/
 |   |-- fetch_511_transit.py       # 511 SF Bay transit feed ingestion
 |   |-- fetch_bart_od.py           # BART OD ridership report ingestion
+|   |-- bart_od_from_xlsx.py       # BART OD parquet builder from the hand-downloaded bart.gov Ridership_YYYYMM.xlsx workbooks (see data/MANIFEST.md)
+|   |-- bart_od_from_csv.py        # Legacy fallback from bart_clean.csv; has no Total block, so merge_pipeline.py rejects its output
 |   |-- fetch_weather_openmeteo.py # Open-Meteo station weather ingestion
 |   |-- fetch_events.py            # NHL and Ticketmaster event ingestion
 |   |-- merge_pipeline.py          # raw sources -> feature_store.parquet + splits
@@ -387,7 +389,7 @@ Additional project documentation:
 | --- | --- |
 | `Feature store not found` | Run `python machine_learning_files/merge_pipeline.py`. |
 | `feature_store_enriched.parquet` missing | Run `python Processing/feature_engineering.py`. |
-| `No BART OD files found` | Run `python machine_learning_files/fetch_bart_od.py` or place BART parquet files in `data/raw/transit/bart/`. |
+| `No BART OD files found` | bart.gov answers automated requests with HTTP 403, so `fetch_bart_od.py` cannot fill `data/raw/transit/bart/`. Download the Ridership workbooks by hand and run `python machine_learning_files/bart_od_from_xlsx.py --zips <zips>` (see `data/MANIFEST.md`). Do not use `bart_od_from_csv.py` for the pipeline: `merge_pipeline.py` rejects the months it builds. |
 | AutoGluon import/install failures | Recreate the environment with Python 3.11. |
 | Chronos device errors | Change `chronos2.device` in `configs/model.yaml`. |
 | Website shows stale data | Re-run `scripts/export_website_data.py` before deploying. |
