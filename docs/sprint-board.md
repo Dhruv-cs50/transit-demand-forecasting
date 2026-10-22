@@ -38,7 +38,7 @@ each delta traced to a named change; website export no worse than `main`
 | S3.5 | Merge the log-only PRs | orchestrator | S3.4 | Each merges; only `updates/*.md` change | done (8ce12dc, octopus of 10) |
 | S3.6 | Port KEEP fixes from superseded old PRs, credited to source PR | implementer | S3.5 | One commit per cluster | done — folded into S3.4's port commits |
 | S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | in progress — two reviewers on disjoint file sets |
-| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | in progress — store rebuild diff + benchmark x2 in /tmp/tdf-venv |
+| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | done — see Gate results |
 | S3.9 | Audit board against git | delivery-auditor | S3.8 | No unresolved disagreement | todo |
 | S3.10 | Open consolidation PR; after the user merges it, close the superseded list | orchestrator | S3.9 | Needs user's yes for the closes | todo |
 
@@ -103,3 +103,12 @@ disposition comment, only on the user's yes.
   Sprint 2's (3,000 rows, both files, `assert_frame_equal`).
 - The 33 `updates/*.md` logs that arrive with #116 and the 10 log-only PRs are
   kept verbatim: dated records of what the routine reported, not current claims.
+
+## Gate results (S3.8, 2026-10-22, pinned env above)
+
+| Gate | Result |
+|---|---|
+| Leaderboard | Identical to `main` on every metric: SARIMA 3.21 / Prophet 5.75 / Chronos-1 9.70 / SeasonalNaive 10.75 WAPE%, n=300. Adds a MASE column (0.3677 / 0.6585 / 1.1105 / 1.2311). Two runs byte-identical. |
+| Feature store | Rebuilt from the same raw files by `main` and by this branch: target identical (0 rows added or lost, max abs diff 0, 50/50 stations). Differences, each traced: new `precip_in`, `humidity_pct` columns (#91); `is_rain_onset` false on 250 rainy months that follow a rainy month (bool-upcast fix, #102: `main` flagged every rainy month as an onset); `hours_to_next_event`/`hours_since_last_event` NaN instead of 0.0 when there are no events (#90: 0.0 meant "event now"); splits now cut from the enriched store (H233). |
+| Website export | All five JSON files byte-identical between `main`'s code and this branch; `model_comparison.json` identical to the committed file. Station JSONs export empty on both (known gap). |
+| py_compile / JSX | 20 changed .py files compile; both changed .jsx files parse (TypeScript 5.9.3). |
