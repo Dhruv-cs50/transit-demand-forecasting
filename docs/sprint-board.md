@@ -33,12 +33,12 @@ each delta traced to a named change; website export no worse than `main`
 | S3.2e | Triage: `benchmarks`, `ablation`, `metrics`, `prophet_baseline`, `arima`, `export_website_data` | principal-engineer | S3.1 | Ruling per item; #135 checked against #132 | done — 70 items: KEEP_116 25, ADAPT_116 7, REJECT_116 4, PORT 2; leaderboard recomputed from saved forecasts, unchanged; #135 compatible but closable |
 | S3.2f | Triage: website JSX/CSS/JSON, README, `docs/`, EDA notebook | principal-engineer | S3.1 | Ruling per item in report | done — 60 items: KEEP_116 31, ADAPT_116 6, REJECT_116 6, PORT 6 |
 | S3.3 | Identify the routine that opens a PR daily | orchestrator | — | Routine named, with a pause/reconfigure proposal | done — remote routine "Test" (`trig_01ML7Tvxyi698UL1sgXPRXa4`), daily 13:00 UTC since 2026-05-03; proposal goes to the user, not changed by us |
-| — | **Gate: merge order and close list shown to the user; wait for Go Ahead** | orchestrator | S3.2*, S3.3 | User's explicit yes | todo |
-| S3.4 | Merge #116 into this branch; resolve conflicts toward Sprint 2; revert rejected hunks | implementer | Gate | Diff matches S3.2 rulings | todo |
-| S3.5 | Merge the vetted small PRs and log-only PRs | implementer | S3.4 | Each merges; rulings honoured | todo |
-| S3.6 | Port KEEP fixes from superseded old PRs, credited to source PR | implementer | S3.5 | One commit per cluster | todo |
-| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | todo |
-| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | todo |
+| — | **Gate: push, PR closes and the routine change wait for the user** | orchestrator | S3.2*, S3.3 | User's explicit yes | todo — branch built and verified locally first, nothing pushed |
+| S3.4 | Merge #116 into this branch; resolve conflicts toward Sprint 2; revert rejected hunks | implementer | Gate | Diff matches S3.2 rulings | done (f919788 merge, ports 7386f5a 42471da 276a21c aa16f59 5e126ec) — rulings checker 0 unexplained failures, invariants 32/32 |
+| S3.5 | Merge the log-only PRs | orchestrator | S3.4 | Each merges; only `updates/*.md` change | done (8ce12dc, octopus of 10) |
+| S3.6 | Port KEEP fixes from superseded old PRs, credited to source PR | implementer | S3.5 | One commit per cluster | done — folded into S3.4's port commits |
+| S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | in progress — two reviewers on disjoint file sets |
+| S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | in progress — store rebuild diff + benchmark x2 in /tmp/tdf-venv |
 | S3.9 | Audit board against git | delivery-auditor | S3.8 | No unresolved disagreement | todo |
 | S3.10 | Open consolidation PR; after the user merges it, close the superseded list | orchestrator | S3.9 | Needs user's yes for the closes | todo |
 
@@ -94,3 +94,12 @@ disposition comment, only on the user's yes.
   `load_transit` rejects; the working path is `bart_od_from_xlsx.py` (S3.2f P5).
 - #135 only deletes a blank line and its log calls the backlog solved: closed.
 - #119's bare-except fix is ported in the form from #17 (H84), not #119's (H391).
+- S3.4 and S3.6 merged into one story: the composer applied the PORT items as
+  per-cluster commits right after the merge commit, so a separate dispatch would
+  only have re-read the same reports.
+- Gate environment pinned: /tmp/tdf-venv — Python 3.14.0, pandas 3.0.6, numpy 2.5.4,
+  statsmodels 0.15.0, prophet 1.5.0, torch 2.14.1, chronos-forecasting 2.3.2.
+- Baseline for the store gate: `main`'s code rebuilds a feature store identical to
+  Sprint 2's (3,000 rows, both files, `assert_frame_equal`).
+- The 33 `updates/*.md` logs that arrive with #116 and the 10 log-only PRs are
+  kept verbatim: dated records of what the routine reported, not current claims.
