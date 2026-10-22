@@ -41,7 +41,11 @@ COPY configs/model.yaml ./configs/model.yaml
 # Pre-computed data baked into the image (small: ~200 KB total)
 COPY data/processed/feature_store_enriched.parquet ./data/processed/feature_store_enriched.parquet
 COPY data/processed/feature_store.parquet          ./data/processed/feature_store.parquet
-COPY models/chronos2/outputs/                      ./models/chronos2/outputs/
+# models/chronos2/outputs/ is NOT copied: the directory does not exist in the
+# repository, and a COPY of a missing path fails the build. It was only ever
+# produced by a local zero_shot.py run, and nothing committed depends on it —
+# api.py falls back to live inference when cached forecasts are absent.
+# Re-add this line only alongside a step that actually creates the directory.
 
 # Cloud Run injects PORT env var; default 8080
 ENV PORT=8080

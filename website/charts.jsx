@@ -172,7 +172,7 @@ const Calibration = ({ width = 460, height = 260 }) => {
       ))}
 
       {/* annotations */}
-      <text x={pad.l + 8} y={pad.t + 13} fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">Embarcadero · Chronos-2 zero-shot forecast</text>
+      <text x={pad.l + 8} y={pad.t + 13} fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">Embarcadero · Chronos-1 zero-shot forecast</text>
       <text x={pad.l + W} y={pad.t + H + 30} textAnchor="end" fontSize="10" fill="var(--ink-muted)">2024</text>
 
       {/* legend */}
@@ -244,8 +244,8 @@ const HeroOrbit = () => {
       <g transform="translate(260,260)">
         <circle r="56" fill="var(--bg-elev)" stroke="var(--line-strong)" />
         <circle r="56" fill="url(#core)" opacity=".6" />
-        <text textAnchor="middle" y="-6" fontFamily="var(--mono)" fontSize="11" fill="var(--ink-muted)">WAPE · val</text>
-        <text textAnchor="middle" y="22" fontFamily="var(--display)" fontWeight="600" fontSize="30" fill="var(--ink)" letterSpacing="-1">14.2%</text>
+        <text textAnchor="middle" y="-6" fontFamily="var(--mono)" fontSize="11" fill="var(--ink-muted)">WAPE · test</text>
+        <text textAnchor="middle" y="22" fontFamily="var(--display)" fontWeight="600" fontSize="30" fill="var(--ink)" letterSpacing="-1">3.2%</text>
       </g>
     </svg>
   );

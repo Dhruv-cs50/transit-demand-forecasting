@@ -89,7 +89,7 @@ const Hero = () => (
         <div style={{ height: 20 }} />
         <p className="lede">
           A machine‑learning pipeline that predicts monthly ridership across 50 BART stations
-          using Chronos‑2, a pretrained time‑series foundation model — enriched with weather and
+          using Chronos‑1 (chronos-t5-small), a pretrained time‑series foundation model — enriched with weather and
           events data to capture seasonal and surge patterns, built to support smarter service
           planning decisions.
         </p>
@@ -109,16 +109,16 @@ const Hero = () => (
         <div className="hero-art">
           <HeroOrbit />
           <div className="float-card" style={{ top: '6%', left: '-4%' }}>
-            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>STOP · DIRIDON N</div>
+            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>STATION · 12TH ST</div>
             <div style={{ display:'flex', alignItems:'baseline', gap:8 }}>
-              <div className="mono" style={{ fontSize: 22, fontWeight:600, color:'var(--accent)' }}>+34%</div>
-              <div style={{ fontSize: 12, color:'var(--ink-muted)' }}>vs typical Tue 7pm</div>
+              <div className="mono" style={{ fontSize: 22, fontWeight:600, color:'var(--accent)' }}>3.2%</div>
+              <div style={{ fontSize: 12, color:'var(--ink-muted)' }}>WAPE · best model</div>
             </div>
-            <div style={{ fontSize: 11, color:'var(--ink-soft)' }}>Sharks home game · puck drop 7:00</div>
+            <div style={{ fontSize: 11, color:'var(--ink-soft)' }}>SARIMA · Jul–Dec 2025 holdout</div>
           </div>
           <div className="float-card b" style={{ bottom:'4%', right:'-4%' }}>
-            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>MODEL · Chronos-2</div>
-            <div className="mono" style={{ fontSize: 13, fontWeight:600 }}>MASE &lt; 1.0</div>
+            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>MODEL · SARIMA</div>
+            <div className="mono" style={{ fontSize: 13, fontWeight:600 }}>MAE 3,086</div>
             <div style={{ fontSize: 11, color:'var(--ink-soft)' }}>6-mo horizon · 50 BART stations</div>
           </div>
         </div>
@@ -130,10 +130,10 @@ const Hero = () => (
 /* ── At-a-glance metrics ───────────────────────────────────────── */
 const AtAGlance = () => {
   const items = [
-    { ic: <I.target />, num: '14.2', unit:'% WAPE', lbl:'AutoETS best model — vs 22.5% SARIMA', delta:'Jan–Jun 2023 validation · 300 station-months' },
+    { ic: <I.target />, num: '3.2', unit:'% WAPE', lbl:'SARIMA best model — vs 5.8% Prophet', delta:'Jul–Dec 2025 holdout · 300 station-months' },
     { ic: <I.chart />, num: '50', unit:' stations', lbl:'Full BART network covered', delta:'All OD pairs · Bay Area' },
-    { ic: <I.database />, num: '1,800', unit:' mo', lbl:'Station-month ridership records', delta:'2019 + 2022–2023 BART OD' },
-    { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'AutoETS + Chronos-2 ensemble' },
+    { ic: <I.database />, num: '3,000', unit:' mo', lbl:'Station-month ridership records', delta:'2019 + 2022–2025 BART OD' },
+    { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'Point forecasts calibrated; intervals are not' },
   ];
   return (
     <section id="overview-metrics" style={{ padding:'40px 0 80px', borderTop:'none' }}>
@@ -157,9 +157,9 @@ const AtAGlance = () => {
 const Method = () => {
   const steps = [
     { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public 511 API (2019 + 2022–2023), joined with Open-Meteo hourly weather and a Bay Area events calendar. Stored as Parquet in a local feature store.", tools:['BART API','Open-Meteo','Parquet'] },
-    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built covariates including lag windows, rolling means, holiday and school-calendar flags, weather, and event proximity indicators for known-future inputs to Chronos-2.', tools:['pandas','scikit-learn'] },
-    { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-2 (Amazon pretrained time-series foundation model) zero-shot, then fine-tuned with AutoGluon TimeSeriesPredictor as an ensemble with ARIMA and Prophet baselines.', tools:['Chronos-2','AutoGluon','Prophet','ARIMA'] },
-    { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with MASE, WAPE, and P10/P90 interval coverage across all 50 BART stations.', tools:['MASE','WAPE'] },
+    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built covariates including lag windows, rolling means, holiday and school-calendar flags, weather, and event proximity indicators as known-future inputs. The event covariates are currently constant zero — the pipeline has no Ticketmaster key — and the Chronos checkpoint cannot accept covariates at all.', tools:['pandas','scikit-learn'] },
+    { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline. AutoGluon fine-tuning is scaffolded but has never been run — autogluon.timeseries will not install on this Python.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
+    { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations. Intervals are not yet calibrated.', tools:['WAPE','MAE'] },
     { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station) with pre-computed outputs exported to JSON powering the website heat map.', tools:['FastAPI','React','JSON'] },
   ];
   return (
@@ -253,7 +253,7 @@ const Dataset = () => {
         <div style={{ height: 24 }} />
         <Reveal className="card" style={{ padding: 28 }}>
           <h3 style={{ display:'flex', alignItems:'center', gap:10, marginBottom: 18 }}>
-            <I.flask /> Feature catalog <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· Chronos-2 known-future covariates</span>
+            <I.flask /> Feature catalog <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· known-future covariates</span>
           </h3>
           <div className="pills">
             {features.map(f => (
@@ -262,7 +262,7 @@ const Dataset = () => {
           </div>
           <div className="divider" />
           <p className="text-muted" style={{ fontSize: 13 }}>
-            <span className="mono" style={{ color:'var(--ink)' }}>●</span> top covariates by influence. Passed as known-future inputs to Chronos-2 — only data observable at prediction time included.
+            <span className="mono" style={{ color:'var(--ink)' }}>●</span> covariates available at prediction time. Influence ordering is illustrative, not a measured attribution.
           </p>
         </Reveal>
       </div>
@@ -289,15 +289,15 @@ const Results = () => {
         <div className="section-h">
           <Reveal><div className="eyebrow"><span className="pip" /> Results</div></Reveal>
           <Reveal delay="1"><div className="row">
-            <h2>Accurate, well-calibrated across stations, and interpretable.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>Chronos-2 zero-shot achieves MASE below 1.0 on the held-out test period — beating seasonal-naïve across all 50 BART stations without any task-specific training.</p>
+            <h2>Accurate point forecasts across all 50 stations.</h2>
+            <p className="lede" style={{ maxWidth:'46ch' }}>SARIMA reaches 3.2% WAPE on a Jul–Dec 2025 holdout never used for model selection, ahead of Prophet at 5.8% and a seasonal-naïve baseline at 10.8%. Prediction intervals are not yet calibrated — see the note below.</p>
           </div></Reveal>
         </div>
         <div className="results-grid">
           <Reveal className="card chart-card">
             <div className="chart-head">
               <div>
-                <h3>{chart === 'roc' ? 'WAPE by model — validation set' : 'Chronos-2 forecast intervals — Embarcadero'}</h3>
+                <h3>{chart === 'roc' ? 'WAPE by model — test set' : 'Forecast intervals — Embarcadero'}</h3>
                 <p>{chart === 'roc' ? 'Jan–Jun 2023 · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 zero-shot forecast · Jan–Jun 2024 · Embarcadero (highest-volume BART station)'}</p>
               </div>
               <div className="chip-grp">
@@ -315,13 +315,13 @@ const Results = () => {
               </div>
             </div>
             <div className="cm">
-              <div className="cm-cell tp"><div className="v">14.2%</div><div className="l">WAPE · AutoETS</div><div className="text-muted" style={{ fontSize:11 }}>below 15% target ✓</div></div>
-              <div className="cm-cell tn"><div className="v">46.8k</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>vs 74k SARIMA</div></div>
-              <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">≈ 80% coverage</div><div className="text-muted" style={{ fontSize:11 }}>interval calibration</div></div>
+              <div className="cm-cell tp"><div className="v">3.2%</div><div className="l">WAPE · SARIMA</div><div className="text-muted" style={{ fontSize:11 }}>best of 4 models</div></div>
+              <div className="cm-cell tn"><div className="v">3.1k</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>vs 5.5k Prophet</div></div>
+              <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>44–97% vs nominal 80%</div></div>
               <div className="cm-cell fn"><div className="v">50 sta.</div><div className="l">all BART stations</div><div className="text-muted" style={{ fontSize:11 }}>no station excluded</div></div>
             </div>
             <div className="text-muted" style={{ fontSize: 13 }}>
-              AutoETS (AutoGluon ensemble): WAPE 14.2% · MAE 46,783 riders/month · validated Jan–Jun 2023 · 300 station-months
+              SARIMA airline (0,1,1)(0,1,1,12): WAPE 3.21% · MAE 3,086 riders/month · Jul–Dec 2025 holdout · 300 station-months
             </div>
           </Reveal>
           <Reveal delay="2" className="card chart-card" style={{ gridColumn:'1 / -1' }}>
@@ -418,10 +418,14 @@ const Benchmarks = () => {
   const fmtN = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n));
 
   const MODEL_LABELS = {
-    'AutoETS (AutoGluon)': 'AutoETS / AutoGluon (best baseline)',
-    'SARIMA': 'SARIMA(2,1,2)',
+    'SARIMA': 'SARIMA airline (0,1,1)(0,1,1,12)',
     'Prophet': 'Prophet (per-station)',
+    'SeasonalNaive': 'Seasonal naive',
   };
+
+  const bestWAPE = cmpData
+    ? Math.min(...cmpData.map(r => r.WAPE_pct).filter(v => v != null))
+    : null;
 
   const dataRows = cmpData ? [
     ...cmpData.map(r => ({
@@ -430,17 +434,15 @@ const Benchmarks = () => {
       mape: r.MAPE_pct != null ? r.MAPE_pct.toFixed(1)+'%' : '—',
       mae:  r.MAE  != null ? fmtN(r.MAE) : '—',
       relW: r.WAPE_pct,
-      best: r.model === 'AutoETS (AutoGluon)',
+      best: r.WAPE_pct != null && r.WAPE_pct === bestWAPE,
     })),
-    { m:'Chronos-2 zero-shot', wape:'—', mape:'—', mae:'—', relW:null, note:'Forecasting Jan–Jun 2024 — beyond available actuals' },
+    { m:'AutoETS (AutoGluon)', wape:'—', mape:'—', mae:'—', relW:null, note:'Not benchmarked — autogluon.timeseries unavailable on this Python' },
   ] : [];
 
-  const bestWAPE = cmpData ? Math.min(...cmpData.map(r => r.WAPE_pct).filter(v => v != null)) : 14.2;
-
   const recs = [
-    { n:'01', t:'Integrate surge alerts into operations.', d:"Game days at Chase Center and Oracle Arena drive +35–60% ridership surges at Coliseum and 12th St / Oakland. The dashboard should auto-flag these 48 hours ahead instead of leaving operators to anticipate them.", who:'Operations Control' },
-    { n:'02', t:'Fine-tune Chronos-2 per station cluster.', d:'Zero-shot Chronos-2 already beats seasonal-naïve. Fine-tuning on station clusters (core SF, East Bay commuter, Peninsula) should push MASE further below 1.0 with minimal additional compute.', who:'Data / ML' },
-    { n:'03', t:'Add real-time OD data to the pipeline.', d:"BART's 511 API supports near-real-time OD pulls. Replacing monthly batch updates with weekly ingestion reduces data staleness that accounts for most residual forecast error.", who:'Data / IT' },
+    { n:'01', t:'Integrate surge alerts into operations.', d:"Event calendars are ingested but the event covariates are currently constant zero, because the pipeline has no Ticketmaster key. Wiring that up is what would let surge effects be measured at all, let alone flagged ahead of time.", who:'Operations Control' },
+    { n:'02', t:'Fine-tune Chronos per station cluster.', d:'Zero-shot Chronos-1 (chronos-t5-small) scores 9.7% WAPE here — ahead of seasonal-naïve at 10.8%, behind both classical baselines. It also runs univariate, since the pipeline cannot pass covariates to this checkpoint. Fixing that, then fine-tuning per station cluster, is the path worth testing.', who:'Data / ML' },
+    { n:'03', t:'Add real-time OD data to the pipeline.', d:"BART's 511 API supports near-real-time OD pulls, and the 511 ingestion path is still a placeholder. Replacing monthly batch updates with weekly ingestion would cut data staleness; how much of the residual error that accounts for has not been measured.", who:'Data / IT' },
   ];
   return (
     <>
@@ -450,7 +452,7 @@ const Benchmarks = () => {
             <Reveal><div className="eyebrow"><span className="pip" /> Benchmarks</div></Reveal>
             <Reveal delay="1"><div className="row">
               <h2>How we stack up.</h2>
-              <p className="lede" style={{ maxWidth:'46ch' }}>All models evaluated on the same temporal split (Jan–Jun 2023, 300 station-months). Lower WAPE and MAE is better. AutoETS reaches 14.2% WAPE — 8 pp below SARIMA.</p>
+              <p className="lede" style={{ maxWidth:'46ch' }}>All models evaluated on the same temporal split (Jul–Dec 2025, 300 station-months) — a holdout not used for model selection. Lower WAPE and MAE is better. SARIMA reaches 3.2% WAPE, ahead of Prophet at 5.8%.</p>
             </div></Reveal>
           </div>
           <Reveal className="card bench">
@@ -615,7 +617,7 @@ const About = () => (
         {[
           { lbl:'Report · 38 pages', t:'Final project report', d:'Full methodology, experiments, error audit, and limitations.', href:'#' },
           { lbl:'Slides · 22 slides', t:'Defense presentation', d:'The 15-minute version — what to skim before a one‑on‑one.', href:'#' },
-          { lbl:'Repo · MIT license', t:'Source code', d:'Reproducible pipeline scripts, Chronos-2 fine-tuning, baselines, and this website.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting' },
+          { lbl:'Repo · MIT license', t:'Source code', d:'Reproducible pipeline scripts, Chronos-1 (chronos-t5-small) fine-tuning, baselines, and this website.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting' },
           { lbl:'Notebook', t:'Exploratory analysis', d:'Station-level missingness, COVID recovery patterns, and the case for temporal splits.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting/blob/main/transit_eda/notebooks/eda_complete.ipynb' },
           { lbl:'BART OD ridership', t:'Dataset · BART OD', d:'Public BART origin-destination monthly ridership data from BART.gov.', href:'https://www.bart.gov/about/reports/ridership' },
           { lbl:'Open-Meteo weather', t:'Dataset · Open-Meteo', d:'Free historical weather API used for weather covariates — hourly granularity, Bay Area stations.', href:'https://open-meteo.com' },
@@ -640,7 +642,7 @@ const Footer = () => (
         <span className="dot" />
         <small>TransitForecast · CS 163 Senior Project · San José State University · © 2026 Dhruv Shah &amp; Ryder Sabale</small>
       </div>
-      <small className="text-muted">Built with React, Chronos-2, Prophet, SARIMA, and a great deal of caffeine.</small>
+      <small className="text-muted">Built with React, Chronos-1 (chronos-t5-small), Prophet, SARIMA, and a great deal of caffeine.</small>
     </div>
   </footer>
 );
@@ -733,7 +735,7 @@ const BARTForecasts = () => {
           <Reveal delay="1"><div className="row">
             <h2>Live model outputs — 50 stations, 6-month forecast.</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
-              Chronos-2 zero-shot forecasts trained on 2019–2022 BART origin-destination data.
+              Chronos-1 (chronos-t5-small) zero-shot forecasts trained on 2019–2022 BART origin-destination data.
               Forecasting Jan–Jun 2024 monthly ridership with P10/P50/P90 uncertainty bands.
             </p>
           </div></Reveal>
@@ -863,7 +865,7 @@ const BARTForecasts = () => {
                   </tr>
                 ))}
                 <tr>
-                  <td style={{ padding:'6px 10px', fontWeight:600, color:'var(--primary)' }}>Chronos-2 (zero-shot)</td>
+                  <td style={{ padding:'6px 10px', fontWeight:600, color:'var(--primary)' }}>Chronos-1 (chronos-t5-small) (zero-shot)</td>
                   <td colSpan={4} style={{ padding:'6px 10px', color:'var(--ink-muted)', fontSize:12 }}>
                     Forecasting Jan–Jun 2024 (beyond available actuals — qualitative evaluation only)
                   </td>

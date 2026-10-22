@@ -112,22 +112,68 @@ def load_transit(freq: str) -> pd.DataFrame:
 
     combined = pd.concat(frames, ignore_index=True)
 
-    # BART's OD workbooks include a "Total Trips" sheet alongside the
-    # "Weekday"/"Saturday"/"Sunday" sheets -- fetch_bart_od.py's
-    # parse_bart_od_excel() tags every sheet as its own day_type without
-    # distinguishing it (see transit_eda/notebooks/eda_complete.py's
-    # sheet_map, which explicitly maps a "Total Trips (OD)" sheet to
-    # day_type "Total" and excludes it before aggregating). Summing riders
-    # across day_type below without dropping it would sum the Weekday +
-    # Saturday + Sunday sheets *and* the sheet that is already their
-    # monthly total on top, roughly doubling every station-month's
-    # ridership -- the same double-counting failure mode as the
-    # glob-collision bug fixed 2026-08-12, via a different mechanism.
-    if "day_type" in combined.columns:
-        combined = combined[~combined["day_type"].str.contains("total", case=False, na=False)]
+    # ── Target definition ──────────────────────────────────────────────────────
+    # `ridership` is BART's actual monthly trip count for a station: the
+    # "Total Trips" block, summed over destinations, keyed on the ENTRY station
+    # (i.e. boardings originating there).
+    #
+    # The previous definition dropped that block and summed the three "Avg"
+    # blocks instead. Those are average riders on a single day of each type, so
+    # their sum is not a monthly quantity at all — it understated the real count
+    # by a factor that varied 20x-39x per station-month, and it silently stripped
+    # calendar effects (month length, weekday/weekend mix, holidays), which
+    # flattered every error metric computed on it.
+    #
+    # BART's own identity confirms what each block holds, exactly for 2019-2023:
+    #   avg_weekday x n_weekdays + avg_sat x n_saturdays + avg_sun x n_sundays
+    #       == total_trips
+    TOTAL_BLOCK = r"total"
 
-    # Aggregate total riders per station per period (collapse day_types & destinations)
-    # For forecasting we want total inbound ridership per station per time window
+    if "day_type" not in combined.columns:
+        raise ValueError(
+            "BART OD parquet files have no day_type column, so the Total Trips "
+            "block cannot be identified. Rebuild them with "
+            "machine_learning_files/bart_od_from_xlsx.py."
+        )
+
+    is_total = combined["day_type"].str.contains(TOTAL_BLOCK, case=False, na=False)
+
+    # Every month must carry exactly one Total block. bart_od_from_csv.py builds
+    # months from the three Avg sheets only and produces none, so a store built
+    # or partly refreshed by it would otherwise yield an empty target and look
+    # like a clean run with no data.
+    blocks_per_period = (
+        combined[is_total].groupby("period")["day_type"].nunique()
+    )
+    all_periods = pd.Index(combined["period"].unique())
+    # A month with no Total block is absent from the groupby entirely, so it has
+    # to be found by difference rather than by a count of zero.
+    missing = all_periods.difference(blocks_per_period.index)
+    multiple = blocks_per_period[blocks_per_period > 1]
+
+    if len(missing) or len(multiple):
+        detail = []
+        if len(missing):
+            detail.append(
+                f"{len(missing)} month(s) with no Total block "
+                f"(e.g. {[str(p)[:10] for p in missing[:3]]})"
+            )
+        if len(multiple):
+            detail.append(
+                f"{len(multiple)} month(s) with several "
+                f"(e.g. {[str(p)[:10] for p in multiple.index[:3]]})"
+            )
+        raise ValueError(
+            "Every month must carry exactly one 'Total' day_type block: "
+            + "; ".join(detail)
+            + ". Months built by bart_od_from_csv.py contain no Total block and "
+              "cannot define this target — rebuild from the workbooks with "
+              "machine_learning_files/bart_od_from_xlsx.py."
+        )
+
+    combined = combined[is_total]
+
+    # Collapse destinations: total trips boarding at this station this month.
     station_monthly = (
         combined
         .groupby(["period", "origin", "origin_name"])["riders"]

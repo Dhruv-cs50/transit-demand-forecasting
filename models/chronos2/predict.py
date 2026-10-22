@@ -429,6 +429,18 @@ class Predictor:
     ) -> pd.DataFrame:
         from machine_learning_files.zero_shot import run_zero_shot_forecast
 
+        # Chronos draws sample paths, so inference is stochastic. Seeding before
+        # every station keeps a run reproducible regardless of station order;
+        # unseeded, two identical benchmark runs differed by 0.2 WAPE points
+        # (8.26% vs 8.06%), which is not a number anyone can verify.
+        seed = self.cfg.get("chronos2", {}).get("seed")
+        if seed is not None:
+            try:
+                import torch
+                torch.manual_seed(int(seed))
+            except ImportError:
+                log.warning("torch unavailable — Chronos forecasts will not be reproducible")
+
         preds_df = run_zero_shot_forecast(
             self._pipeline, context_df, future_df,
             station_id, horizon_steps, quantile_levels,

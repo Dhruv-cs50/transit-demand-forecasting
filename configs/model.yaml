@@ -19,12 +19,16 @@ data:
   # bart_od_from_csv.py could rebuild the store, which is what allows these
   # windows to move forward and still leave 24 training months.
   train_start: "2022-01-01"
-  train_end: "2023-12-31"   # train: Jan 2022 - Dec 2023 (24 months)
-  val_end:   "2024-06-30"   # val: Jan-Jun 2024 | test: Jul-Dec 2024
+  train_end: "2024-12-31"   # train: Jan 2022 - Dec 2024 (36 months)
+  val_end:   "2025-06-30"   # val: Jan-Jun 2025 | test: Jul-Dec 2025
   # Test spans 6 months, matching forecast_horizon_steps below, so every
-  # model is scored over the same window. Previously the test split ran 18
-  # months while the baselines forecast 6, so SeasonalNaive was scored on
-  # 852 rows against Prophet's 300 and the ranking was not like-for-like.
+  # model is scored over the same window. A longer test split scores the
+  # naive baseline across every test month while the others forecast only
+  # `forecast_horizon_steps` ahead, which is not a like-for-like ranking.
+  #
+  # 2025-H2 is a clean holdout: Prophet's yearly_fourier_order and SARIMA's
+  # airline order were both selected by inspecting 2024-H2, so that window
+  # can no longer serve as a test set. Tune on validation only.
 
 # ── Chronos-2 ─────────────────────────────────────────────────────────────────
 chronos2:
@@ -32,6 +36,10 @@ chronos2:
   device: "cpu"                          # "cuda" if GPU, "mps" for Apple Silicon, "cpu" for Cloud Run
   batch_size: 32
   quantile_levels: [0.1, 0.5, 0.9]      # P10 / P50 / P90
+  # Chronos draws sample paths, so inference is stochastic. Unseeded, two
+  # identical runs produced 8.26% and 8.06% WAPE — a number nobody can
+  # reproduce. Seed it so a published figure is traceable.
+  seed: 42
   # Monthly data settings (BART OD is monthly, not 15-min)
   context_length_steps: 24              # use last 24 months as context (~2 years)
   prediction_length_steps: 6            # forecast 6 months ahead
@@ -44,7 +52,13 @@ finetune:
 
 # ── Prophet baseline ──────────────────────────────────────────────────────────
 prophet:
+  seed: 42                   # interval sampling is stochastic; see fit_station
   yearly_seasonality: true
+  # Fourier terms for the yearly cycle. Prophet's own default when
+  # yearly_seasonality is simply `true` is 10, which is 20 regressors — far too
+  # many for ~30 monthly observations per station, and it collapses the
+  # prediction interval. Raise only with substantially more history.
+  yearly_fourier_order: 4
   weekly_seasonality: false
   daily_seasonality: false
   changepoint_prior_scale: 0.05   # flexibility of trend — low = smooth

@@ -364,6 +364,14 @@ def run_benchmarks(
         # them as "Chronos2_ZeroShot" puts a foundation-model result on the
         # leaderboard that was never computed — and it outranked the real
         # baselines when this was last run with `chronos` missing.
+        # Name the row after the checkpoint that actually ran. configs/model.yaml
+        # pins amazon/chronos-t5-small, which is Chronos-1 — labelling its output
+        # "Chronos2" is the same misattribution as crediting a seasonal-naive
+        # fallback to Chronos, just one level subtler.
+        checkpoint = cfg.get("chronos2", {}).get("model_id", "unknown")
+        family = "Chronos2" if "chronos-2" in checkpoint.lower() else "Chronos1"
+        chronos_label = f"{family}_ZeroShot ({checkpoint.split('/')[-1]})"
+
         actual_mode = getattr(predictor, "mode", None)
         if actual_mode != "zeroshot":
             log.error(
@@ -373,9 +381,9 @@ def run_benchmarks(
                 f"fallback forecasts to Chronos."
             )
         elif not zs_preds.empty:
-            model_preds["Chronos2_ZeroShot"] = zs_preds
-            rows = compute_metrics(test_df, zs_preds, "Chronos2_ZeroShot")
-            rows = accept_model_rows(rows, "Chronos2_ZeroShot")
+            model_preds[chronos_label] = zs_preds
+            rows = compute_metrics(test_df, zs_preds, chronos_label)
+            rows = accept_model_rows(rows, chronos_label)
             all_rows.extend(rows)
             log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
     except Exception as e:
@@ -419,7 +427,7 @@ def run_benchmarks(
     # ── Statistical significance ───────────────────────────────────────────────
     dm_results = []
     if "AutoGluon_Ensemble" in model_preds:
-        for baseline in ["SeasonalNaive", "SARIMA", "Prophet", "Chronos2_ZeroShot"]:
+        for baseline in ["SeasonalNaive", "SARIMA", "Prophet", chronos_label]:
             if baseline in model_preds:
                 dm = diebold_mariano_test(
                     test_df,
