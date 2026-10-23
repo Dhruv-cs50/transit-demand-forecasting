@@ -108,6 +108,20 @@ def test_as_of_with_under_24_months_since_train_start_is_400(client, as_of):
     assert r.status_code == 400, r.text
 
 
+def test_a_failed_fit_for_a_known_station_is_500_not_404(client, monkeypatch):
+    # numpy's LinAlgError subclasses ValueError, the type /forecast once
+    # mapped wholesale to 404 "not found". A real numerical failure can't be
+    # provoked from the committed store, so the fit is replaced.
+    import models.baselines.arima as arima
+
+    def failing_fit(*args, **kwargs):
+        raise np.linalg.LinAlgError("Schur decomposition solver error.")
+
+    monkeypatch.setattr(arima, "fit_station", failing_fit)
+    r = _forecast(client, station_id="EM", horizon_hours=6)
+    assert r.status_code == 500
+
+
 def test_health_names_the_served_model(client):
     body = client.get("/health").json()
     assert body["status"] == "ok"

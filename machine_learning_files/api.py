@@ -38,6 +38,9 @@ import pandas as pd
 import yaml
 
 log = logging.getLogger("machine_learning_files.api")
+# arima.py logs two INFO lines per fit, i.e. per /forecast. Keep its warnings
+# (non-convergence) and drop the rest.
+logging.getLogger("arima_baseline").setLevel(logging.WARNING)
 
 # ── Lazy imports so the module loads even without ML deps installed ─────────────
 try:
@@ -54,11 +57,15 @@ MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
 
 class InvalidRequestError(Exception):
-    """Malformed request input (as opposed to a well-formed request for a
-    resource that doesn't exist -- see the `ValueError` "Unknown station"
-    case below, which correctly maps to 404). Kept distinct from
-    `ValueError` so `/forecast`'s handler can map this to 400 instead of
-    the 404 the "Unknown station" ValueError intentionally gets."""
+    """Malformed request input -> 400 (as opposed to a well-formed request
+    for a station that doesn't exist -> UnknownStationError, 404)."""
+
+
+class UnknownStationError(Exception):
+    """station_id is not in the feature store -> 404. Deliberately not a
+    ValueError: statsmodels/numpy failures inside a fit (numpy's
+    LinAlgError subclasses ValueError) must reach the 500 handler instead
+    of being reported as "not found"."""
 
 
 def load_model_config() -> dict:
@@ -132,8 +139,7 @@ def _clean_quantile(value) -> float | None:
     arg) -- turning a station-month the model genuinely couldn't forecast
     into a fake "0 riders" prediction. Returning None instead lets the
     response emit JSON `null` (which the frontends already render as "—"),
-    matching how export_website_data.py already handles the same NaN case
-    for this exact cached parquet.
+    matching how export_website_data.py handles NaN forecast cells.
     """
     if value is None or pd.isna(value):
         return None
@@ -160,7 +166,7 @@ def _run_forecast(
 
     station_df = df[df["station_id"] == station_id]
     if station_df.empty:
-        raise ValueError(f"Unknown station: {station_id}")
+        raise UnknownStationError(f"Unknown station: {station_id}")
 
     if as_of is None:
         as_of = station_df["timestamp"].max()
@@ -177,13 +183,8 @@ def _run_forecast(
                 raise ValueError(f"as_of parsed to NaT: {as_of!r}")
         except ValueError as e:
             # pandas raises a ValueError subclass (DateParseError) for an
-            # unparseable as_of string. Left uncaught, that ValueError falls
-            # through to the same `except ValueError` branch below that
-            # `/forecast` uses for "Unknown station" and gets mapped to 404
-            # Not Found -- wrong for a malformed *request*, which callers
-            # (and anything alerting on status codes) should see as 400 Bad
-            # Request instead. Re-raise as a distinct type so the endpoint
-            # can tell the two apart.
+            # unparseable as_of string. Left uncaught it would reach the
+            # generic 500 handler; a malformed *request* is a 400.
             raise InvalidRequestError(f"Invalid as_of value {as_of!r}: {e}") from e
         if station_df["timestamp"].dt.tz is not None:
             as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
@@ -203,7 +204,7 @@ def _run_forecast(
 
     # Same floor run_arima_all_stations() applies (two seasonal cycles).
     # Checked here so a short history is a 400 rather than fit_station()'s
-    # ValueError, which /forecast would report as "Unknown station" (404).
+    # ValueError, which would surface as a 500.
     min_months = get_sarima_orders(freq)["seasonal_order"][3] * 2
     n_months = history["timestamp"].nunique()
     if n_months < min_months:
@@ -246,7 +247,7 @@ if _FASTAPI_AVAILABLE:
     @app.on_event("startup")
     async def startup():
         """Pre-load the feature store, and import statsmodels so the first
-        /forecast doesn't pay for it (~3 s)."""
+        /forecast doesn't pay for it (seconds on a cold container)."""
         try:
             get_feature_store()
             log.info("Feature store warm")
@@ -271,10 +272,9 @@ if _FASTAPI_AVAILABLE:
     @app.get("/stations", response_model=StationsResponse)
     def list_stations():
         # get_feature_store() raises RuntimeError when the parquet is missing
-        # (e.g. a fresh checkout before the pipeline has run). /forecast maps
-        # that to a 503 with a helpful detail message; this endpoint used to
-        # leave it uncaught, so FastAPI's default handler turned it into a
-        # bare, non-JSON 500 instead of the same structured error.
+        # (it is committed, so only a broken checkout or image hits this).
+        # /forecast maps that to a 503 with a helpful detail message; this
+        # endpoint does the same instead of FastAPI's bare, non-JSON 500.
         try:
             df = get_feature_store()
         except RuntimeError as e:
@@ -288,7 +288,7 @@ if _FASTAPI_AVAILABLE:
             forecasts = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
         except InvalidRequestError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        except ValueError as e:
+        except UnknownStationError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except RuntimeError as e:
             raise HTTPException(status_code=503, detail=str(e))
