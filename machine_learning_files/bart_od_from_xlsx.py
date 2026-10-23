@@ -14,13 +14,19 @@ Why this exists rather than fetch_bart_od.py
 2. Its `parse_bart_od_excel()` does not match the real workbook format. It uses
    `header=0`, but the sheets carry a two-row header (row 0 is a banner, row 1
    holds the entry-station codes), and it filters codes against STATION_NAMES,
-   which holds four-letter codes (EMBR, MLBR) while the workbooks use two-letter
-   codes (EM, ML) plus the numeric 12/16/19/24. Run against a real workbook it
-   returns **zero rows** — and returns rather than raises, so the caller would
-   have written empty parquet files and counted them as success.
+   which is keyed by four-letter BART API codes (EMBR, MLBR) while the
+   workbooks use two-letter codes (EM, MB) plus the numeric 12/16/19/24. Run
+   against a real workbook it returns **zero rows** — and returns rather than
+   raises, so the caller would have written empty parquet files and counted
+   them as success.
 
 So the workbooks must be fetched by hand (a browser session clears the bot
 challenge) and converted here.
+
+Station names come from the station table, `bart_stations.py`, whose
+CODE_TO_NAME is keyed by the workbooks' own two-letter codes. (This module
+used to map through STATION_NAMES, which never matched a workbook code, so
+parquets built before the table carry the code as the name.)
 
 Sheet semantics, verified not assumed
 ─────────────────────────────────────
@@ -59,9 +65,9 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
-    from fetch_bart_od import STATION_NAMES
-except ImportError:  # keep usable if the fetcher moves
-    STATION_NAMES = {}
+    from bart_stations import CODE_TO_NAME  # two-letter workbook code -> name
+except ImportError:  # keep usable if the table moves; build() then warns
+    CODE_TO_NAME = {}  # that every code is missing from it
 
 logging.basicConfig(
     level=logging.INFO,
@@ -163,8 +169,9 @@ def parse_workbook(path: Path, year: int, month: int) -> pd.DataFrame:
     out["year"] = year
     out["month"] = month
     out["period"] = pd.Timestamp(year=year, month=month, day=1)
-    out["origin_name"] = out["origin"].map(STATION_NAMES).fillna(out["origin"])
-    out["destination_name"] = out["destination"].map(STATION_NAMES).fillna(out["destination"])
+    # A code missing from the table keeps the code as its name; build() warns.
+    out["origin_name"] = out["origin"].map(CODE_TO_NAME).fillna(out["origin"])
+    out["destination_name"] = out["destination"].map(CODE_TO_NAME).fillna(out["destination"])
     return out
 
 
@@ -202,6 +209,7 @@ def build(zips, directory, out_dir: Path) -> int:
         log.info(f"Converting {len(workbooks)} workbook(s) → {out_dir}")
         written = 0
         summary = []
+        unknown_codes: set[str] = set()
         for path in workbooks:
             m = MONTH_RE.search(path.name)
             year, month = int(m.group(1)), int(m.group(2))
@@ -210,6 +218,7 @@ def build(zips, directory, out_dir: Path) -> int:
             except Exception as e:
                 log.error(f"  {path.name}: {type(e).__name__}: {e}")
                 continue
+            unknown_codes |= (set(df["origin"]) | set(df["destination"])) - set(CODE_TO_NAME)
 
             cols = ["period", "year", "month", "day_type", "origin", "origin_name",
                     "destination", "destination_name", "riders"]
@@ -227,6 +236,11 @@ def build(zips, directory, out_dir: Path) -> int:
         months = sorted(s[0] for s in summary)
         if months:
             log.info(f"Wrote {written} month(s): {months[0]} → {months[-1]}")
+        if unknown_codes:
+            log.warning(
+                f"{len(unknown_codes)} workbook station code(s) not in "
+                f"bart_stations.py, named by their code: {sorted(unknown_codes)}"
+            )
         return written
 
 
