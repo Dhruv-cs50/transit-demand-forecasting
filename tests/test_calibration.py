@@ -25,6 +25,7 @@ from evaluation.calibration import (  # noqa: E402
     apply_conformal,
     conformal_quantile,
     fit_conformal,
+    no_calibration,
 )
 from evaluation.metrics import coverage  # noqa: E402
 
@@ -75,6 +76,14 @@ class ApplyConformalTest(unittest.TestCase):
                 out = apply_conformal(add_horizon(target), calib)
                 np.testing.assert_array_equal(out["p50"].values, target["p50"].values)
                 self.assertEqual(out["p50"].dtype, target["p50"].dtype)
+
+    def test_no_calibration_keeps_band_and_reports_raw(self):
+        target = _frame(10, 6, self.rng, half_width_sd=0.5)
+        out = no_calibration(target)
+        for col in ("p10", "p50", "p90"):
+            np.testing.assert_array_equal(out[col].values, target[col].values)
+        np.testing.assert_array_equal(out["p10_raw"].values, target["p10"].values)
+        np.testing.assert_array_equal(out["p90_raw"].values, target["p90"].values)
 
     def test_raw_bounds_are_kept(self):
         cal = _frame(10, 6, self.rng, half_width_sd=0.5)

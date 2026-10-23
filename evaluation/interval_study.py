@@ -360,6 +360,23 @@ def main():
     qualifiers = per_method[per_method["all_models_qualify"]]
     winner = qualifiers.iloc[0] if not qualifiers.empty else None
 
+    # ── Deployed calibrators: fit on 2025-H1, as benchmarks.py will ────────────
+    # benchmarks.py fits each model's calibrator on its validation-window
+    # forecasts (fit ending train_end) — the same forecasts as the "eval"
+    # frames here — so these are the quantiles the test band will use.
+    model_keys = {"SeasonalNaive": "SeasonalNaive", "SARIMA": "SARIMA",
+                  "Prophet": "Prophet", chronos_label(cfg): "Chronos"}
+    chosen = (cfg.get("calibration") or {}).get("models") or {}
+    deployed = []
+    for model in models:
+        mcfg = chosen.get(model_keys[model]) or {}
+        if mcfg.get("method", "none") == "none":
+            deployed.append({"model": model, "calibrator": f"none ({mcfg.get('reason', 'not listed')})"})
+            continue
+        calib = fit_conformal(frames[(model, "eval")], mcfg["method"], mcfg.get("group", "pooled"), LEVEL)
+        deployed.append({"model": model, "calibrator": describe(calib),
+                         "q": {k: round(v, 4) for k, v in calib["q"].items()}})
+
     # ── Write ──────────────────────────────────────────────────────────────────
     table.to_csv(OUT_DIR / "validation_methods.csv", index=False)
     sens.to_csv(OUT_DIR / "validation_sensitivity.csv", index=False)
@@ -385,6 +402,8 @@ def main():
     print("\n=== Prophet MCMC on 2025-H1 (not eligible) ===")
     print(pd.DataFrame(mcmc_rows).to_string(index=False))
     print(yaml.safe_dump(mcmc_note, sort_keys=False))
+    print("=== Deployed calibrators (configs/model.yaml), fit on 2025-H1 validation forecasts ===")
+    print(yaml.safe_dump(deployed, sort_keys=False, allow_unicode=True))
 
 
 if __name__ == "__main__":

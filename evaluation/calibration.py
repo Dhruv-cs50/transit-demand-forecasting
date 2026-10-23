@@ -212,6 +212,16 @@ def apply_conformal(preds: pd.DataFrame, calibrator: dict) -> pd.DataFrame:
     return out
 
 
+def no_calibration(preds: pd.DataFrame) -> pd.DataFrame:
+    """The model's own band, in the same shape apply_conformal returns
+    (p10_raw/p90_raw alongside an unchanged p10/p90), so raw and calibrated
+    coverage can be reported side by side for every model."""
+    out = preds.copy()
+    out["p10_raw"] = preds["p10"]
+    out["p90_raw"] = preds["p90"]
+    return out
+
+
 def describe(calibrator: dict) -> str:
     """One-line summary for logs, e.g. 'scaled/pooled @0.8, n=300: q=1.87'."""
     qs = calibrator["q"]
