@@ -67,14 +67,14 @@ flowchart TD
     O1 --> O2
 
     O2 -->|static JSON| WEB
-    O1 -.->|not copied into image| CB
+    P1 -->|committed feature_store.parquet| CB
+    M3 -->|arima.py| CB
     CB --> AR1
     AR1 --> CR
     CR --> API
 
     USER -->|HTTPS| WEB
     WEB -->|POST /forecast\nGET /stations| API
-    API -.->|parquet lookup if cache present| O1
 ```
 
 ## Component Responsibilities
@@ -89,10 +89,10 @@ flowchart TD
 | Validation | `evaluation/validators.py` | Schema checks, missing windows, coverage, anomaly detection |
 | Forecasting | `machine_learning_files/zero_shot.py`, `models/chronos2/`, `models/baselines/` | Produce forecast parquet files |
 | Website export | `scripts/export_website_data.py` | Convert model artifacts into `website/data/*.json` |
-| API service | `machine_learning_files/api.py` | FastAPI: cached parquet lookup → `503` in production (`Dockerfile.api` has no Chronos install); live Chronos inference fallback only on a local dev server |
+| API service | `machine_learning_files/api.py` | FastAPI: fits SARIMA (`models/baselines/arima.py`) for the requested station on each `/forecast` and returns P10/P50/P90 |
 | Website | `website/` | React/Babel static frontend deployed on App Engine Standard |
 | Docker (pipeline) | `Dockerfile` | Reproducible full pipeline container |
-| Docker (serving) | `Dockerfile.api` | Lightweight API image: app source, config and feature-store parquets. No forecast cache and no `chronos-forecasting` (known gap) |
+| Docker (serving) | `Dockerfile.api` | API image: `api.py`, `arima.py`, config, the committed `feature_store.parquet`, and `statsmodels`. No forecast cache, no `chronos-forecasting` |
 | Cloud build | `cloudbuild.yaml` | Build `Dockerfile.api` for `linux/amd64`, push to Artifact Registry |
 
 ## Data Flow
@@ -119,20 +119,20 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
                                   │
                   models/*/outputs/*.parquet
                            │
-                  ┌────────┴────────┐
-                  ▼                 ▼
-         Dockerfile.api*     export_website_data.py
-                  │                 │
-          Cloud Run API      website/data/*.json
-                  │                 │
-                  └────────┬────────┘
                            ▼
-                    App Engine Website
-                           │
-                        Browser
+                  export_website_data.py        Dockerfile.api*
+                           │                          │
+                  website/data/*.json           Cloud Run API
+                           │                          │
+                           └────────────┬─────────────┘
+                                        ▼
+                                 App Engine Website
+                                        │
+                                     Browser
 ```
 
-\* `Dockerfile.api` does not copy `models/*/outputs/`; the serving image ships no forecast cache (known gap).
+\* `Dockerfile.api` takes no forecast outputs. It bakes in `feature_store.parquet`
+(committed) and `models/baselines/arima.py`, and the API fits SARIMA per request.
 
 ## Artifact Contracts
 
@@ -151,9 +151,14 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
 
 | Method | Path | Input | Output |
 | --- | --- | --- | --- |
-| GET | `/health` | — | `{status, model_loaded, store_loaded}` |
+| GET | `/health` | — | `{status, timestamp, model, store_loaded}` |
 | GET | `/stations` | — | `{stations: [station_id, ...], count}` |
-| POST | `/forecast` | `{station_id, horizon_hours}` | `{station_id, forecasts: [{timestamp, p10, p50, p90}]}` |
+| POST | `/forecast` | `{station_id, horizon_hours, as_of?}` | `{station_id, horizon_hours, generated_at, forecasts: [{timestamp, p10, p50, p90}]}` |
+
+`horizon_hours` counts **months** (the name predates the monthly target); at
+most 6 rows come back. `as_of` picks the history: months whose start is
+`<= as_of`, from `data.train_start` on. Fewer than 24 such months is a `400`;
+an unknown station is a `404`.
 
 ### Chronological Splits
 
@@ -169,5 +174,4 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
 | --- | --- |
 | App Engine Standard | Auto-scales instances; scales to zero when idle |
 | Cloud Run | Scales 0→N replicas per request concurrency; stateless |
-| Pre-computed cache | Parquet lookup with no model load when `models/chronos2/outputs/` holds a cache. `Dockerfile.api` ships none today (known gap), so the production image does not use this path |
-| Live inference fallback | Not present in production (`Dockerfile.api` has no `chronos-forecasting` install → `503` on cache miss); dev-only today, running Chronos-T5-Small on CPU. Upgrade path: bundle it into `Dockerfile.api` and move to GPU Cloud Run or Vertex AI |
+| Per-request SARIMA | One small fit per `/forecast`: 0.03–0.6 s in a local container on a heavily loaded laptop; the `statsmodels` import (1–17 s there) runs at startup. Not measured on Cloud Run. No forecast cache |
