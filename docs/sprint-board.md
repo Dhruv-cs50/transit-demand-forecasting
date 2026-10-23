@@ -1,5 +1,40 @@
 # Sprint board
 
+## Sprint 4 — Calibrate the P10/P90 intervals (opened 2026-10-22)
+
+**Goal.** Bring every leaderboard model's P10–P90 coverage to ~80% on the
+2025-H2 holdout without changing a point forecast. The method is chosen on the
+validation split only (2025-H1); the test split is scored once, after the
+choice is committed. Branch `feat/interval-calibration`, stacked on
+`sprint3/pr-backlog` (PR #136 open).
+
+**Starting state** (pinned env, leaderboard byte-identical to the S3.8 gate):
+test coverage SARIMA 96.67%, Prophet 46.0%, Chronos-1 51.0%, SeasonalNaive
+94.33%, n=300.
+
+**Decision rules, fixed before any validation number was seen** (user's
+defaults, 2026-10-22): a method qualifies if every model lands in 75–85%
+validation coverage with neither tail above 15% misses; among qualifiers the
+lowest mean interval score wins, one method for all four models preferred.
+Prophet MCMC is measured and reported, not eligible. The website's "not
+calibrated" wording changes only if every model's calibrated test coverage is
+in 75–85%. Serving-path intervals (API, `forecasts.json`) are out of scope.
+
+**Gates.** `Coverage_raw_%` reproduces 46.0 / 96.67 / 51.0 / 94.33; WAPE, MAE,
+RMSE, MAPE, sMAPE, MASE and n identical to the starting leaderboard; two runs
+byte-identical; unit tests pass; `py_compile` and JSX parse pass.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4.1 | Find why the earlier `mcmc_samples=200` run errored | orchestrator | — | Error reproduced and explained | done — the fit succeeded; the diagnostic read `params['sigma_obs'][0][0]`, which raises `IndexError` under MCMC (1-D, 400 draws). Recorded in `docs/interval-calibration.md` |
+| S4.2 | `evaluation/calibration.py`: fit/apply split-conformal, P50 untouched | implementer (orchestrator) | — | `tests/test_calibration.py` passes | done — 16 tests pass (this commit) |
+| S4.3 | `evaluation/interval_study.py`: validation-only comparison of methods | implementer (orchestrator) | S4.2 | Data cut at `val_end` and asserted; table written | in progress |
+| S4.4 | Choose the method by the fixed rule; config + write-up committed before any test run | orchestrator | S4.3 | Commit precedes the S4.5 run | todo |
+| S4.5 | Wire the chosen method into `benchmarks.py`; run the gates; score test once | implementer (orchestrator) | S4.4 | All gates green | todo |
+| S4.6 | README, website wording, `model_comparison.json` | orchestrator | S4.5 | Wording follows the fixed rule | todo |
+| S4.7 | Review the sprint diff | code-reviewer | S4.6 | No BLOCKER open | todo |
+| S4.8 | Audit board against git; open PR (not merged) | delivery-auditor, orchestrator | S4.7 | Audit clean; PR open | todo |
+
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
 **Goal.** Every still-valid fix in the 104 open PRs reaches `main` through one
