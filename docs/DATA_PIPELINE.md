@@ -83,10 +83,14 @@ python models/baselines/benchmarks.py
 
 Expected outputs include:
 
-- `models/chronos2/outputs/zero_shot_forecasts_*.parquet`
+- `models/chronos2/outputs/zero_shot_forecasts_*.parquet` — written by
+  `zero_shot.py`. Not what the website publishes; step 6 does not read it.
 - `models/baselines/outputs/`
 - `models/chronos2/weights/`
 - `evaluation/outputs/benchmark_leaderboard.csv`
+- `evaluation/outputs/chronos2_zeroshot_preds.parquet` — the Chronos
+  zero-shot test-window predictions, written by `models/baselines/benchmarks.py`
+  and scored on the leaderboard. Step 6 reads it for `forecasts.json`.
 
 ### 6. Export website data
 
@@ -113,12 +117,20 @@ Expected outputs:
   zero-shot P10/P50/P90 test-month predictions that
   `models/baselines/benchmarks.py` scored on the leaderboard
   (`evaluation/outputs/chronos2_zeroshot_preds.parquet`). Needs `benchmarks.py`
-  to have run with the Chronos row accepted (an overall Chronos row in
-  `benchmark_leaderboard.csv`, every prediction `model_mode == "zeroshot"`);
-  otherwise an error is logged and no `forecasts.json` is written (an existing
-  one is left as it is).
+  to have run with the Chronos row accepted: one overall Chronos row in
+  `benchmark_leaderboard.csv`, every prediction `model_mode == "zeroshot"`,
+  one prediction per station and month, and as many predictions as that row's
+  `n` (and `n_expected`). Otherwise the export refuses it: an error is logged,
+  no `forecasts.json` is written (an existing one is left as it is, and is
+  then stale), the other four files are still written, and the export
+  **exits 1**, so `scripts/run_pipeline.sh` stops before its deploy message.
 - `website/data/model_comparison.json` — one entry per model from
   `evaluation/outputs/benchmark_leaderboard.csv`.
+
+The export also exits 1 **before writing any file** when
+`benchmark_leaderboard.csv` is missing (unless `--allow-val-fallback` is
+given), or when any station in `bart_stations.py` has no feature-store rows in
+the averaging window or a non-finite average.
 
 ### 7. Deploy website
 

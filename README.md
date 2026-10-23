@@ -210,7 +210,8 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 | `data/processed/splits/val.parquet` | validation split |
 | `data/processed/splits/test.parquet` | held-out test split |
 | `data/processed/validation_report.csv` | latest validation summary |
-| `models/chronos2/outputs/zero_shot_forecasts_*.parquet` | Chronos forecast artifacts |
+| `models/chronos2/outputs/zero_shot_forecasts_*.parquet` | Chronos zero-shot forecasts written by `zero_shot.py`; not what the website publishes |
+| `evaluation/outputs/chronos2_zeroshot_preds.parquet` | Chronos zero-shot test-window predictions written by `models/baselines/benchmarks.py` and scored on the leaderboard; the export reads them for `website/data/forecasts.json` |
 | `models/baselines/outputs/arima/arima_forecasts.parquet` | SARIMA forecast artifact |
 | `models/baselines/outputs/prophet/prophet_forecasts.parquet` | Prophet forecast artifact |
 | `website/data/*.json` | static frontend data generated from model and feature artifacts |

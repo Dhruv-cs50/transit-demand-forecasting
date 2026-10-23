@@ -39,10 +39,11 @@ holds **exactly** on every month checked:
         == total_trips_od          (ratio 1.0000)
 
 All four sheets are written through, with `day_type` carrying the sheet name, so
-downstream code can choose its target. `merge_pipeline.load_bart()` currently
-drops any `day_type` containing "total" and sums the remaining three — which
-yields a sum of daily averages, not a monthly quantity. Choosing the target is
-deliberately left to that module.
+downstream code can choose its target. `merge_pipeline.load_transit()` keeps
+only the `Total Trips` block (`day_type` containing "total", any case), raises
+unless every month has exactly one, and sums its riders over destinations per
+entry station: monthly boardings. Choosing the target is deliberately left to
+that module.
 
 Usage
 ─────

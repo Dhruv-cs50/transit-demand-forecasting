@@ -273,10 +273,14 @@ def _main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="The BART station table.")
     parser.add_argument("--check", action="store_true", help="validate the table and exit")
-    parser.add_argument("--store", metavar="PATH", help="feature store parquet whose station_id set must equal CODES")
+    parser.add_argument(
+        "--store",
+        metavar="PATH",
+        help="feature store parquet whose station_id set must equal CODES (implies --check)",
+    )
     args = parser.parse_args(argv)
 
-    if args.check:
+    if args.check or args.store is not None:
         problems = check(args.store)
         if problems:
             for p in problems:
