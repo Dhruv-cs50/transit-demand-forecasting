@@ -1,7 +1,12 @@
 # Interval calibration (P10/P90)
 
-**Status:** method chosen on validation data only and committed before the
-test split was scored. The test result is in [Test result](#test-result-scored-once).
+**Status:** each model's method was chosen on validation data only and
+committed (215449c) before the test split was scored with it. The test result
+is in [Test result](#test-result-scored-once):
+- **Prophet and Chronos-1 improve sharply:** 46.0% → 74.7% and 51.0% → 72.7%
+  coverage. Both still fall short of the 75–85% band.
+- **SARIMA and SeasonalNaive keep their own over-wide bands:** 96.7% and 94.3%.
+- **Point metrics are unchanged.**
 
 ## Decision
 
@@ -278,8 +283,39 @@ optimistic by construction.
 
 ## Test result (scored once)
 
-Pending: filled in from the single `benchmarks.py` run made after this
-document and `configs/model.yaml` were committed.
+`models/baselines/benchmarks.py` at 215449c, pinned env, 2025-H2 holdout,
+n = 300 per model. Two consecutive runs gave a byte-identical leaderboard.
+WAPE, MAE, RMSE, MAPE, sMAPE, MASE and n are identical to the uncalibrated
+leaderboard, and `Coverage_raw_%` reproduces its coverage exactly.
+
+| Model | Interval | Coverage, own band | Coverage, published | Below P10 / above P90 | Width, % of P50 | Coverage by month (Jul–Dec) | Validation coverage of the same method |
+|---|---|---:|---:|---|---|---|---:|
+| SARIMA | own band | 96.67% | 96.67% | 1.0% / 2.3% | — | — | — |
+| Prophet | scaled/horizon | 46.00% | **74.67%** | 10.0% / 15.3% | 8.7% → 15.1% | 92 66 60 58 86 86 | 82.0% |
+| Chronos-1 zero-shot | relative/pooled | 51.00% | **72.67%** | 0.0% / 27.3% | 18.6% → 30.8% | 98 82 62 10 96 88 | 84.3% |
+| SeasonalNaive | own band | 94.33% | 94.33% | — | — | — | — |
+
+Where the extra columns come from:
+- The tail, width and by-month columns were recomputed from this run's saved
+  forecast files with `evaluation/calibration.py`. The recomputed coverage
+  matches the leaderboard exactly.
+- SARIMA's split is of its own band.
+- SeasonalNaive's forecasts are not written to disk, so its split is not
+  shown.
+
+Reading:
+- **Calibration helped but did not reach nominal.** It moved both
+  over-confident models 21–29 points toward 80%. Each lost 7–12 points between
+  validation and test, the same half-year drift that ruled out SARIMA and
+  SeasonalNaive.
+- **Chronos-1 under-forecasts the test window.** All its misses fall above
+  P90, and October 2025 alone covers 10% (5 of 50 stations). A symmetric band
+  cannot fix a biased median, and the median may not change.
+- **Prophet's misses are evenly split** between the tails (10.0% / 15.3%).
+  Its shortfall comes from width, not bias.
+- **Website wording stays "not calibrated".** The pre-declared rule changes
+  it only if every model is in 75–85%. Only the coverage range figure is
+  updated (46–97% → 73–97%).
 
 ## Not covered
 
