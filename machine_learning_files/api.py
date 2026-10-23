@@ -253,7 +253,9 @@ if _FASTAPI_AVAILABLE:
         except Exception as e:
             log.warning(f"Startup preload failed (will retry on first request): {e}")
         try:
+            # fit_station() imports SARIMAX lazily; import it here instead.
             import models.baselines.arima  # noqa: F401
+            import statsmodels.tsa.statespace.sarimax  # noqa: F401
         except Exception as e:
             log.warning(f"SARIMA import failed at startup: {e}")
 
