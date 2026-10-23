@@ -255,6 +255,12 @@ def export_model_comparison(out_dir: Path) -> None:
                 "MAPE_pct": round(float(row["MAPE_%"]), 1) if pd.notna(row["MAPE_%"]) else None,
                 "WAPE_pct": round(float(row["WAPE_%"]), 1) if pd.notna(row["WAPE_%"]) else None,
                 "Coverage_pct": round(float(row["Coverage_%"]), 1) if "Coverage_%" in row and pd.notna(row["Coverage_%"]) else None,
+                # Coverage_pct scores the band named by Interval_method (a
+                # split-conformal band fit on validation, or the model's own);
+                # Coverage_raw_pct always scores the model's own band. Without
+                # the label a calibrated and a raw coverage read the same.
+                "Coverage_raw_pct": round(float(row["Coverage_raw_%"]), 1) if "Coverage_raw_%" in row and pd.notna(row["Coverage_raw_%"]) else None,
+                "Interval_method": row["Interval_method"] if "Interval_method" in row and pd.notna(row["Interval_method"]) else None,
                 "n_predictions": int(row["n"]) if "n" in row and pd.notna(row["n"]) else None,
                 # Which code path produced this row. The two paths score
                 # different splits, so a number is meaningless without it.
