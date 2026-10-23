@@ -7,7 +7,10 @@ __pycache__/
 
 # Large data files (cached locally, not versioned)
 data/raw/
-data/processed/
+# The feature store (~60 KB) is versioned: Dockerfile.api bakes it in, and the
+# raw workbooks it is built from cannot be re-fetched automatically.
+data/processed/*
+!data/processed/feature_store.parquet
 models/baselines/outputs/
 models/chronos2/outputs/
 models/chronos2/weights/
