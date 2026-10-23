@@ -94,13 +94,31 @@ Expected outputs include:
 python scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
 ```
 
+Run it from the repo root: the `evaluation/outputs/` inputs are read relative to
+the working directory. Every station id in the outputs is the store's
+two-letter BART workbook code (`EM`, `MT`, `12`, ...); names, website node ids
+and weather locations come from `machine_learning_files/bart_stations.py`.
+
 Expected outputs:
 
-- `website/data/stations_ridership.json`
-- `website/data/stations_meta.json`
-- `website/data/ridership_actuals.json`
-- `website/data/forecasts.json`
-- `website/data/model_comparison.json`
+- `website/data/stations_ridership.json` — object keyed by station code, all
+  stations: name, website node id (or null), average monthly ridership over the
+  store's latest 12 months and that average on a 0–2.4 heat scale.
+- `website/data/stations_meta.json` — list of all stations (`bart_id` = code)
+  with API code, website node id, name, weather station and that average,
+  highest average first.
+- `website/data/ridership_actuals.json` — every feature-store row, keyed by
+  station code and month: monthly ridership and a daily estimate.
+- `website/data/forecasts.json` — keyed by station code and month: the Chronos
+  zero-shot P10/P50/P90 test-month predictions that
+  `models/baselines/benchmarks.py` scored on the leaderboard
+  (`evaluation/outputs/chronos2_zeroshot_preds.parquet`). Needs `benchmarks.py`
+  to have run with the Chronos row accepted (an overall Chronos row in
+  `benchmark_leaderboard.csv`, every prediction `model_mode == "zeroshot"`);
+  otherwise an error is logged and no `forecasts.json` is written (an existing
+  one is left as it is).
+- `website/data/model_comparison.json` — one entry per model from
+  `evaluation/outputs/benchmark_leaderboard.csv`.
 
 ### 7. Deploy website
 
@@ -131,7 +149,7 @@ The minimum columns expected by validators and downstream scripts are:
 | Column | Type | Notes |
 | --- | --- | --- |
 | `timestamp` | datetime | Current cadence is month start. |
-| `station_id` | string | BART OD origin station code in the active pipeline. |
+| `station_id` | string | Two-letter BART workbook code of the origin (entry) station, e.g. `EM`, `12`; the station table is `machine_learning_files/bart_stations.py`. |
 | `ridership` | numeric | Forecast target. |
 
 Common optional columns include:
