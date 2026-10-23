@@ -1,5 +1,68 @@
 # Sprint board
 
+## Sprint 4 — One BART station table (opened 2026-10-22)
+
+**Goal.** One authoritative table (BART 2-letter code → name → website id →
+weather location), sourced from repo data, used by the export, the
+`merge_pipeline` weather mapping, feature engineering and the website. Closes the
+Sprint 3 follow-up "Station-level website JSON exports empty".
+
+**Branch.** `fix/bart-station-table`, cut from `origin/sprint3/pr-backlog` @
+`32a75df` because PR #136 is still open; the PR targets that branch.
+
+**Starting state** (measured 2026-10-22):
+
+| Fact | Value |
+|---|---|
+| Store / workbook codes | 50 two-letter codes (`12 16 19 24 AN AS BE BF … WS`); the workbooks carry no names |
+| `fetch_bart_od.STATION_NAMES` | 50 four-letter BART API codes → names; the only name source |
+| 2-letter → name link | Only `website/data/stations_meta.json` from `c5f5891` (2026-05-07): 47 of 50 named, BF/ML/WP left as codes. No commit ever held a 2-letter → name dict, so this is one source |
+| Export on this code | `stations_ridership.json` `{}`, `ridership_actuals.json` `[]`, `stations_meta.json` names = codes, `website_id` null (0 of 50 mapped) |
+| Committed `forecasts.json`, `ridership_actuals.json` | From `c5f5891`, ~4.3× the current Total-Trips target (EM 2023-12: 1.23M committed vs 286k in the store) |
+| Same 4-letter gap elsewhere | `HUB_STATIONS` (`is_hub_station` always False); `sections.jsx` `KEY_STATIONS.id`, `api-demo.html` fallback list, `api.py` examples and `predict.py --station` send 4-letter ids the store rejects |
+| Map page | `transit-demo.html` never reads `stations_ridership.json`; the export's `baseAM`/`basePM` are normalized × 1.05 / 0.95, not measured |
+
+**Gates.** Leaderboard identical to this branch's baseline run on `32a75df`
+(expected SARIMA 3.21 / Prophet 5.75 / Chronos-1 9.70 / SeasonalNaive 10.75,
+n=300) or each delta named; store target identical, every other column delta
+named; the three station JSONs non-empty for all 50 stations;
+`model_comparison.json` identical; website served locally renders the map,
+forecast table and calibration chart from the new files; `py_compile` and JSX parse.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4.0 | Baseline: rebuild store, benchmarks and export on unmodified `32a75df` | orchestrator | — | Leaderboard and export recorded | in progress |
+| S4.1 | `machine_learning_files/bart_stations.py`: the table, helpers, `--check` | implementer | user decisions | `--check` passes against `STATION_NAMES`, `sources.yaml`, `transit-demo.html` and the store | todo |
+| S4.2 | Pipeline consumers: `bart_od_from_xlsx.py`, `bart_od_from_csv.py`, `merge_pipeline.py`, `feature_engineering.py`, `api.py`, `predict.py` | implementer | S4.1 | Rebuilt store: names for 50, per-station weather for the six mapped stations, `is_hub_station` true for the hub set | todo |
+| S4.3 | Export: 2-letter `station_id` for all 50, new `stations_meta`/`stations_ridership` schema, `forecasts.json` from the benchmark's Chronos-1 run | implementer | S4.1 | Export from rebuilt store: 50/50 in each station file | todo |
+| S4.4 | Website: one id style, map reads `stations_ridership.json`, copy matches the new data | implementer | S4.3 schema (fixed in this board) | JSX parses; local render shows data | todo |
+| S4.5 | Full rerun, regenerate `website/data/`, run gates | orchestrator | S4.2–S4.4 | All gates green or deltas named | todo |
+| S4.6 | Review the branch diff | code-reviewer | S4.5 | No BLOCKER open | todo |
+| S4.7 | Audit board against git | delivery-auditor | S4.6 | No unresolved disagreement | todo |
+| S4.8 | Push, open PR against `sprint3/pr-backlog` (no merge) | orchestrator | S4.7 | PR open | todo |
+
+S4.2, S4.3 and S4.4 touch disjoint files and run in parallel after S4.1.
+
+### Rulings (Sprint 4)
+
+- **2026-10-22, the user's answers at the Go Ahead gate:**
+  1. ML = Milpitas (`MLPT`), WP = Pittsburg/Bay Point (`PITT`), and the
+     website `pit` node belongs to WP. The repo cannot pair these alone:
+     elimination leaves exactly those two codes for those two names, and ML's
+     all-zero 2019 matches BE (Berryessa). Recorded in the table as
+     user-confirmed, not repo-sourced. `c5f5891` had given `pit` to PC; that
+     mapping is dropped.
+  2. `forecasts.json` is regenerated from the benchmark's Chronos-1 zero-shot
+     predictions for Jul–Dec 2025 (the leaderboard run), replacing the stale May file.
+  3. `HUB_STATIONS` is re-keyed through the table in this PR.
+- BF → Bay Fair (`BAYF`): `c5f5891`'s map comment, the `transit-demo.html` node
+  `bayp` "Bay Fair", and HEAD's `BAYF → bayp` all agree.
+- Weather keeps the six name-matched locations (EM, MB, FM, BE, SO, 19). No
+  nearest-location assignment: that would be a modeling change nobody asked for.
+- `stations_ridership.json` averages the latest 12 store months. Averaging over
+  2019 and 2022–25 mixes levels across the ~2.9× COVID break, and counts BE and
+  ML's pre-opening zeros. `baseAM`/`basePM` are dropped: they are not measured.
+
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
 **Goal.** Every still-valid fix in the 104 open PRs reaches `main` through one
