@@ -51,17 +51,24 @@ calibration.
     pooled method reaches 79.3%, but 16.7% of misses fall above P90, so it
     fails.
 
-## Selection rule (fixed 2026-10-22, before any validation number)
+## Selection rule
 
-A method qualifies for a model if, on validation:
-- coverage is in 75–85%, and
-- neither tail takes more than 15% misses.
+**As fixed on the sprint board (056bd7b), before any validation number was
+seen:**
 
-Among qualifiers, the lowest mean relative interval score wins. One method
-for all four models was preferred; when none qualified for every model, each
-model takes its own lowest-interval-score qualifier, and a model with none
-keeps its band. Prophet with full MCMC sampling was measured but not
-eligible. Sensitivity checks were not selection evidence.
+> a method qualifies if every model lands in 75–85% validation coverage with
+> neither tail above 15% misses; among qualifiers the lowest mean interval
+> score wins, one method for all four models preferred. Prophet MCMC is
+> measured and reported, not eligible.
+
+The plan the user approved said, also before any number: "if none qualifies,
+I'll document a per-model choice." Sensitivity checks were declared not to be
+selection evidence.
+
+**As applied, once no method qualified for every model.** Each model took its
+own lowest-interval-score qualifier, and a model with none kept its own band.
+This form of the fallback was written after the validation numbers were seen.
+It is the most literal reading of the rule, not a choice among alternatives.
 
 Interval score is the Winkler score at α = 0.2, `(P90 − P10) + 10·(P10 − y)·[y < P10] + 10·(y − P90)·[y > P90]`,
 summed and divided by total actual ridership. Lower is better: it rewards a
@@ -319,8 +326,8 @@ Reading:
 - **Chronos-1 under-forecasts the test window.** All its misses fall above
   P90, and October 2025 alone covers 10% (5 of 50 stations). A symmetric band
   cannot fix a biased median, and the median may not change.
-- **Prophet's misses are evenly split** between the tails (10.0% / 15.3%).
-  Its shortfall comes from width, not bias.
+- **Prophet's misses fall in both tails** (10.0% below P10, 15.3% above
+  P90). Its shortfall is mostly width, not bias.
 - **Website wording stays "not calibrated".** The pre-declared rule changes
   it only if every model is in 75–85%. Only the coverage range figure is
   updated (46–97% → 73–97%).
@@ -340,7 +347,7 @@ Reading:
 ## Reproduce
 
 ```bash
-python -m unittest tests.test_calibration
+python -m unittest tests.test_calibration tests.test_benchmark_calibration
 python evaluation/interval_study.py --refresh
 python models/baselines/benchmarks.py
 ```
