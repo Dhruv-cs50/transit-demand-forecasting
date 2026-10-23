@@ -39,8 +39,8 @@ forecast table and calibration chart from the new files; `py_compile` and JSX pa
 | S4b.3 | Export: 2-letter `station_id` for all 50, new `stations_meta`/`stations_ridership` schema, `forecasts.json` from the benchmark's Chronos-1 run | implementer | S4b.1 | Export from rebuilt store: 50/50 in each station file | done (4bad2ef) |
 | S4b.4 | Website: one id style, map reads `stations_ridership.json`, copy matches the new data | implementer | S4b.3 schema (fixed in this board) | JSX parses; local render shows data | done (ce83caa) |
 | S4b.5 | Full rerun, regenerate `website/data/`, run gates | orchestrator | S4b.2–S4b.4 | All gates green or deltas named | done — gate2 on f606498 ALL PASS, export byte-identical to gate1 (two independent runs); `website/data/` regenerated from gate2 in 087adcb; served locally and checked in headless Chrome: forecast table (EM: 12 actual months, then Jul–Dec 2025 actual beside P10/P50/P90), calibration chart with actuals, all 50 stations in the picker, map with 41 of 41 BART nodes on real levels. Earlier: gate1 on ce83caa ALL PASS: leaderboard, all result slices and Chronos preds identical to baseline; store deltas only `station_name`, the six stations' weather (+ `temp_deviation`, `is_rain_onset`, `precip_intensity`, `weather_discomfort`), `is_hub_station` on the ten hubs; export 50/50/3,000/300, `model_comparison.json` identical. Rerun after the fix round; `website/data/` not yet regenerated |
-| S4b.6 | Review the branch diff | code-reviewer | S4b.5 | No BLOCKER open | in progress — R1 on ce83caa: spec PASS, quality changes requested; 1 BLOCKER (index-page map copy contradicts the map's new caption), 2 MAJOR (refused forecasts exit 0 and leave the stale file; map's "ons/hr" invented unit beside real boardings), 11 MINOR. Fix round: F1 adf65b6 (refused forecasts exit 1, inputs checked before writes, forecasts tied to the leaderboard row's n, no silent station drop, docs), F2 f606498 (index map copy, unitless load index, tie-break, forecast months from data, late live response dropped, parallel fetch, cache-busters). R2 scoped review of adf65b6..087adcb in progress |
-| S4b.7 | Audit board against git | delivery-auditor | S4b.6 | No unresolved disagreement | todo |
+| S4b.6 | Review the branch diff | code-reviewer | S4b.5 | No BLOCKER open | in progress — R1 on ce83caa: spec PASS, quality changes requested; 1 BLOCKER (index-page map copy contradicts the map's new caption), 2 MAJOR (refused forecasts exit 0 and leave the stale file; map's "ons/hr" invented unit beside real boardings), 11 MINOR. Fix round: F1 adf65b6 (refused forecasts exit 1, inputs checked before writes, forecasts tied to the leaderboard row's n, no silent station drop, docs), F2 f606498 (index map copy, unitless load index, tie-break, forecast months from data, late live response dropped, parallel fetch, cache-busters). R2 scoped review of ce83caa..087adcb: spec PASS, quality PASS, 0 BLOCKER / 0 MAJOR / 3 MINOR (N1-N3, ruled below); R1 items closed except two residuals the briefs allowed |
+| S4b.7 | Audit board against git | delivery-auditor | S4b.6 | No unresolved disagreement | in progress |
 | S4b.8 | Push, open PR against `sprint3/pr-backlog` (no merge) | orchestrator | S4b.7 | PR open | todo |
 
 S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
@@ -77,6 +77,14 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
   `station_name` and the six stations' weather, so rebuild and commit it after
   both merge.
 
+- R2 N3: commit 087adcb's subject says "full pipeline run". The steps that ran
+  were `bart_od_from_xlsx.py`, `merge_pipeline.py`, `feature_engineering.py`,
+  `models/baselines/benchmarks.py`, then the export with `--out-dir` into a
+  scratch directory, whose five files were copied into `website/data/`.
+  `zero_shot.py`, `arima.py`/`prophet_baseline.py` standalone runs, the validator
+  and fine-tuning from `run_pipeline.sh` did not run; none of them feeds the
+  five files. Not rewritten, because later commits sit on top.
+
 ### Follow-ups (Sprint 4b, found here, not fixed here)
 
 - Published model claims that no run supports: the hero says Chronos-1 is
@@ -92,6 +100,15 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
   actuals; "Jul–Dec 2025 test split" labels beside `model_comparison.json`.
 - Dark mode: `index.html` sets `--primary` inline, so P50 values and forecast
   month labels render navy on the dark background.
+- R2 N1: `website/app.yaml`'s `url: /` handler sets no expiration, so `index.html`
+  is cached for a day and returning visitors keep the old `?v=` cache-busters
+  until a reload.
+- R2 N2: when the `forecasts.json` fetch fails (network error, 5xx), the
+  forecast section says "No forecasts are published" (`sections.jsx` ~:687,
+  ~:787-795, ~:911-913).
+- The lede says the forecasts are "the predictions scored in the model
+  comparison below" without checking that `model_comparison.json` has the
+  Chronos row (the export now refuses to publish forecasts in that case).
 - The Google Maps key refuses localhost ("can't load Google Maps correctly"),
   so local checks of `transit-demo.html` show a development watermark.
 
