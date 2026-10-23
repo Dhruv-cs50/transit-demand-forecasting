@@ -83,7 +83,7 @@ calibration:
     SeasonalNaive: {method: none, reason: "no method passed validation"}
     SARIMA:        {method: none, reason: "no method passed validation"}
     Prophet:       {method: scaled, group: horizon}
-    Chronos:       {method: relative, group: pooled}
+    Chronos:       {method: relative, group: pooled, validated_for: "amazon/chronos-t5-small"}
 
 # ── Serving ───────────────────────────────────────────────────────────────────
 serving:

@@ -129,8 +129,9 @@ class ApplyConformalTest(unittest.TestCase):
         self.assertTrue(np.isfinite(calib["q"]["all"]))
 
     def test_missing_target_bound_stays_missing(self):
-        # A missing interval bound must reach the metrics as NaN so the
-        # leaderboard still rejects it (benchmarks.accept_model_rows / #136).
+        # A missing interval bound must reach the metrics as NaN, so the
+        # model's coverage is NaN (evaluation.metrics.coverage, #136) instead
+        # of being scored on only the rows that have a band.
         cal = _frame(10, 6, self.rng, half_width_sd=0.5)
         target = _frame(10, 6, self.rng, half_width_sd=0.5)
         target.loc[3, "p90"] = np.nan

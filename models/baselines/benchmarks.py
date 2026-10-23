@@ -302,6 +302,7 @@ def calibrate_intervals(
     make_val_preds,
     val_df: pd.DataFrame,
     cfg: dict,
+    checkpoint: str = None,
 ) -> tuple[pd.DataFrame, str]:
     """Split-conformal P10/P90 for one model's test forecasts.
 
@@ -316,6 +317,10 @@ def calibrate_intervals(
 
     model_key: stable config key (calibration.models.<key>), independent of
         the checkpoint-derived leaderboard label.
+    checkpoint: the checkpoint that produced test_preds, for models whose
+        weights are configurable. A method was validated for one checkpoint
+        (`validated_for` in the config); a different one keeps its own band
+        rather than inheriting a choice nobody measured for it.
     make_val_preds: zero-argument callable returning the model's validation-
         window forecasts. It is called after the test forecasts exist, so the
         test run is unchanged.
@@ -334,6 +339,11 @@ def calibrate_intervals(
     method = mcfg.get("method", "none")
     if method in (None, "none"):
         return no_calibration(test_preds), f"raw: {mcfg.get('reason', 'not validated')}"
+    validated_for = mcfg.get("validated_for")
+    if validated_for and checkpoint and checkpoint != validated_for:
+        log.warning(f"  {model_name}: calibration method was validated for {validated_for}, "
+                    f"not {checkpoint}; keeping the model's own band")
+        return no_calibration(test_preds), f"raw: method validated for {validated_for} only"
 
     group = mcfg.get("group", "pooled")
     label = f"split-conformal {method}/{group}, fit on validation"
@@ -362,11 +372,23 @@ def calibrate_intervals(
         return out, f"FAILED: {method}/{group}"
 
 
-def _forecast_checked(predictor, as_of, output_path: Path, mode: str) -> pd.DataFrame:
+def _forecast_checked(predictor, as_of, window_end, output_path: Path, mode: str) -> pd.DataFrame:
     """Predictor forecasts for a calibration window, refusing a silent backend
     fallback: calibrating Chronos on seasonal-naive errors would be the same
-    misattribution the leaderboard already refuses for the test forecasts."""
-    preds = predictor.forecast_all_stations(as_of=as_of, output_path=output_path, force_mode=mode)
+    misattribution the leaderboard already refuses for the test forecasts.
+
+    Predictor reads its own on-disk store, which runs through the test split,
+    and passes rows after `as_of` to the model as future covariates. For the
+    calibration window it gets a store that ends at `window_end`, so no
+    test-period row reaches a validation forecast. (chronos-t5-small ignores
+    covariates, and its forecasts were checked identical either way; a
+    covariate-aware checkpoint would not be.)"""
+    full = predictor.get_feature_store()
+    predictor._store = full[full["timestamp"] <= window_end]
+    try:
+        preds = predictor.forecast_all_stations(as_of=as_of, output_path=output_path, force_mode=mode)
+    finally:
+        predictor._store = full
     if getattr(predictor, "mode", None) != mode:
         raise RuntimeError(f"backend {mode!r} did not run for the calibration window "
                            f"(mode={getattr(predictor, 'mode', None)!r})")
@@ -491,11 +513,19 @@ def format_leaderboard_console(leaderboard: pd.DataFrame) -> str:
 def leaderboard_latex(leaderboard: pd.DataFrame) -> str:
     """Render the report-ready LaTeX table. Needs jinja2 (raises ImportError without it)."""
     has_mase = "MASE" in leaderboard.columns
+    has_raw = "Coverage_raw_%" in leaderboard.columns
     latex_cols = ["model", "WAPE_%", "MAE", "RMSE", "MAPE_%", "Coverage_%"]
     caption = "Model comparison on Bay Area transit test set"
     if has_mase:
         latex_cols.append("MASE")
         caption += ". " + " ".join(MASE_NOTE_LINES)
+    if has_raw:
+        # Coverage_% is calibrated for some rows and the model's own band for
+        # others; without these columns the two read as the same quantity.
+        latex_cols += ["Coverage_raw_%"] + (["Interval_method"] if "Interval_method" in leaderboard.columns else [])
+        caption = caption.rstrip(".") + (". Coverage_% scores the band named in Interval_method "
+                    "(split-conformal, fit on the validation split, or the model's own); "
+                    "Coverage_raw_% scores the model's own band")
     table = leaderboard[latex_cols].rename(columns={"MASE": MASE_LABEL})
     return table.to_latex(
         index=True,
@@ -656,8 +686,9 @@ def run_benchmarks(
         elif not zs_preds.empty:
             zs_preds, zs_interval = calibrate_intervals(
                 "Chronos", chronos_label, zs_preds,
-                lambda: _forecast_checked(predictor, train_end, CAL_DIR / "chronos2_zeroshot_val_preds.parquet", "zeroshot"),
-                val_df, cfg,
+                lambda: _forecast_checked(predictor, train_end, val_end,
+                                          CAL_DIR / "chronos2_zeroshot_val_preds.parquet", "zeroshot"),
+                val_df, cfg, checkpoint=checkpoint,
             )
             model_preds[chronos_label] = zs_preds
             rows = compute_metrics(test_df, zs_preds, chronos_label, train_df=train_df,
@@ -683,7 +714,8 @@ def run_benchmarks(
             if not ft_preds.empty:
                 ft_preds, ft_interval = calibrate_intervals(
                     "AutoGluon_Ensemble", "AutoGluon_Ensemble", ft_preds,
-                    lambda: _forecast_checked(predictor, train_end, CAL_DIR / "chronos2_finetuned_val_preds.parquet", "finetuned"),
+                    lambda: _forecast_checked(predictor, train_end, val_end,
+                                              CAL_DIR / "chronos2_finetuned_val_preds.parquet", "finetuned"),
                     val_df, cfg,
                 )
                 model_preds["AutoGluon_Ensemble"] = ft_preds

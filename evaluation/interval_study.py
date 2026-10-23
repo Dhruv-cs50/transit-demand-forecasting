@@ -375,7 +375,8 @@ def main():
             continue
         calib = fit_conformal(frames[(model, "eval")], mcfg["method"], mcfg.get("group", "pooled"), LEVEL)
         deployed.append({"model": model, "calibrator": describe(calib),
-                         "q": {k: round(v, 4) for k, v in calib["q"].items()}})
+                         "q": {k: [round(x, 4) for x in v] if isinstance(v, tuple) else round(v, 4)
+                               for k, v in calib["q"].items()}})
 
     # ── Write ──────────────────────────────────────────────────────────────────
     table.to_csv(OUT_DIR / "validation_methods.csv", index=False)

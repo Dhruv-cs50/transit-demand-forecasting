@@ -27,8 +27,8 @@ calibration.
   choice.
 - **Prophet and Chronos-1 are calibrated.** Both were badly over-confident
   (54% and 49% raw coverage). Prophet's winner, `scaled/horizon` (interval
-  score 20.31), edges `scaled/pooled` (20.89) by less than the noise in a
-  300-row window. It was taken because the rule says lowest interval score,
+  score 20.31), edges the next qualifiers, `relative/pooled` (20.77) and
+  `scaled/pooled` (20.89), by less than the noise in a 300-row window. It was taken because the rule says lowest interval score,
   not because it looks better. Chronos-1 qualifies only under
   `relative/pooled`, and sits on the boundary: 84.3% coverage, upper-tail
   misses exactly 15.0%.
@@ -82,9 +82,15 @@ test split:
   asserts that every scored timestamp is on or before `val_end`.
 - Every forecast comes from the code path `benchmarks.py` uses for that model,
   with only the forecast origin changed.
-- Chronos reads its own feature store from disk. The study hands it a store
-  cut at the end of each forecast window. For three stations, forecasts from
-  the full store and from the cut store were checked bit-identical.
+- Chronos reads its own feature store from disk, and passes the rows after
+  the forecast origin to the model as future covariates. The study, and
+  `benchmarks.py` for its validation run, hand it a store that ends with the
+  forecast window, so no later row reaches the forecast.
+  - chronos-t5-small ignores covariates. A one-off development check found
+    forecasts from the full store and the cut store bit-identical for three
+    stations. The review found the same for all 300 validation rows.
+  - A covariate-aware checkpoint would not be indifferent. That is why the
+    store is cut anyway.
 - Each model's 2025-H1 forecasts in the study come from the same training
   data as the validation forecasts `benchmarks.py` makes at run time. The
   deployed quantiles in the Decision table were therefore fit from validation
@@ -284,7 +290,9 @@ optimistic by construction.
 ## Test result (scored once)
 
 `models/baselines/benchmarks.py` at 215449c, pinned env, 2025-H2 holdout,
-n = 300 per model. Two consecutive runs gave a byte-identical leaderboard.
+n = 300 per model. Two consecutive runs gave a byte-identical leaderboard,
+and so did a third after the review fixes (same configuration, re-run only to
+confirm the leaderboard did not move).
 WAPE, MAE, RMSE, MAPE, sMAPE, MASE and n are identical to the uncalibrated
 leaderboard, and `Coverage_raw_%` reproduces its coverage exactly.
 

@@ -113,7 +113,8 @@ def fit_conformal(
     A row with no actual is left out. A row whose actual is present but whose
     forecast or interval bound is missing raises ValueError: calibrating on
     only the rows a model chose to forecast would understate its error, the
-    same reason the leaderboard rejects such a model outright.
+    same reason the leaderboard scores such a model NaN (and, when a point
+    forecast is missing, rejects it).
 
     Returns {"method", "group", "level", "n", "q"}; q maps each group key to a
     float, or to a (q_lo, q_hi) pair for asym_relative.
@@ -123,6 +124,10 @@ def fit_conformal(
     if group not in GROUPS:
         raise ValueError(f"unknown calibration group {group!r}; expected one of {GROUPS}")
 
+    # Forecast steps are counted on the full window, before rows without an
+    # actual are dropped; counting afterwards would shift a station's steps.
+    if group == "horizon" and "horizon" not in cal.columns:
+        cal = add_horizon(cal)
     df = cal[cal["ridership"].notna()]
     incomplete = df[_BAND_COLS].isna().any(axis=1)
     if incomplete.any():
@@ -180,8 +185,8 @@ def apply_conformal(preds: pd.DataFrame, calibrator: dict) -> pd.DataFrame:
         pairs = keys.map(calibrator["q"])
         q_lo = np.array([p[0] if isinstance(p, tuple) else np.nan for p in pairs], dtype=float)
         q_hi = np.array([p[1] if isinstance(p, tuple) else np.nan for p in pairs], dtype=float)
-        lo = p50 * (1 + q_lo)
-        hi = p50 * (1 + q_hi)
+        lo = _times(p50, 1 + q_lo)
+        hi = _times(p50, 1 + q_hi)
     else:
         q = keys.map(calibrator["q"]).to_numpy(dtype=float)
         if method == "scaled":
@@ -195,8 +200,8 @@ def apply_conformal(preds: pd.DataFrame, calibrator: dict) -> pd.DataFrame:
             lo = np.where(np.isnan(q), np.nan, lo)
             hi = np.where(np.isnan(q), np.nan, hi)
         elif method == "relative":
-            lo = p50 * (1 - q)
-            hi = p50 * (1 + q)
+            lo = _times(p50, 1 - q)
+            hi = _times(p50, 1 + q)
         else:
             raise ValueError(f"unknown calibration method {method!r}; expected one of {METHODS}")
 
@@ -210,6 +215,15 @@ def apply_conformal(preds: pd.DataFrame, calibrator: dict) -> pd.DataFrame:
     out["p10"] = lo
     out["p90"] = hi
     return out
+
+
+def _times(p50: np.ndarray, factor: np.ndarray) -> np.ndarray:
+    """p50 * factor, except that a zero P50 with an infinite factor (a group
+    too small for a finite quantile) gives an unbounded side rather than the
+    NaN of 0 * inf. The caller floors the lower bound at zero."""
+    with np.errstate(invalid="ignore"):
+        out = p50 * factor
+    return np.where((p50 == 0) & np.isinf(factor), np.sign(factor) * np.inf, out)
 
 
 def no_calibration(preds: pd.DataFrame) -> pd.DataFrame:
@@ -230,5 +244,8 @@ def describe(calibrator: dict) -> str:
         (v,) = qs.values()
         val = f"({v[0]:+.4f}, {v[1]:+.4f})" if isinstance(v, tuple) else f"{v:.4f}"
         return f"{head}: q={val}"
-    vals = [v[1] - v[0] if isinstance(v, tuple) else v for v in qs.values()]
+    if calibrator["method"] == "asym_relative":
+        spans = [v[1] - v[0] for v in qs.values()]
+        return f"{head}: {len(qs)} groups, q_hi - q_lo range {min(spans):.4f}–{max(spans):.4f}"
+    vals = list(qs.values())
     return f"{head}: {len(qs)} groups, q range {min(vals):.4f}–{max(vals):.4f}"
