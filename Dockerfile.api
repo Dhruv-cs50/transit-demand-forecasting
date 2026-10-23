@@ -50,6 +50,10 @@ COPY configs/model.yaml ./configs/model.yaml
 # Feature store (committed; see data/MANIFEST.md). The only data the API reads.
 COPY data/processed/feature_store.parquet ./data/processed/feature_store.parquet
 
+# One BLAS thread: a SARIMA fit works on tiny matrices, and OpenBLAS's default
+# of one thread per visible CPU made each /forecast 3-4x slower in testing.
+ENV OPENBLAS_NUM_THREADS=1
+
 # Cloud Run injects PORT env var; default 8080
 ENV PORT=8080
 
