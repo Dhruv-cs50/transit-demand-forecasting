@@ -351,13 +351,13 @@ Endpoints:
 
 **Input** (`POST /forecast`):
 ```json
-{ "station_id": "EMBR", "horizon_hours": 6 }
+{ "station_id": "EM", "horizon_hours": 6 }
 ```
 
 **Output** (`POST /forecast`):
 ```json
 {
-  "station_id": "EMBR",
+  "station_id": "EM",
   "horizon_hours": 6,
   "generated_at": "2025-06-01T12:00:00.000000Z",
   "forecasts": [
