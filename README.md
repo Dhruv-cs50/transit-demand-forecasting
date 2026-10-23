@@ -226,7 +226,7 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 | API Docs (Swagger) | https://transit-api-308878596074.us-west2.run.app/docs |
 
 The Cloud Run revision live at that URL was not built from this code. Checked
-2026-10-23: it titles itself "Bay Area Traffic Forecast API … Chronos-2
+2026-10-22 (Pacific): it titles itself "Bay Area Traffic Forecast API … Chronos-2
 powered" and answers `/forecast` from a Chronos cache for Jan–Jun 2024 on the
 pre-Sprint-2 target definition (EM p50 1.16–1.45M riders/month, against 326–390k
 actual for those months in the current feature store). The [Forecast API](#forecast-api) section describes
@@ -348,8 +348,8 @@ same functions `benchmarks.py` scores (`fit_station` / `predict_station` in
 `models/baselines/arima.py`):
 
 - **History:** months from `data.train_start` (2022-01) whose start is `<= as_of`.
-  Without `as_of`, that is every month in the committed feature store, through
-  Dec 2025, so the forecast covers Jan–Jun 2026.
+  Without `as_of`, that is Jan 2022 through Dec 2025 (the store's 2019 months
+  are never used), so the forecast covers Jan–Jun 2026.
 - **What the 3.21% means here:** it is the holdout score of this spec trained
   through Jun 2025 (`"as_of": "2025-06-30"` reproduces those forecasts exactly).
   The default forecast, refit through Dec 2025, has not been scored — its months
@@ -361,7 +361,12 @@ same functions `benchmarks.py` scores (`fit_station` / `predict_station` in
 - **Errors:** unknown station → `404`; malformed `as_of`, or one that leaves
   fewer than 24 months of history → `400`.
 
-Code: `machine_learning_files/api.py`. Tests: `python -m pytest tests/`.
+Code: `machine_learning_files/api.py`. Tests (`requirements.txt` lacks `pytest` and `httpx`):
+
+```bash
+pip install fastapi==0.115.0 pydantic==2.7.0 pandas==2.2.0 pyarrow==16.0.0 numpy==1.26.4 PyYAML==6.0.1 scipy==1.14.1 statsmodels==0.14.4 httpx pytest
+python -m pytest tests/
+```
 
 Start locally (the feature store is committed, so no pipeline run is needed):
 
