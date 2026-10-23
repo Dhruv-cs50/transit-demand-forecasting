@@ -18,7 +18,7 @@ Sprint 3 follow-up "Station-level website JSON exports empty".
 |---|---|
 | Store / workbook codes | 50 two-letter codes (`12 16 19 24 AN AS BE BF … WS`); the workbooks carry no names |
 | `fetch_bart_od.STATION_NAMES` | 50 four-letter BART API codes → names; the only name source |
-| 2-letter → name link | Only `website/data/stations_meta.json` from `c5f5891` (2026-05-07): 47 of 50 named, BF/ML/WP left as codes. No commit ever held a 2-letter → name dict, so this is one source |
+| 2-letter → name link | The only full table is `website/data/stations_meta.json` from `c5f5891` (2026-05-07): 47 of 50 named, BF/ML/WP left as codes. The same commit's 2-letter export map carries name comments (e.g. `"BF": "bayp"  # Bay Fair`), and `32a75df`'s `KEY_STATIONS` pairs 5 codes with names; all are from the same period, so this counts as one source. No commit ever held a 2-letter → name dict in code |
 | Export on this code | `stations_ridership.json` `{}`, `ridership_actuals.json` `[]`, `stations_meta.json` names = codes, `website_id` null (0 of 50 mapped) |
 | Committed `forecasts.json`, `ridership_actuals.json` | From `c5f5891`, ~4.3× the current Total-Trips target (EM 2023-12: 1.23M committed vs 286k in the store) |
 | Same 4-letter gap elsewhere | `HUB_STATIONS` (`is_hub_station` always False); `sections.jsx` `KEY_STATIONS.id`, `api-demo.html` fallback list, `api.py` examples and `predict.py --station` send 4-letter ids the store rejects |
@@ -34,13 +34,13 @@ forecast table and calibration chart from the new files; `py_compile` and JSX pa
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
 | S4b.0 | Baseline: rebuild store, benchmarks and export on unmodified `32a75df` | orchestrator | — | Leaderboard and export recorded | done — 3.21 / 5.75 / 9.70 / 10.75, n=300; `model_comparison.json` byte-identical to the committed file; station exports 0 / 0 / 50 unnamed |
-| S4b.1 | `machine_learning_files/bart_stations.py`: the table, helpers, `--check` | implementer | user decisions | `--check` passes against `STATION_NAMES`, `sources.yaml`, `transit-demo.html` and the store | done (af10e82) — `--check` OK: 50 stations, 41 website ids, 6 weather stations |
+| S4b.1 | `machine_learning_files/bart_stations.py`: the table, helpers, `--check` | implementer | user decisions | `--check` passes against `sources.yaml`, `transit-demo.html` and the store; names equal the pre-change `STATION_NAMES` | done (af10e82) — `--check` OK: 50 stations, 41 website ids, 6 weather stations. `STATION_NAMES` now re-exports the table, so `--check` cannot compare against it; the names were checked equal to a dump taken before the edit (S4b.1 report step 2) and re-verified by the S4b.7 audit |
 | S4b.2 | Pipeline consumers: `bart_od_from_xlsx.py`, `bart_od_from_csv.py`, `merge_pipeline.py`, `feature_engineering.py`, `api.py`, `predict.py` | implementer | S4b.1 | Rebuilt store: names for 50, per-station weather for the six mapped stations, `is_hub_station` true for the hub set | done (8c92631, 39827b9) |
 | S4b.3 | Export: 2-letter `station_id` for all 50, new `stations_meta`/`stations_ridership` schema, `forecasts.json` from the benchmark's Chronos-1 run | implementer | S4b.1 | Export from rebuilt store: 50/50 in each station file | done (4bad2ef) |
 | S4b.4 | Website: one id style, map reads `stations_ridership.json`, copy matches the new data | implementer | S4b.3 schema (fixed in this board) | JSX parses; local render shows data | done (ce83caa) |
-| S4b.5 | Full rerun, regenerate `website/data/`, run gates | orchestrator | S4b.2–S4b.4 | All gates green or deltas named | done — gate2 on f606498 ALL PASS, export byte-identical to gate1 (two independent runs); `website/data/` regenerated from gate2 in 087adcb; served locally and checked in headless Chrome: forecast table (EM: 12 actual months, then Jul–Dec 2025 actual beside P10/P50/P90), calibration chart with actuals, all 50 stations in the picker, map with 41 of 41 BART nodes on real levels. Earlier: gate1 on ce83caa ALL PASS: leaderboard, all result slices and Chronos preds identical to baseline; store deltas only `station_name`, the six stations' weather (+ `temp_deviation`, `is_rain_onset`, `precip_intensity`, `weather_discomfort`), `is_hub_station` on the ten hubs; export 50/50/3,000/300, `model_comparison.json` identical. Rerun after the fix round; `website/data/` not yet regenerated |
-| S4b.6 | Review the branch diff | code-reviewer | S4b.5 | No BLOCKER open | in progress — R1 on ce83caa: spec PASS, quality changes requested; 1 BLOCKER (index-page map copy contradicts the map's new caption), 2 MAJOR (refused forecasts exit 0 and leave the stale file; map's "ons/hr" invented unit beside real boardings), 11 MINOR. Fix round: F1 adf65b6 (refused forecasts exit 1, inputs checked before writes, forecasts tied to the leaderboard row's n, no silent station drop, docs), F2 f606498 (index map copy, unitless load index, tie-break, forecast months from data, late live response dropped, parallel fetch, cache-busters). R2 scoped review of ce83caa..087adcb: spec PASS, quality PASS, 0 BLOCKER / 0 MAJOR / 3 MINOR (N1-N3, ruled below); R1 items closed except two residuals the briefs allowed |
-| S4b.7 | Audit board against git | delivery-auditor | S4b.6 | No unresolved disagreement | in progress |
+| S4b.5 | Full rerun, regenerate `website/data/`, run gates | orchestrator | S4b.2–S4b.4 | All gates green or deltas named | done — gate2 on f606498 ALL PASS, export byte-identical to gate1 (two independent runs); `website/data/` regenerated from gate2 in 087adcb; served locally and checked in headless Chrome: forecast table (EM: 12 actual months, then Jul–Dec 2025 actual beside P10/P50/P90), calibration chart with actuals, all 50 stations in the picker, map with 41 of 41 BART nodes on real levels. Earlier: gate1 on ce83caa ALL PASS: leaderboard, all result slices and Chronos preds identical to baseline; store deltas only `station_name`, the six stations' weather (+ `temp_deviation`, `is_rain_onset`, `precip_intensity`, `weather_discomfort`), `is_hub_station` on the ten hubs; export 50/50/3,000/300, `model_comparison.json` identical |
+| S4b.6 | Review the branch diff | code-reviewer | S4b.5 | No BLOCKER open | done — R1 on ce83caa: spec PASS, quality changes requested; 1 BLOCKER (index-page map copy contradicts the map's new caption), 2 MAJOR (refused forecasts exit 0 and leave the stale file; map's "ons/hr" invented unit beside real boardings), 11 MINOR. Fix round: F1 adf65b6 (refused forecasts exit 1, inputs checked before writes, forecasts tied to the leaderboard row's n, no silent station drop, docs), F2 f606498 (index map copy, unitless load index, tie-break, forecast months from data, late live response dropped, parallel fetch, cache-busters). R2 scoped review of ce83caa..087adcb: spec PASS, quality PASS, 0 BLOCKER / 0 MAJOR / 3 MINOR (N1-N3, ruled below); R1 items closed except two residuals the briefs allowed |
+| S4b.7 | Audit board against git | delivery-auditor | S4b.6 | No unresolved disagreement | done — 0 HIGH, 2 MEDIUM, 7 LOW (D1–D9), all wording on this board; corrected in the commit that marks this done. Commits, file sets, gates, `--check`, trailers and the clean tree all agree |
 | S4b.8 | Push, open PR against `sprint3/pr-backlog` (no merge) | orchestrator | S4b.7 | PR open | todo |
 
 S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
@@ -58,7 +58,7 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
      predictions for Jul–Dec 2025 (the leaderboard run), replacing the stale May file.
   3. `HUB_STATIONS` is re-keyed through the table in this PR.
 - BF → Bay Fair (`BAYF`): `c5f5891`'s map comment, the `transit-demo.html` node
-  `bayp` "Bay Fair", and HEAD's `BAYF → bayp` all agree.
+  `bayp` "Bay Fair", and the four-letter map at `32a75df` (`BAYF → bayp`, deleted in 4bad2ef) all agree.
 - Weather keeps the six name-matched locations (EM, MB, FM, BE, SO, 19). No
   nearest-location assignment: that would be a modeling change nobody asked for.
 - `stations_ridership.json` averages the latest 12 store months. Averaging over
@@ -73,23 +73,35 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
   #138 (interval calibration) conflict only in this board file; with #137 (API
   serving) only in `machine_learning_files/api.py`, where both sides set the
   examples to `EM` — take #137's file. #137 commits `data/processed/feature_store.parquet`
-  built before this branch; it differs from this branch's store only in
-  `station_name` and the six stations' weather, so rebuild and commit it after
-  both merge.
+  built before this branch. Against this branch's store it differs in
+  `station_name` and the six stations' weather, and also in ways this branch did
+  not cause (the same differences appear against the `32a75df` baseline store):
+  it was built without the events archive (`is_game_day`/`is_sharks_game` never
+  true vs 1,000 rows here; `game_start_hour`/`hours_to_event` all NaN), and the
+  other 44 stations' regional weather differs slightly (`temp_f` up to 0.0034 °F,
+  `is_raining` up to 0.0047). Rebuild and commit it after both merge.
+- #138 interaction: #138 writes `chronos2_zeroshot_preds.parquet` before it
+  calibrates intervals, so after both merge `forecasts.json` carries Chronos's
+  raw P10/P90 while `model_comparison.json`'s `Coverage_pct` may score the
+  calibrated band. Reconcile at the second merge (publish the calibrated band,
+  or label the raw one).
 
 - R2 N3: commit 087adcb's subject says "full pipeline run". The steps that ran
   were `bart_od_from_xlsx.py`, `merge_pipeline.py`, `feature_engineering.py`,
   `models/baselines/benchmarks.py`, then the export with `--out-dir` into a
   scratch directory, whose five files were copied into `website/data/`.
   `zero_shot.py`, `arima.py`/`prophet_baseline.py` standalone runs, the validator
-  and fine-tuning from `run_pipeline.sh` did not run; none of them feeds the
-  five files. Not rewritten, because later commits sit on top.
+  and fine-tuning from `run_pipeline.sh` did not run. `zero_shot.py`, the
+  standalone baselines and the validator feed none of the five files;
+  `finetune.py`, had it run, would have added an `AutoGluon_Ensemble` row to the
+  leaderboard (`benchmarks.py:535-551`), which `model_comparison.json` would
+  then publish. Not rewritten, because later commits sit on top.
 
 ### Follow-ups (Sprint 4b, found here, not fixed here)
 
 - Published model claims that no run supports: the hero says Chronos-1 is
   "enriched with weather and events data" (`sections.jsx:92`), and the site
-  shows feature-importance values (`sections.jsx` ~:206, ~:292). The review found
+  shows feature-importance values (the `shap` list, `sections.jsx:285-293`). The review found
   the zero-shot path never passes covariates: under chronos-forecasting 2.3.2
   `predict_df(future_df=…)` raises TypeError and the code falls back to
   univariate (50 "Falling back to univariate mode" lines per run). No ranked
@@ -109,8 +121,19 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
 - The lede says the forecasts are "the predictions scored in the model
   comparison below" without checking that `model_comparison.json` has the
   Chronos row (the export now refuses to publish forecasts in that case).
-- The Google Maps key refuses localhost ("can't load Google Maps correctly"),
-  so local checks of `transit-demo.html` show a development watermark.
+- F1 concern 5 (pre-existing): with `--allow-val-fallback` and no validation
+  split, `export_model_comparison` raises `SystemExit(1)` after the station and
+  actuals files were written.
+- F1 concern 6 (pre-existing): an unexpected exception inside
+  `export_forecasts` (e.g. a corrupt parquet) aborts before
+  `model_comparison.json` is written (non-zero exit either way).
+- The "Live demo" nav label and "Where is the rush, right now?" heading
+  (`sections.jsx:39`, `:373-375`) suggest live data; the map shows 2025 average
+  levels shaped by an illustrative curve.
+- Google Maps answers `BillingNotEnabledMapError` for the page's key (seen in
+  local headless runs: "can't load Google Maps correctly", development
+  watermark). That is a billing setting on the Maps project; whether the
+  deployed page is affected is unverified.
 
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
