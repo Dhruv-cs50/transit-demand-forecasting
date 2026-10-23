@@ -306,7 +306,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>{chart === 'roc' ? 'WAPE by model — test set' : 'Forecast intervals — Embarcadero'}</h3>
-                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 zero-shot forecast · Jan–Jun 2024 · Embarcadero (highest-volume BART station)'}</p>
+                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders · Jul–Dec 2025 test window · Embarcadero (highest-volume BART station)'}</p>
               </div>
               <div className="chip-grp">
                 <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>WAPE</button>
@@ -661,29 +661,23 @@ const API_BASE = 'https://transit-api-308878596074.us-west2.run.app';
 const BARTForecasts = () => {
   const [forecasts, setForecasts] = React.useState([]);
   const [actuals, setActuals]     = React.useState([]);
-  const [station, setStation]     = React.useState('EMBR');
+  const [meta, setMeta]           = React.useState([]);
+  const [station, setStation]     = React.useState('EM');
   const [loading, setLoading]     = React.useState(true);
   const [comparison, setComparison] = React.useState([]);
   const [liveData, setLiveData]   = React.useState(null);
   const [liveFetching, setLiveFetching] = React.useState(false);
   const [liveError, setLiveError] = React.useState(null);
 
-  // `id` is the 4-letter BART code the live Cloud Run /forecast API expects
-  // (matches machine_learning_files/api.py's feature-store station_id
-  // convention). `dataId` is the short code actually used as `station_id`
-  // in the static website/data/*.json exports (forecasts.json,
-  // ridership_actuals.json) — a legacy scheme those files still carry
-  // (cross-checked against stations_meta.json's `bart_id` field, which maps
-  // these same short codes to the matching station names). The two never
-  // matched historically here, so the historical/forecast table below was
-  // always empty for every station — filter static-JSON lookups on
-  // `dataId`, keep `id` for the live API call and button identity.
+  // `id` is BART's two-letter station code, the feature store's station_id.
+  // The same code filters the static data/*.json exports and is sent to the
+  // live /forecast API.
   const KEY_STATIONS = [
-    { id:'EMBR', dataId:'EM', name:'Embarcadero' },
-    { id:'MONT', dataId:'MT', name:'Montgomery St' },
-    { id:'12TH', dataId:'12', name:'12th St Oakland' },
-    { id:'BERY', dataId:'BE', name:'Berryessa' },
-    { id:'FRMT', dataId:'FM', name:'Fremont' },
+    { id:'EM', name:'Embarcadero' },
+    { id:'MT', name:'Montgomery St' },
+    { id:'12', name:'12th St Oakland' },
+    { id:'BE', name:'Berryessa' },
+    { id:'FM', name:'Fremont' },
   ];
 
   React.useEffect(() => {
@@ -691,10 +685,12 @@ const BARTForecasts = () => {
       fetch('data/forecasts.json').then(r => r.json()).catch(() => []),
       fetch('data/ridership_actuals.json').then(r => r.json()).catch(() => []),
       fetch('data/model_comparison.json').then(r => r.json()).catch(() => []),
-    ]).then(([fc, ac, cmp]) => {
-      setForecasts(fc);
-      setActuals(ac);
-      setComparison(cmp);
+      fetch('data/stations_meta.json').then(r => r.json()).catch(() => []),
+    ]).then(([fc, ac, cmp, sm]) => {
+      setForecasts(Array.isArray(fc) ? fc : []);
+      setActuals(Array.isArray(ac) ? ac : []);
+      setComparison(Array.isArray(cmp) ? cmp : []);
+      setMeta(Array.isArray(sm) ? sm.filter(m => m && m.bart_id) : []);
       setLoading(false);
     });
   }, []);
@@ -715,23 +711,42 @@ const BARTForecasts = () => {
 
   React.useEffect(() => { setLiveData(null); setLiveError(null); }, [station]);
 
-  const stationDataId = KEY_STATIONS.find(s => s.id === station)?.dataId || station;
+  const metaById = {};
+  meta.forEach(m => { metaById[m.bart_id] = m; });
+  const nameFor = id => metaById[id]?.station_name || KEY_STATIONS.find(s => s.id === id)?.name || id;
+  const stationOptions = meta
+    .map(m => ({ id: m.bart_id, name: m.station_name || m.bart_id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const stationActuals = actuals
-    .filter(r => r.station_id === stationDataId)
+    .filter(r => r.station_id === station && r.ridership != null)
     .sort((a, b) => a.month.localeCompare(b.month));
 
   const stationForecasts = forecasts
-    .filter(r => r.station_id === stationDataId)
+    .filter(r => r.station_id === station)
     .sort((a, b) => a.month.localeCompare(b.month));
+
+  // One row per month: the 12 actual months before the first forecast month,
+  // then each forecast month with its actual (if any) beside P10/P50/P90.
+  // A station with no forecasts shows its last 12 actual months.
+  const actualByMonth = {};
+  stationActuals.forEach(r => { actualByMonth[r.month] = r.ridership; });
+  const firstFc = stationForecasts[0]?.month;
+  const tableRows = firstFc
+    ? [
+        ...stationActuals.filter(r => r.month < firstFc).slice(-12)
+          .map(r => ({ month: r.month, actual: r.ridership, fc: null })),
+        ...stationForecasts.map(f => ({ month: f.month, actual: actualByMonth[f.month] ?? null, fc: f })),
+      ]
+    : stationActuals.slice(-12).map(r => ({ month: r.month, actual: r.ridership, fc: null }));
 
   const fmt = n => n >= 1e6
     ? (n/1e6).toFixed(2)+'M'
     : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(n);
 
   const maxRiders = Math.max(
-    ...stationActuals.map(r => r.ridership),
-    ...stationForecasts.map(r => r.p90 || 0),
+    ...tableRows.map(r => r.actual || 0),
+    ...tableRows.map(r => (r.fc && r.fc.p90) || 0),
     1
   );
 
@@ -743,9 +758,10 @@ const BARTForecasts = () => {
           <Reveal delay="1"><div className="row">
             <h2>Model outputs — 50 stations, 6-month forecast.</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
-              Static export of zero-shot Chronos forecasts (forecasts.json): P10/P50/P90 monthly ridership for Jan–Jun 2024,
-              plotted after the last exported actuals (Dec 2023). These are not the Jul–Dec 2025 test-split forecasts scored
-              under Results. The button below requests a forecast from the Cloud Run API.
+              Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership
+              for Jul–Dec 2025, forecast from data through Jun 2025: the predictions scored in the model comparison below.
+              Actuals are BART monthly Total Trips boardings per entry station, 2019 and 2022–2025.
+              The button below requests a forecast from the Cloud Run API.
             </p>
           </div></Reveal>
         </div>
@@ -761,9 +777,23 @@ const BARTForecasts = () => {
                   color: station===s.id ? '#fff' : 'var(--ink)',
                   cursor:'pointer', fontSize:13, fontWeight:500,
                 }}>
-                {s.name}
+                {metaById[s.id]?.station_name || s.name}
               </button>
             ))}
+            {stationOptions.length > 0 && (
+              <select
+                aria-label="All stations"
+                value={station}
+                onChange={e => setStation(e.target.value)}
+                style={{
+                  padding:'6px 10px', borderRadius:6, border:'1.5px solid var(--line)',
+                  background:'var(--bg-elev)', color:'var(--ink)', fontSize:13, fontFamily:'inherit',
+                }}>
+                {stationOptions.map(o => (
+                  <option key={o.id} value={o.id}>{o.name} ({o.id})</option>
+                ))}
+              </select>
+            )}
             <button
               onClick={fetchLive}
               disabled={liveFetching}
@@ -785,7 +815,7 @@ const BARTForecasts = () => {
           {liveData && (
             <div style={{ marginBottom:20, padding:'14px 16px', borderRadius:8, background:'rgba(42,47,143,0.07)', border:'1px solid rgba(42,47,143,0.2)' }}>
               <div style={{ fontSize:12, color:'var(--primary)', fontWeight:700, marginBottom:8, letterSpacing:'.04em', textTransform:'uppercase' }}>
-                ⚡ Live Cloud Run Response — {KEY_STATIONS.find(s=>s.id===station)?.name || station}
+                ⚡ Live Cloud Run Response — {nameFor(station)}
               </div>
               <div style={{ display:'flex', gap:24, flexWrap:'wrap' }}>
                 {(liveData.forecasts || []).map(f => (
@@ -816,35 +846,38 @@ const BARTForecasts = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {stationActuals.slice(-12).map((row, i) => (
-                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', opacity: row.month >= '2022' ? 1 : 0.65 }}>
-                      <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12 }}>{row.month}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', fontWeight:600 }}>{fmt(row.ridership)}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
-                      <td style={{ padding:'5px 10px' }}>
-                        <div style={{ background:'var(--primary)', opacity:0.15+0.6*(row.ridership/maxRiders), height:6, borderRadius:3, width: `${Math.round(100*row.ridership/maxRiders)}%`, minWidth:4 }} />
-                      </td>
-                    </tr>
-                  ))}
-                  {stationForecasts.map((row) => (
+                  {tableRows.map(row => row.fc ? (
                     <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', background:'rgba(42,47,143,0.04)' }}>
                       <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12, color:'var(--primary)' }}>{row.month} ▶</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p10 != null ? fmt(row.p10) : '—'}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--primary)', fontWeight:700, fontFamily:'var(--mono)' }}>{row.p50 != null ? fmt(row.p50) : '—'}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p90 != null ? fmt(row.p90) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', fontWeight:600, color: row.actual != null ? 'var(--ink)' : 'var(--ink-muted)' }}>{row.actual != null ? fmt(row.actual) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.fc.p10 != null ? fmt(row.fc.p10) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--primary)', fontWeight:700, fontFamily:'var(--mono)' }}>{row.fc.p50 != null ? fmt(row.fc.p50) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.fc.p90 != null ? fmt(row.fc.p90) : '—'}</td>
                       <td style={{ padding:'5px 10px' }}>
-                        <div style={{ background:'var(--accent)', opacity:0.7, height:6, borderRadius:3, width: `${Math.round(100*(row.p50||0)/maxRiders)}%`, minWidth:4 }} />
+                        {row.actual != null && (
+                          <div style={{ background:'var(--primary)', opacity:0.15+0.6*(row.actual/maxRiders), height:6, borderRadius:3, width: `${Math.round(100*row.actual/maxRiders)}%`, minWidth:4, marginBottom:2 }} />
+                        )}
+                        <div style={{ background:'var(--accent)', opacity:0.7, height:6, borderRadius:3, width: `${Math.round(100*(row.fc.p50||0)/maxRiders)}%`, minWidth:4 }} />
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', opacity: row.month >= '2022' ? 1 : 0.65 }}>
+                      <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12 }}>{row.month}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', fontWeight:600 }}>{fmt(row.actual)}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ padding:'5px 10px' }}>
+                        <div style={{ background:'var(--primary)', opacity:0.15+0.6*(row.actual/maxRiders), height:6, borderRadius:3, width: `${Math.round(100*row.actual/maxRiders)}%`, minWidth:4 }} />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div style={{ marginTop:12, fontSize:12, color:'var(--ink-muted)' }}>
-                ▶ Forecast months (Jan–Jun 2024) shown in blue. Bars sized by ridership volume.
-                Actuals shown are the exported ridership_actuals.json (BART OD monthly: 2019, 2022, 2023); it does not contain the 2025 test months scored in the table below.
+                ▶ Forecast months (Jul–Dec 2025, forecast from data through Jun 2025) shown in blue, each with its actual riders
+                beside P10/P50/P90. Bars sized by ridership volume: blue = actual, coral = P50.
+                Actuals are BART monthly Total Trips boardings per entry station (ridership_actuals.json: 2019 and 2022–2025).
               </div>
             </div>
           )}
