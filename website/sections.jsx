@@ -160,7 +160,7 @@ const Method = () => {
     { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built covariates including lag windows, rolling means, holiday and school-calendar flags, weather, and event proximity indicators as known-future inputs. The event covariates are currently constant zero — the pipeline has no Ticketmaster key — and the Chronos checkpoint cannot accept covariates at all.', tools:['pandas','scikit-learn'] },
     { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline. AutoGluon fine-tuning is scaffolded but has never been run — autogluon.timeseries will not install on this Python.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
     { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations. Intervals are not yet calibrated.', tools:['WAPE','MAE'] },
-    { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station) with pre-computed outputs exported to JSON powering the website heat map.', tools:['FastAPI','React','JSON'] },
+    { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station). The website reads JSON exported from the pipeline: forecasts, actuals, station levels and the model comparison.', tools:['FastAPI','React','JSON'] },
   ];
   return (
     <section id="method">
@@ -306,7 +306,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>{chart === 'roc' ? 'WAPE by model — test set' : 'Forecast intervals — Embarcadero'}</h3>
-                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders · Jul–Dec 2025 test window · Embarcadero (highest-volume BART station)'}</p>
+                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders · Embarcadero (highest-volume BART station)'}</p>
               </div>
               <div className="chip-grp">
                 <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>WAPE</button>
@@ -362,9 +362,9 @@ const Results = () => {
 const Demo = () => {
   const features = [
     { icon: '🗺', title: 'Real Google Maps', desc: '41 BART and 39 VTA stations plotted at true lat/lng.' },
-    { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded ridership load: green → amber → coral as demand rises.' },
-    { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to animate demand through a full 24-hour day.' },
-    { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to see how the model adjusts boardings.' },
+    { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded relative load index: green → amber → coral as the index rises.' },
+    { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to step an illustrative hour-of-day curve through a full 24-hour day.' },
+    { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to apply an illustrative adjustment. These effects are not modeled.' },
   ];
   return (
     <section id="demo">
@@ -374,9 +374,11 @@ const Demo = () => {
           <Reveal delay="1"><div className="row">
             <h2>Where is the rush, right now?</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
-              An interactive Google Maps view shows expected boardings across BART and VTA.
-              Scrub through the hour, change the day, add weather or a major event — the
-              heat overlay updates in real time.
+              An interactive Google Maps view of BART and VTA. Each BART station's base level comes from
+              its measured average monthly boardings over the latest 12 months (stations_ridership.json,
+              BART Total Trips). The hour-of-day, day, weather and event effects and all VTA levels
+              are illustrative, not modeled. Scrub through the hour, change the day, add weather or
+              a major event, and the heat overlay updates as you change them.
             </p>
           </div></Reveal>
         </div>
@@ -695,7 +697,11 @@ const BARTForecasts = () => {
     });
   }, []);
 
+  // Each live request gets a sequence number; changing station bumps it, so a
+  // response (or error) for a previously selected station is dropped.
+  const liveReq = React.useRef(0);
   const fetchLive = () => {
+    const reqId = ++liveReq.current;
     setLiveFetching(true);
     setLiveError(null);
     fetch(`${API_BASE}/forecast`, {
@@ -705,11 +711,14 @@ const BARTForecasts = () => {
       signal: AbortSignal.timeout(15000),
     })
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail || 'API error')))
-      .then(data => { setLiveData(data); setLiveFetching(false); })
-      .catch(err => { setLiveError(String(err)); setLiveFetching(false); });
+      .then(data => { if (reqId !== liveReq.current) return; setLiveData(data); setLiveFetching(false); })
+      .catch(err => { if (reqId !== liveReq.current) return; setLiveError(String(err)); setLiveFetching(false); });
   };
 
-  React.useEffect(() => { setLiveData(null); setLiveError(null); }, [station]);
+  React.useEffect(() => {
+    liveReq.current++;
+    setLiveData(null); setLiveError(null); setLiveFetching(false);
+  }, [station]);
 
   const metaById = {};
   meta.forEach(m => { metaById[m.bart_id] = m; });
@@ -750,17 +759,41 @@ const BARTForecasts = () => {
     1
   );
 
+  // The forecast months named in the copy come from forecasts.json (min/max
+  // month over all records); "through" is the month before the first one.
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const parseYM = ym => {
+    const m = /^(\d{4})-(0[1-9]|1[0-2])/.exec(typeof ym === 'string' ? ym : '');
+    return m ? { y: +m[1], m: +m[2] } : null;
+  };
+  const fcMonths = forecasts.map(r => r && parseYM(r.month)).filter(Boolean)
+    .sort((a, b) => a.y - b.y || a.m - b.m);
+  const fcFirst = fcMonths[0];
+  const fcLast = fcMonths[fcMonths.length - 1];
+  const fcRange = !fcFirst ? null
+    : fcFirst.y !== fcLast.y ? `${MON[fcFirst.m-1]} ${fcFirst.y}–${MON[fcLast.m-1]} ${fcLast.y}`
+    : fcFirst.m !== fcLast.m ? `${MON[fcFirst.m-1]}–${MON[fcLast.m-1]} ${fcFirst.y}`
+    : `${MON[fcFirst.m-1]} ${fcFirst.y}`;
+  const fcThrough = !fcFirst ? null
+    : fcFirst.m === 1 ? `Dec ${fcFirst.y - 1}` : `${MON[fcFirst.m-2]} ${fcFirst.y}`;
+  const fcCount = new Set(fcMonths.map(p => p.y * 12 + p.m)).size;
+
   return (
     <section id="bart-data" style={{ background:'var(--bg-muted)', padding:'80px 0' }}>
       <div className="wrap">
         <div className="section-h">
           <Reveal><div className="eyebrow"><span className="pip" /> Real BART Data</div></Reveal>
           <Reveal delay="1"><div className="row">
-            <h2>Model outputs — 50 stations, 6-month forecast.</h2>
+            <h2>{loading ? 'Model outputs — 50 stations.'
+              : fcCount ? `Model outputs — 50 stations, ${fcCount}-month forecast.`
+              : 'Model outputs — 50 stations, no forecasts published.'}</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
-              Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership
-              for Jul–Dec 2025, forecast from data through Jun 2025: the predictions scored in the model comparison below.
-              Actuals are BART monthly Total Trips boardings per entry station, 2019 and 2022–2025.
+              {loading
+                ? 'Loading the static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) forecasts…'
+                : fcRange
+                  ? `Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}: the predictions scored in the model comparison below.`
+                  : 'No forecasts are published in the static export (forecasts.json), so the table shows actual ridership only.'}
+              {' '}Actuals are BART monthly Total Trips boardings per entry station, 2019 and 2022–2025.
               The button below requests a forecast from the Cloud Run API.
             </p>
           </div></Reveal>
@@ -875,9 +908,10 @@ const BARTForecasts = () => {
                 </tbody>
               </table>
               <div style={{ marginTop:12, fontSize:12, color:'var(--ink-muted)' }}>
-                ▶ Forecast months (Jul–Dec 2025, forecast from data through Jun 2025) shown in blue, each with its actual riders
-                beside P10/P50/P90. Bars sized by ridership volume: blue = actual, coral = P50.
-                Actuals are BART monthly Total Trips boardings per entry station (ridership_actuals.json: 2019 and 2022–2025).
+                {fcRange
+                  ? `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue, each with its actual riders beside P10/P50/P90. Bars sized by ridership volume: blue = actual, coral = P50.`
+                  : 'No forecasts are published, so the table shows the last 12 actual months. Bars sized by ridership volume.'}
+                {' '}Actuals are BART monthly Total Trips boardings per entry station (ridership_actuals.json: 2019 and 2022–2025).
               </div>
             </div>
           )}

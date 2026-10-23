@@ -152,10 +152,10 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
   <hr class="sep"/>
 
   <div>
-    <div class="lbl">Current load</div>
+    <div class="lbl">Current load index · illustrative</div>
     <div class="stats-grid">
-      <div class="stat-box"><div class="stat-num" id="totalStat">—</div><div class="stat-lbl">network ons/hr</div></div>
-      <div class="stat-box"><div class="stat-num" id="peakStat">—</div><div class="stat-lbl">peak station</div></div>
+      <div class="stat-box"><div class="stat-num" id="totalStat">—</div><div class="stat-lbl">network load index (mean)</div></div>
+      <div class="stat-box"><div class="stat-num" id="peakStat">—</div><div class="stat-lbl">peak station load index</div></div>
     </div>
     <div class="peak-row">
       <span class="peak-name" id="peakName">—</span>
@@ -219,13 +219,13 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
   </div>
 
   <div>
-    <div class="lbl">Heat scale</div>
+    <div class="lbl">Heat scale · relative load index</div>
     <div class="legend">
       <span class="legend-lbl">Low</span>
       <div class="legend-bar"></div>
       <span class="legend-lbl">High</span>
     </div>
-    <div class="hint" id="dataNote">Built-in illustrative station levels are shown. The hour-of-day curve, day-of-week, weather and event multipliers and all VTA levels are illustrative, not modeled.</div>
+    <div class="hint" id="dataNote">Built-in illustrative station levels are shown. The hour-of-day curve, day-of-week, weather and event multipliers and all VTA levels are illustrative, not modeled. The load index is a unitless relative level, not a rider count.</div>
   </div>
 
 </aside>
@@ -359,14 +359,16 @@ function applyRidership(data) {
   return { matched, first, last };
 }
 
+const LOAD_INDEX_NOTE = 'The load index is a unitless relative level, not a rider count.';
+
 function setDataNote(res) {
   const el = document.getElementById('dataNote');
   if (res && res.matched > 0) {
     el.textContent = `BART station levels come from BART's monthly Total Trips boardings (${monthName(res.first)}–${monthName(res.last)}). ` +
-      'The hour-of-day curve, day-of-week, weather and event multipliers and all VTA levels are illustrative, not modeled.';
+      'The hour-of-day curve, day-of-week, weather and event multipliers and all VTA levels are illustrative, not modeled. ' + LOAD_INDEX_NOTE;
   } else {
     el.textContent = 'BART ridership data is unavailable, so built-in illustrative station levels are shown. ' +
-      'The hour-of-day curve, day-of-week, weather and event multipliers and all VTA levels are illustrative, not modeled.';
+      'The hour-of-day curve, day-of-week, weather and event multipliers and all VTA levels are illustrative, not modeled. ' + LOAD_INDEX_NOTE;
   }
 }
 
@@ -448,7 +450,17 @@ function redraw() {
   });
 
   /* markers — google.maps.Marker with SVG circle symbol */
-  const ranked = stations.map((s,i)=>({s,v:heat[i]})).sort((a,b)=>b.v-a.v);
+  /* Ties in heat (several stations clamp at the 2.4 ceiling) are broken by the
+     node's measured avg_monthly_ridership, descending; nodes without one rank
+     after those with one, then keep array order (Array.prototype.sort is stable). */
+  const realAvg = s => (s.real && typeof s.real.avg_monthly_ridership === 'number' &&
+    isFinite(s.real.avg_monthly_ridership)) ? s.real.avg_monthly_ridership : -Infinity;
+  const ranked = stations.map((s,i)=>({s,v:heat[i],r:realAvg(s)})).sort((a,b)=>{
+    if (a.v !== b.v) return b.v - a.v;
+    if (a.r > b.r) return -1;
+    if (a.r < b.r) return 1;
+    return 0;
+  });
   const top3 = new Set(ranked.slice(0,3).map(r=>r.s.id));
 
   stations.forEach((s,i) => {
@@ -477,7 +489,7 @@ function redraw() {
         `<div style="font-family:system-ui;padding:4px 2px">
           <div style="font-weight:700;font-size:14px;margin-bottom:3px">${s.nm}</div>
           <div style="color:#666;font-size:12px;margin-bottom:4px">Type: ${s.type}</div>
-          <div style="font-size:13px">Est. load: <b style="color:${col}">${(v*22).toFixed(0)}</b> ons/hr</div>
+          <div style="font-size:13px">Load index: <b style="color:${col}">${v.toFixed(2)}</b> <span style="color:#666;font-size:11px">(relative, illustrative)</span></div>
           ${s.real && s.real.avg_monthly_ridership != null ? `<div style="color:#666;font-size:12px;margin-top:4px">Avg monthly boardings (${monthName(s.real.first_month)}–${monthName(s.real.last_month)}): <b>${Math.round(s.real.avg_monthly_ridership).toLocaleString('en-US')}</b></div>` : ''}
          </div>`
       );
@@ -488,7 +500,6 @@ function redraw() {
   });
 
   /* sidebar stats */
-  const total = heat.reduce((a,v)=>a+v*22,0);
   const top   = ranked[0];
   const mean  = heat.reduce((a,v)=>a+v,0)/heat.length;
   const tier  = mean<0.45?'low':mean<0.95?'med':'high';
@@ -496,8 +507,8 @@ function redraw() {
   const DAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const hStr  = String(S.hour).padStart(2,'0')+':00';
 
-  document.getElementById('totalStat').textContent = total.toFixed(0);
-  document.getElementById('peakStat').textContent  = (top.v*22).toFixed(0);
+  document.getElementById('totalStat').textContent = mean.toFixed(2);
+  document.getElementById('peakStat').textContent  = top.v.toFixed(2);
   document.getElementById('peakName').textContent  = top.s.nm;
   const tb = document.getElementById('tierBadge');
   tb.textContent = tLbl; tb.className = `badge badge-${tier}`;
@@ -506,7 +517,7 @@ function redraw() {
     `<div class="hot-item">
       <span class="hot-rank">${i+1}</span>
       <span class="hot-name">${r.s.nm}</span>
-      <span class="hot-val">${(r.v*22).toFixed(0)} <em>ons/hr</em></span>
+      <span class="hot-val">${r.v.toFixed(2)} <em>index</em></span>
     </div>`).join('');
   document.getElementById('hourVal').textContent = hStr;
   document.getElementById('dowLbl').textContent = DAYS[S.dow];

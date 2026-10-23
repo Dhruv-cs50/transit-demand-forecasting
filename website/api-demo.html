@@ -274,7 +274,11 @@ async function pingHealth() {
 
 /* ── Load stations ── */
 /* Station names from the static export (data/stations_meta.json), keyed by
-   BART's two-letter code. Optional: without them options show the bare code. */
+   BART's two-letter code. Optional: without them options show the bare code.
+   They load in parallel with /stations and label the options whenever they
+   arrive, before or after the list. */
+let stationNames = {};
+
 async function loadStationNames() {
   const names = {};
   try {
@@ -288,29 +292,40 @@ async function loadStationNames() {
   return names;
 }
 
-function fillStations(sel, codes, names) {
+function stationLabel(code) {
+  return stationNames[code] ? `${code} — ${stationNames[code]}` : code;
+}
+
+function fillStations(sel, codes) {
   sel.innerHTML = '<option value="">— select station —</option>';
   codes.forEach(s => {
     const opt = document.createElement('option');
     opt.value = s;
-    opt.textContent = names[s] ? `${s} — ${names[s]}` : s;
+    opt.textContent = stationLabel(s);
     sel.appendChild(opt);
+  });
+}
+
+/* Relabel the options already in place; the selection is left as it is. */
+function relabelStations(sel) {
+  Array.from(sel.options).forEach(opt => {
+    if (opt.value) opt.textContent = stationLabel(opt.value);
   });
 }
 
 async function loadStations() {
   const sel = document.getElementById('stationSel');
-  const names = await loadStationNames();
+  loadStationNames().then(names => { stationNames = names; relabelStations(sel); });
   try {
     const res = await fetch(getBase() + '/stations', { signal: AbortSignal.timeout(8000) });
     const data = await res.json();
-    fillStations(sel, data.stations || [], names);
+    fillStations(sel, data.stations || []);
     /* default to Embarcadero */
     if (data.stations && data.stations.includes('EM')) sel.value = 'EM';
   } catch(e) {
     /* fallback: common BART stations (two-letter codes matching the feature store's station_id) */
     const fallback = ['EM','MT','PL','CC','12','24','BK','19','BP','DC','SO','MA','FV','OW'];
-    fillStations(sel, fallback, names);
+    fillStations(sel, fallback);
     sel.value = 'EM';
   }
   updatePreview();
