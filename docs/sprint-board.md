@@ -1,6 +1,8 @@
 # Sprint board
 
-## Sprint 4 — One BART station table (opened 2026-10-22)
+## Sprint 4b — One BART station table (opened 2026-10-22)
+
+(Named 4b, with ids S4b.x, because the parallel interval-calibration branch, PR #138, also adds a "Sprint 4" with S4.x ids. Board-only commit messages on this branch say "S4.x"; they mean these stories.)
 
 **Goal.** One authoritative table (BART 2-letter code → name → website id →
 weather location), sourced from repo data, used by the export, the
@@ -31,19 +33,19 @@ forecast table and calibration chart from the new files; `py_compile` and JSX pa
 
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
-| S4.0 | Baseline: rebuild store, benchmarks and export on unmodified `32a75df` | orchestrator | — | Leaderboard and export recorded | done — 3.21 / 5.75 / 9.70 / 10.75, n=300; `model_comparison.json` byte-identical to the committed file; station exports 0 / 0 / 50 unnamed |
-| S4.1 | `machine_learning_files/bart_stations.py`: the table, helpers, `--check` | implementer | user decisions | `--check` passes against `STATION_NAMES`, `sources.yaml`, `transit-demo.html` and the store | done (af10e82) — `--check` OK: 50 stations, 41 website ids, 6 weather stations |
-| S4.2 | Pipeline consumers: `bart_od_from_xlsx.py`, `bart_od_from_csv.py`, `merge_pipeline.py`, `feature_engineering.py`, `api.py`, `predict.py` | implementer | S4.1 | Rebuilt store: names for 50, per-station weather for the six mapped stations, `is_hub_station` true for the hub set | done (8c92631, 39827b9) |
-| S4.3 | Export: 2-letter `station_id` for all 50, new `stations_meta`/`stations_ridership` schema, `forecasts.json` from the benchmark's Chronos-1 run | implementer | S4.1 | Export from rebuilt store: 50/50 in each station file | done (4bad2ef) |
-| S4.4 | Website: one id style, map reads `stations_ridership.json`, copy matches the new data | implementer | S4.3 schema (fixed in this board) | JSX parses; local render shows data | done (ce83caa) |
-| S4.5 | Full rerun, regenerate `website/data/`, run gates | orchestrator | S4.2–S4.4 | All gates green or deltas named | in progress — gate1 on ce83caa ALL PASS: leaderboard, all result slices and Chronos preds identical to baseline; store deltas only `station_name`, the six stations' weather (+ `temp_deviation`, `is_rain_onset`, `precip_intensity`, `weather_discomfort`), `is_hub_station` on the ten hubs; export 50/50/3,000/300, `model_comparison.json` identical. Rerun after the fix round; `website/data/` not yet regenerated |
-| S4.6 | Review the branch diff | code-reviewer | S4.5 | No BLOCKER open | in progress — R1 on ce83caa: spec PASS, quality changes requested; 1 BLOCKER (index-page map copy contradicts the map's new caption), 2 MAJOR (refused forecasts exit 0 and leave the stale file; map's "ons/hr" invented unit beside real boardings), 11 MINOR. Fix round F1 (export, docs, Python) and F2 (website) dispatched in parallel |
-| S4.7 | Audit board against git | delivery-auditor | S4.6 | No unresolved disagreement | todo |
-| S4.8 | Push, open PR against `sprint3/pr-backlog` (no merge) | orchestrator | S4.7 | PR open | todo |
+| S4b.0 | Baseline: rebuild store, benchmarks and export on unmodified `32a75df` | orchestrator | — | Leaderboard and export recorded | done — 3.21 / 5.75 / 9.70 / 10.75, n=300; `model_comparison.json` byte-identical to the committed file; station exports 0 / 0 / 50 unnamed |
+| S4b.1 | `machine_learning_files/bart_stations.py`: the table, helpers, `--check` | implementer | user decisions | `--check` passes against `STATION_NAMES`, `sources.yaml`, `transit-demo.html` and the store | done (af10e82) — `--check` OK: 50 stations, 41 website ids, 6 weather stations |
+| S4b.2 | Pipeline consumers: `bart_od_from_xlsx.py`, `bart_od_from_csv.py`, `merge_pipeline.py`, `feature_engineering.py`, `api.py`, `predict.py` | implementer | S4b.1 | Rebuilt store: names for 50, per-station weather for the six mapped stations, `is_hub_station` true for the hub set | done (8c92631, 39827b9) |
+| S4b.3 | Export: 2-letter `station_id` for all 50, new `stations_meta`/`stations_ridership` schema, `forecasts.json` from the benchmark's Chronos-1 run | implementer | S4b.1 | Export from rebuilt store: 50/50 in each station file | done (4bad2ef) |
+| S4b.4 | Website: one id style, map reads `stations_ridership.json`, copy matches the new data | implementer | S4b.3 schema (fixed in this board) | JSX parses; local render shows data | done (ce83caa) |
+| S4b.5 | Full rerun, regenerate `website/data/`, run gates | orchestrator | S4b.2–S4b.4 | All gates green or deltas named | done — gate2 on f606498 ALL PASS, export byte-identical to gate1 (two independent runs); `website/data/` regenerated from gate2 in 087adcb; served locally and checked in headless Chrome: forecast table (EM: 12 actual months, then Jul–Dec 2025 actual beside P10/P50/P90), calibration chart with actuals, all 50 stations in the picker, map with 41 of 41 BART nodes on real levels. Earlier: gate1 on ce83caa ALL PASS: leaderboard, all result slices and Chronos preds identical to baseline; store deltas only `station_name`, the six stations' weather (+ `temp_deviation`, `is_rain_onset`, `precip_intensity`, `weather_discomfort`), `is_hub_station` on the ten hubs; export 50/50/3,000/300, `model_comparison.json` identical. Rerun after the fix round; `website/data/` not yet regenerated |
+| S4b.6 | Review the branch diff | code-reviewer | S4b.5 | No BLOCKER open | in progress — R1 on ce83caa: spec PASS, quality changes requested; 1 BLOCKER (index-page map copy contradicts the map's new caption), 2 MAJOR (refused forecasts exit 0 and leave the stale file; map's "ons/hr" invented unit beside real boardings), 11 MINOR. Fix round: F1 adf65b6 (refused forecasts exit 1, inputs checked before writes, forecasts tied to the leaderboard row's n, no silent station drop, docs), F2 f606498 (index map copy, unitless load index, tie-break, forecast months from data, late live response dropped, parallel fetch, cache-busters). R2 scoped review of adf65b6..087adcb in progress |
+| S4b.7 | Audit board against git | delivery-auditor | S4b.6 | No unresolved disagreement | todo |
+| S4b.8 | Push, open PR against `sprint3/pr-backlog` (no merge) | orchestrator | S4b.7 | PR open | todo |
 
-S4.2, S4.3 and S4.4 touch disjoint files and run in parallel after S4.1.
+S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
 
-### Rulings (Sprint 4)
+### Rulings (Sprint 4b)
 
 - **2026-10-22, the user's answers at the Go Ahead gate:**
   1. ML = Milpitas (`MLPT`), WP = Pittsburg/Bay Point (`PITT`), and the
@@ -62,6 +64,36 @@ S4.2, S4.3 and S4.4 touch disjoint files and run in parallel after S4.1.
 - `stations_ridership.json` averages the latest 12 store months. Averaging over
   2019 and 2022–25 mixes levels across the ~2.9× COVID break, and counts BE and
   ML's pre-opening zeros. `baseAM`/`basePM` are dropped: they are not measured.
+- F1: with `--allow-val-fallback` and no leaderboard the export now exits 1,
+  because forecasts cannot be tied to a scored run. The fallback is opt-in and
+  off by default. Cost if wrong: a fallback run needs `|| true`.
+- F2: the BARTForecasts heading's "6-month" is derived from `forecasts.json`, so
+  the empty-forecasts text cannot contradict it.
+- Sibling PRs, all against `sprint3/pr-backlog`: trial merges of this branch with
+  #138 (interval calibration) conflict only in this board file; with #137 (API
+  serving) only in `machine_learning_files/api.py`, where both sides set the
+  examples to `EM` — take #137's file. #137 commits `data/processed/feature_store.parquet`
+  built before this branch; it differs from this branch's store only in
+  `station_name` and the six stations' weather, so rebuild and commit it after
+  both merge.
+
+### Follow-ups (Sprint 4b, found here, not fixed here)
+
+- Published model claims that no run supports: the hero says Chronos-1 is
+  "enriched with weather and events data" (`sections.jsx:92`), and the site
+  shows feature-importance values (`sections.jsx` ~:206, ~:292). The review found
+  the zero-shot path never passes covariates: under chronos-forecasting 2.3.2
+  `predict_df(future_df=…)` raises TypeError and the code falls back to
+  univariate (50 "Falling back to univariate mode" lines per run). No ranked
+  model reads weather, events or `is_hub_station`.
+- `models/baselines/fetch_pems_roads.py:49-52` `near` values are four-letter (module unwired).
+- `website/data/*.json` fetches carry no cache-buster (`app.yaml` caches 1 day).
+- Hard-coded years that go stale on the next refresh: "2019 and 2022–2025" for
+  actuals; "Jul–Dec 2025 test split" labels beside `model_comparison.json`.
+- Dark mode: `index.html` sets `--primary` inline, so P50 values and forecast
+  month labels render navy on the dark background.
+- The Google Maps key refuses localhost ("can't load Google Maps correctly"),
+  so local checks of `transit-demo.html` show a development watermark.
 
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
