@@ -14,7 +14,7 @@ Run locally:
 Example request:
     curl -X POST http://localhost:8000/forecast \\
          -H "Content-Type: application/json" \\
-         -d '{"station_id": "EMBR", "horizon_hours": 24}'
+         -d '{"station_id": "EM", "horizon_hours": 24}'
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def load_model_config() -> dict:
 if _FASTAPI_AVAILABLE:
 
     class ForecastRequest(BaseModel):
-        station_id:    str           = Field(..., example="EMBR", description="BART/transit station code")
+        station_id:    str           = Field(..., example="EM", description="BART/transit station code")
         horizon_hours: int           = Field(24, ge=1, le=168, description="Hours to forecast (1–168)")
         as_of:         Optional[str] = Field(None, example="2025-06-01T08:00:00", description="Forecast anchor time (ISO). Default: now.")
 

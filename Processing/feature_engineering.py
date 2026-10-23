@@ -25,11 +25,17 @@ Usage:
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from pandas.tseries.holiday import USFederalHolidayCalendar
+
+# Run as a script, sys.path[0] is Processing/, so the repo root has to be added
+# before machine_learning_files (the station table, merge_pipeline) imports.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from machine_learning_files.bart_stations import API_TO_CODE
 
 log = logging.getLogger(__name__)
 
@@ -425,15 +431,18 @@ def add_station_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
-    # Transfer hub stations — multi-modal, highest baseline ridership
+    # Transfer hub stations — multi-modal, highest baseline ridership. Listed by
+    # four-letter BART API code for readability; the station table converts
+    # them to the store's two-letter station_id (EM, MT, PL, CC, 19, MA, MB,
+    # SO, BE, ML), which is what the isin() below compares against.
     # Note: Diridon is a Caltrain/VTA hub, not a BART station_id — it has no
     # entry here and is instead captured via dist_from_diridon_km/in_event_catchment below.
-    HUB_STATIONS = {
+    HUB_STATIONS = {API_TO_CODE[c] for c in (
         "EMBR", "MONT", "POWL", "CIVC",  # SF BART hubs
         "19TH", "MCAR",                    # Oakland hubs
         "MLBR", "SFIA",                    # Airport connections
         "BERY", "MLPT",                    # South Bay (Berryessa/Milpitas)
-    }
+    )}
 
     df["is_hub_station"] = df["station_id"].isin(HUB_STATIONS)
 
@@ -635,8 +644,6 @@ def main():
     # column this module adds — including is_sharks_game_window — even
     # though predict.py's Predictor.get_feature_store() serves inference
     # from this enriched store.
-    import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from machine_learning_files.merge_pipeline import load_configs, make_splits
 
     _, model_cfg = load_configs()

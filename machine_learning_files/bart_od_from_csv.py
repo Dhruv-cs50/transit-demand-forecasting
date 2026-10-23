@@ -39,7 +39,9 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fetch_bart_od import STATION_NAMES  # single source of truth for code -> name
+# The station table (bart_stations.py) is the single source of truth for
+# code -> name, keyed by the two-letter codes this CSV uses.
+from bart_stations import CODE_TO_NAME
 
 logging.basicConfig(
     level=logging.INFO,
@@ -127,7 +129,7 @@ def build(csv_path: Path, out_dir: Path, start: int, end: int) -> int:
     df["period"] = pd.to_datetime(
         df["year"].astype(str) + "-" + df["month"].astype(str).str.zfill(2) + "-01"
     )
-    df["origin_name"] = df["origin"].map(STATION_NAMES).fillna(df["origin"])
+    df["origin_name"] = df["origin"].map(CODE_TO_NAME).fillna(df["origin"])
 
     out_dir.mkdir(parents=True, exist_ok=True)
     written = 0
@@ -142,9 +144,10 @@ def build(csv_path: Path, out_dir: Path, start: int, end: int) -> int:
     log.info(f"Wrote {written} monthly parquet files → {out_dir}")
     log.info(f"  {len(df):,} OD rows | {stations} station codes (<=4 chars) | "
              f"{df['period'].min().date()} → {df['period'].max().date()}")
-    unmapped = df.loc[~df["origin"].isin(STATION_NAMES), "origin"].nunique()
+    unmapped = sorted(df.loc[~df["origin"].isin(CODE_TO_NAME), "origin"].unique())
     if unmapped:
-        log.info(f"  {unmapped} origin codes had no STATION_NAMES entry (name = code)")
+        log.warning(f"  {len(unmapped)} origin code(s) not in bart_stations.py, "
+                    f"named by their code: {unmapped}")
     return written
 
 
