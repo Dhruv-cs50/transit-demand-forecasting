@@ -275,12 +275,19 @@ const Results = () => {
   const [chart, setChart] = useState('roc');
   // Best-model tile is derived from the same file the WAPE chart and the
   // Benchmarks table read, so its model name, WAPE and model count cannot drift.
-  const [cmp, setCmp] = React.useState(null);
-  React.useEffect(() => {
-    fetch('data/model_comparison.json').then(r => r.json()).catch(() => []).then(setCmp);
-  }, []);
-  const cmpRows = Array.isArray(cmp) ? cmp.filter(r => r.WAPE_pct != null) : [];
+  const cmpRes = useSiteData('model_comparison.json');
+  const fcRes = useSiteData('forecasts.json');
+  const split = comparisonSplit(fcRes, cmpRes);
+  const cmpRows = siteRows(cmpRes).filter(r => r && r.WAPE_pct != null);
   const bestRow = cmpRows.length ? cmpRows.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a)) : null;
+  const bestNote = bestRow ? `best of ${cmpRows.length} models`
+    : !cmpRes ? 'loading…'
+    : siteFailed(cmpRes) ? 'model_comparison.json could not be loaded'
+    : 'no scored models in model_comparison.json';
+  // WAPE chart subtitle: split, window and station-months all come from the data.
+  const wapeSub = !split ? 'Loading the model comparison…'
+    : siteFailed(cmpRes) ? 'model_comparison.json could not be loaded'
+    : `${split.label[0].toUpperCase()}${split.label.slice(1)}${split.n != null ? ` · ${split.n.toLocaleString('en-US')} station-months` : ''} · lower WAPE is better`;
   const cm = { tp: 168240, tn: 51820, fp: 14380, fn: 6360 };
   const shap = [
     {n:'Is game day', v: 0.46, dir:'pos'},
@@ -306,7 +313,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>{chart === 'roc' ? 'WAPE by model — test set' : 'Forecast intervals — Embarcadero'}</h3>
-                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders · Embarcadero (highest-volume BART station)'}</p>
+                <p>{chart === 'roc' ? wapeSub : 'P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders · Embarcadero (highest-volume BART station)'}</p>
               </div>
               <div className="chip-grp">
                 <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>WAPE</button>
@@ -323,7 +330,7 @@ const Results = () => {
               </div>
             </div>
             <div className="cm">
-              <div className="cm-cell tp"><div className="v">{bestRow ? bestRow.WAPE_pct.toFixed(1) + '%' : '—'}</div><div className="l">WAPE · {bestRow ? bestRow.model : 'best model'}</div><div className="text-muted" style={{ fontSize:11 }}>{bestRow ? `best of ${cmpRows.length} models` : 'loading…'}</div></div>
+              <div className="cm-cell tp"><div className="v">{bestRow ? bestRow.WAPE_pct.toFixed(1) + '%' : '—'}</div><div className="l">WAPE · {bestRow ? bestRow.model : 'best model'}</div><div className="text-muted" style={{ fontSize:11 }}>{bestNote}</div></div>
               <div className="cm-cell tn"><div className="v">3.1k</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>vs 5.5k Prophet</div></div>
               <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>46–97% vs nominal 80%</div></div>
               <div className="cm-cell fn"><div className="v">50 sta.</div><div className="l">all BART stations</div><div className="text-muted" style={{ fontSize:11 }}>no station excluded</div></div>
@@ -403,7 +410,7 @@ const Demo = () => {
               style={{
                 display:'inline-flex', alignItems:'center', gap:8,
                 padding:'12px 24px', borderRadius:10, background:'var(--primary)',
-                color:'#fff', fontWeight:600, fontSize:15, textDecoration:'none',
+                color:'var(--bg)', fontWeight:600, fontSize:15, textDecoration:'none',
                 fontFamily:'var(--display)',
               }}>
               Open Interactive Map ↗
@@ -420,10 +427,9 @@ const Demo = () => {
 
 /* ── Benchmarks + Recommendations ──────────────────────────────── */
 const Benchmarks = () => {
-  const [cmpData, setCmpData] = React.useState(null);
-  React.useEffect(() => {
-    fetch('data/model_comparison.json').then(r => r.json()).catch(() => []).then(setCmpData);
-  }, []);
+  const cmpRes = useSiteData('model_comparison.json');
+  const cmpFailed = siteFailed(cmpRes);
+  const cmpData = cmpRes ? siteRows(cmpRes).filter(Boolean) : null;
 
   const fmtN = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n));
 
@@ -433,9 +439,8 @@ const Benchmarks = () => {
     'SeasonalNaive': 'Seasonal naive',
   };
 
-  const bestWAPE = cmpData
-    ? Math.min(...cmpData.map(r => r.WAPE_pct).filter(v => v != null))
-    : null;
+  const scoredWAPEs = cmpData ? cmpData.map(r => r.WAPE_pct).filter(v => v != null) : [];
+  const bestWAPE = scoredWAPEs.length ? Math.min(...scoredWAPEs) : null;
 
   const dataRows = cmpData ? [
     ...cmpData.map(r => ({
@@ -473,6 +478,8 @@ const Benchmarks = () => {
               <tbody>
                 {cmpData === null ? (
                   <tr><td colSpan={5} style={{ textAlign:'center', color:'var(--ink-muted)', padding:'20px 10px' }}>Loading…</td></tr>
+                ) : cmpFailed ? (
+                  <tr><td colSpan={5} style={{ textAlign:'center', color:'var(--ink-muted)', padding:'20px 10px' }}>The model comparison (model_comparison.json) could not be loaded. Reload the page to try again.</td></tr>
                 ) : dataRows.map((r,i) => (
                   <tr key={i} className={r.best?'best':''}>
                     <td className="model">
@@ -556,7 +563,7 @@ const EDAViz = () => {
                   textAlign:'left', padding:'8px 14px', borderRadius:8,
                   border: i===active ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
                   background: i===active ? 'var(--accent)' : 'transparent',
-                  color: i===active ? '#fff' : 'var(--ink)',
+                  color: i===active ? 'var(--bg)' : 'var(--ink)',
                   cursor:'pointer', fontSize:13, fontWeight: i===active ? 600 : 400,
                   transition:'all .15s',
                 }}
@@ -661,12 +668,20 @@ const Footer = () => (
 const API_BASE = 'https://transit-api-308878596074.us-west2.run.app';
 
 const BARTForecasts = () => {
-  const [forecasts, setForecasts] = React.useState([]);
-  const [actuals, setActuals]     = React.useState([]);
-  const [meta, setMeta]           = React.useState([]);
+  // Each file's load result is kept, so a failed fetch is told apart from a
+  // file that loaded and is empty.
+  const fcRes   = useSiteData('forecasts.json');
+  const acRes   = useSiteData('ridership_actuals.json');
+  const cmpRes  = useSiteData('model_comparison.json');
+  const metaRes = useSiteData('stations_meta.json');
+  const loading = !fcRes || !acRes || !cmpRes || !metaRes;
+  const forecasts  = siteRows(fcRes).filter(r => r && typeof r.month === 'string');
+  const actuals    = siteRows(acRes).filter(r => r && typeof r.month === 'string');
+  const comparison = siteRows(cmpRes).filter(Boolean);
+  const meta       = siteRows(metaRes).filter(m => m && m.bart_id);
+  const fcFailed = siteFailed(fcRes);
+  const acFailed = siteFailed(acRes);
   const [station, setStation]     = React.useState('EM');
-  const [loading, setLoading]     = React.useState(true);
-  const [comparison, setComparison] = React.useState([]);
   const [liveData, setLiveData]   = React.useState(null);
   const [liveFetching, setLiveFetching] = React.useState(false);
   const [liveError, setLiveError] = React.useState(null);
@@ -681,21 +696,6 @@ const BARTForecasts = () => {
     { id:'BE', name:'Berryessa' },
     { id:'FM', name:'Fremont' },
   ];
-
-  React.useEffect(() => {
-    Promise.all([
-      fetch('data/forecasts.json').then(r => r.json()).catch(() => []),
-      fetch('data/ridership_actuals.json').then(r => r.json()).catch(() => []),
-      fetch('data/model_comparison.json').then(r => r.json()).catch(() => []),
-      fetch('data/stations_meta.json').then(r => r.json()).catch(() => []),
-    ]).then(([fc, ac, cmp, sm]) => {
-      setForecasts(Array.isArray(fc) ? fc : []);
-      setActuals(Array.isArray(ac) ? ac : []);
-      setComparison(Array.isArray(cmp) ? cmp : []);
-      setMeta(Array.isArray(sm) ? sm.filter(m => m && m.bart_id) : []);
-      setLoading(false);
-    });
-  }, []);
 
   // Each live request gets a sequence number; changing station bumps it, so a
   // response (or error) for a previously selected station is dropped.
@@ -759,24 +759,42 @@ const BARTForecasts = () => {
     1
   );
 
-  // The forecast months named in the copy come from forecasts.json (min/max
-  // month over all records); "through" is the month before the first one.
-  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const parseYM = ym => {
-    const m = /^(\d{4})-(0[1-9]|1[0-2])/.exec(typeof ym === 'string' ? ym : '');
-    return m ? { y: +m[1], m: +m[2] } : null;
-  };
-  const fcMonths = forecasts.map(r => r && parseYM(r.month)).filter(Boolean)
-    .sort((a, b) => a.y - b.y || a.m - b.m);
-  const fcFirst = fcMonths[0];
-  const fcLast = fcMonths[fcMonths.length - 1];
-  const fcRange = !fcFirst ? null
-    : fcFirst.y !== fcLast.y ? `${MON[fcFirst.m-1]} ${fcFirst.y}–${MON[fcLast.m-1]} ${fcLast.y}`
-    : fcFirst.m !== fcLast.m ? `${MON[fcFirst.m-1]}–${MON[fcLast.m-1]} ${fcFirst.y}`
-    : `${MON[fcFirst.m-1]} ${fcFirst.y}`;
-  const fcThrough = !fcFirst ? null
-    : fcFirst.m === 1 ? `Dec ${fcFirst.y - 1}` : `${MON[fcFirst.m-2]} ${fcFirst.y}`;
-  const fcCount = new Set(fcMonths.map(p => p.y * 12 + p.m)).size;
+  // Every month and year named in the copy comes from the data: the forecast
+  // months from forecasts.json (first to last; "through" is the month before
+  // the first), the actuals' years from ridership_actuals.json.
+  const fcSpan = monthSpan(forecasts);
+  const fcRange = fcSpan ? fcSpan.range : null;
+  const fcThrough = fcSpan ? fcSpan.through : null;
+  const fcCount = fcSpan ? fcSpan.count : 0;
+  const acYears = yearSpan(actuals.filter(r => r.ridership != null));
+  // "Scored in the model comparison below" only when that comparison has the
+  // Chronos row these forecasts were scored as (see scoredForecasts).
+  const fcScored = scoredForecasts(fcRes, cmpRes);
+  const split = comparisonSplit(fcRes, cmpRes);
+  const reloadHint = fcFailed || acFailed ? ' Reload the page to try again.' : '';
+
+  const forecastSentence = fcFailed
+    ? `The forecast export (forecasts.json) could not be loaded${acFailed ? '.' : ', so the table shows actual ridership only.'}`
+    : fcRange
+      ? `Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}${fcScored ? ': the predictions scored in the model comparison below.' : '.'}`
+      : `No forecasts are published in the static export (forecasts.json)${acFailed ? '.' : ', so the table shows actual ridership only.'}`;
+  const actualsSentence = acFailed
+    ? 'The actual ridership (ridership_actuals.json) could not be loaded, so no actuals are shown.'
+    : acYears
+      ? `Actuals are BART monthly Total Trips boardings per entry station, ${acYears}.`
+      : 'No actual ridership is published (ridership_actuals.json).';
+  const tableNote = fcRange
+    ? acFailed
+      ? `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue with P10/P50/P90. Bars sized by P50 (coral).`
+      : `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue, each with its actual riders beside P10/P50/P90. Bars sized by ridership volume: blue = actual, coral = P50.`
+    : fcFailed
+      ? `Forecasts could not be loaded (forecasts.json), so ${acFailed ? 'there is nothing to show' : 'the table shows the last 12 actual months. Bars sized by ridership volume'}.`
+      : `No forecasts are published, so the table shows the last 12 actual months. Bars sized by ridership volume.`;
+  const actualsNote = acFailed
+    ? 'Actuals could not be loaded (ridership_actuals.json).'
+    : acYears
+      ? `Actuals are BART monthly Total Trips boardings per entry station (ridership_actuals.json: ${acYears}).`
+      : 'No actuals are published (ridership_actuals.json).';
 
   return (
     <section id="bart-data" style={{ background:'var(--bg-muted)', padding:'80px 0' }}>
@@ -785,16 +803,14 @@ const BARTForecasts = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Real BART Data</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>{loading ? 'Model outputs — 50 stations.'
+              : fcFailed ? 'Model outputs — 50 stations, forecasts unavailable.'
               : fcCount ? `Model outputs — 50 stations, ${fcCount}-month forecast.`
               : 'Model outputs — 50 stations, no forecasts published.'}</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
               {loading
                 ? 'Loading the static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) forecasts…'
-                : fcRange
-                  ? `Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}: the predictions scored in the model comparison below.`
-                  : 'No forecasts are published in the static export (forecasts.json), so the table shows actual ridership only.'}
-              {' '}Actuals are BART monthly Total Trips boardings per entry station, 2019 and 2022–2025.
-              The button below requests a forecast from the Cloud Run API.
+                : `${forecastSentence} ${actualsSentence}${reloadHint}`}
+              {' '}The button below requests a forecast from the Cloud Run API.
             </p>
           </div></Reveal>
         </div>
@@ -807,7 +823,7 @@ const BARTForecasts = () => {
                 style={{
                   padding:'6px 14px', borderRadius:6, border:'1.5px solid var(--line)',
                   background: station===s.id ? 'var(--primary)' : 'transparent',
-                  color: station===s.id ? '#fff' : 'var(--ink)',
+                  color: station===s.id ? 'var(--bg)' : 'var(--ink)',
                   cursor:'pointer', fontSize:13, fontWeight:500,
                 }}>
                 {metaById[s.id]?.station_name || s.name}
@@ -833,7 +849,7 @@ const BARTForecasts = () => {
               style={{
                 marginLeft:'auto', padding:'6px 16px', borderRadius:6,
                 border:'1.5px solid var(--accent)', background: liveFetching ? 'var(--bg-muted)' : 'var(--accent)',
-                color:'#fff', cursor: liveFetching ? 'default' : 'pointer', fontSize:13, fontWeight:600,
+                color: liveFetching ? 'var(--ink-muted)' : 'var(--bg)', cursor: liveFetching ? 'default' : 'pointer', fontSize:13, fontWeight:600,
                 opacity: liveFetching ? 0.7 : 1,
               }}>
               {liveFetching ? 'Calling API…' : '⚡ Fetch Live from API'}
@@ -841,12 +857,12 @@ const BARTForecasts = () => {
           </div>
 
           {liveError && (
-            <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8, background:'rgba(238,108,77,0.12)', color:'var(--accent)', fontSize:13 }}>
+            <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8, background:'color-mix(in oklab, var(--accent) 12%, transparent)', color:'var(--accent)', fontSize:13 }}>
               API error: {liveError}
             </div>
           )}
           {liveData && (
-            <div style={{ marginBottom:20, padding:'14px 16px', borderRadius:8, background:'rgba(42,47,143,0.07)', border:'1px solid rgba(42,47,143,0.2)' }}>
+            <div style={{ marginBottom:20, padding:'14px 16px', borderRadius:8, background:'color-mix(in oklab, var(--primary) 7%, transparent)', border:'1px solid color-mix(in oklab, var(--primary) 20%, transparent)' }}>
               <div style={{ fontSize:12, color:'var(--primary)', fontWeight:700, marginBottom:8, letterSpacing:'.04em', textTransform:'uppercase' }}>
                 ⚡ Live Cloud Run Response — {nameFor(station)}
               </div>
@@ -880,7 +896,7 @@ const BARTForecasts = () => {
                 </thead>
                 <tbody>
                   {tableRows.map(row => row.fc ? (
-                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', background:'rgba(42,47,143,0.04)' }}>
+                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', background:'color-mix(in oklab, var(--primary) 4%, transparent)' }}>
                       <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12, color:'var(--primary)' }}>{row.month} ▶</td>
                       <td style={{ textAlign:'right', padding:'5px 10px', fontWeight:600, color: row.actual != null ? 'var(--ink)' : 'var(--ink-muted)' }}>{row.actual != null ? fmt(row.actual) : '—'}</td>
                       <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.fc.p10 != null ? fmt(row.fc.p10) : '—'}</td>
@@ -907,11 +923,13 @@ const BARTForecasts = () => {
                   ))}
                 </tbody>
               </table>
+              {tableRows.length === 0 && (
+                <div style={{ textAlign:'center', color:'var(--ink-muted)', padding:'24px 10px', fontSize:13 }}>
+                  No ridership or forecasts to show for {nameFor(station)}.
+                </div>
+              )}
               <div style={{ marginTop:12, fontSize:12, color:'var(--ink-muted)' }}>
-                {fcRange
-                  ? `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue, each with its actual riders beside P10/P50/P90. Bars sized by ridership volume: blue = actual, coral = P50.`
-                  : 'No forecasts are published, so the table shows the last 12 actual months. Bars sized by ridership volume.'}
-                {' '}Actuals are BART monthly Total Trips boardings per entry station (ridership_actuals.json: 2019 and 2022–2025).
+                {tableNote}{' '}{actualsNote}{reloadHint}
               </div>
             </div>
           )}
@@ -919,7 +937,7 @@ const BARTForecasts = () => {
 
         {comparison.length > 0 && (
           <Reveal className="card" style={{ padding:'24px' }}>
-            <h3 style={{ fontSize:16, marginBottom:16 }}>Model comparison — Jul–Dec 2025 test split, 50 stations</h3>
+            <h3 style={{ fontSize:16, marginBottom:16 }}>Model comparison — {split ? split.label : 'held-out split'}{split && split.stations ? `, ${split.stations} stations` : ''}</h3>
             <table style={{ width:'100%', fontSize:13, borderCollapse:'collapse' }}>
               <thead>
                 <tr style={{ borderBottom:'1px solid var(--line)' }}>
@@ -932,7 +950,7 @@ const BARTForecasts = () => {
               </thead>
               <tbody>
                 {comparison.map((r, i) => (
-                  <tr key={i} style={{ borderBottom:'1px solid var(--line)', background: i===0 ? 'rgba(42,47,143,0.04)' : 'transparent' }}>
+                  <tr key={i} style={{ borderBottom:'1px solid var(--line)', background: i===0 ? 'color-mix(in oklab, var(--primary) 4%, transparent)' : 'transparent' }}>
                     <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.model}</td>
                     <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.MAPE_pct != null ? r.MAPE_pct.toFixed(1)+'%' : '—'}</td>
                     <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.WAPE_pct != null ? r.WAPE_pct.toFixed(1)+'%' : '—'}</td>

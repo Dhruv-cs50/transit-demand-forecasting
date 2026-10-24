@@ -1,17 +1,148 @@
-/* SVG chart primitives — WAPE comparison, Forecast bands, HeroOrbit, Gauge. */
+/* SVG chart primitives — WAPE comparison, Forecast bands, HeroOrbit, Gauge.
+   Also the page's data loader and date labels, shared with sections.jsx
+   (this file loads first). */
+
+/* ── Site data (website/data/*.json) ────────────────────────────────
+   Every section reads the exports through loadSiteData(file):
+   - one request per file per page load, however many sections read it;
+   - cache:'no-cache' makes the browser revalidate with the server, so a
+     refreshed export is picked up without waiting out the HTTP cache;
+   - a failed request is reported as failed, never as an empty list.
+   Resolves to { status:'ok', rows } or { status:'failed', error }. A network
+   error, a non-2xx response, invalid JSON and a body that is not an array
+   all count as failed. */
+const __siteData = {};
+const loadSiteData = (file) => {
+  if (!__siteData[file]) {
+    __siteData[file] = fetch(`data/${file}`, { cache: 'no-cache' })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(body => {
+        if (!Array.isArray(body)) throw new Error('not a JSON array');
+        return { status: 'ok', rows: body };
+      })
+      .catch(err => ({ status: 'failed', error: String((err && err.message) || err) }));
+  }
+  return __siteData[file];
+};
+
+// null while loading, then loadSiteData's result.
+const useSiteData = (file) => {
+  const [res, setRes] = React.useState(null);
+  React.useEffect(() => {
+    let live = true;
+    loadSiteData(file).then(r => { if (live) setRes(r); });
+    return () => { live = false; };
+  }, [file]);
+  return res;
+};
+
+const siteRows = res => (res && res.status === 'ok' ? res.rows : []);
+const siteFailed = res => !!res && res.status === 'failed';
+
+/* ── Month and year labels derived from the data ───────────────────── */
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// 'YYYY-MM…' → { y, m } (m is 1-12), or null.
+const parseYM = ym => {
+  const m = /^(\d{4})-(0[1-9]|1[0-2])/.exec(typeof ym === 'string' ? ym : '');
+  return m ? { y: +m[1], m: +m[2] } : null;
+};
+
+// Records with a `month` field → { range: 'Jul–Dec 2025', through: 'Jun 2025',
+// count: 6 }, or null when no record has a valid month. `through` is the month
+// before the first one.
+const monthSpan = records => {
+  const ms = records.map(r => r && parseYM(r.month)).filter(Boolean)
+    .sort((a, b) => a.y - b.y || a.m - b.m);
+  if (!ms.length) return null;
+  const a = ms[0], b = ms[ms.length - 1];
+  const range = a.y !== b.y ? `${MONTH_ABBR[a.m-1]} ${a.y}–${MONTH_ABBR[b.m-1]} ${b.y}`
+    : a.m !== b.m ? `${MONTH_ABBR[a.m-1]}–${MONTH_ABBR[b.m-1]} ${a.y}`
+    : `${MONTH_ABBR[a.m-1]} ${a.y}`;
+  const through = a.m === 1 ? `Dec ${a.y - 1}` : `${MONTH_ABBR[a.m-2]} ${a.y}`;
+  return { range, through, count: new Set(ms.map(p => p.y * 12 + p.m)).size };
+};
+
+// Records with a `month` field → the years they cover, consecutive years
+// collapsed: '2019 and 2022–2025'. null when no record has a valid month.
+const yearSpan = records => {
+  const ys = [...new Set(records.map(r => r && parseYM(r.month)).filter(Boolean).map(p => p.y))]
+    .sort((a, b) => a - b);
+  if (!ys.length) return null;
+  const runs = [];
+  ys.forEach(y => {
+    const last = runs[runs.length - 1];
+    if (last && y === last[1] + 1) last[1] = y; else runs.push([y, y]);
+  });
+  const parts = runs.map(([a, b]) => (a === b ? `${a}` : `${a}–${b}`));
+  return parts.length === 1 ? parts[0]
+    : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+};
+
+/* ── What model_comparison.json scored ─────────────────────────────
+   scoredForecasts(): true when forecasts.json is the run that
+   model_comparison.json's Chronos row scored — the comparison has exactly one
+   Chronos row (the exporter's rule) and its n_predictions equals the number of
+   published forecasts. Presence of the row alone is not enough: when the
+   exporter refuses forecasts.json it rewrites model_comparison.json but leaves
+   the old forecasts.json in place.
+
+   comparisonSplit(): label parts for the comparison, all from the data —
+   `name` ('test split' / 'validation split' / 'held-out split', from
+   scored_split), `window` (the forecast months, only when scoredForecasts()
+   holds and the split is the test split, since forecasts.json covers the test
+   window), `n` (station-months per model, when every row has the same count),
+   `stations` (stations in forecasts.json, under the same condition as
+   `window`). Missing parts are null; null overall until both files load. */
+const scoredForecasts = (fcRes, cmpRes) => {
+  const fc = siteRows(fcRes), cmp = siteRows(cmpRes);
+  if (!fc.length || !cmp.length) return false;
+  const chronos = cmp.filter(r => r && String(r.model).startsWith('Chronos'));
+  return chronos.length === 1 && Number(chronos[0].n_predictions) === fc.length;
+};
+
+const comparisonSplit = (fcRes, cmpRes) => {
+  if (!fcRes || !cmpRes) return null;
+  const rows = siteRows(cmpRes);
+  const splits = new Set(rows.map(r => r && r.scored_split));
+  const only = splits.size === 1 ? [...splits][0] : null;
+  const name = only === 'test' ? 'test split' : only === 'val' ? 'validation split' : 'held-out split';
+  const ns = new Set(rows.map(r => r && r.n_predictions));
+  const n0 = ns.size === 1 ? [...ns][0] : null;
+  const span = only === 'test' && scoredForecasts(fcRes, cmpRes) ? monthSpan(siteRows(fcRes)) : null;
+  return {
+    name,
+    window: span ? span.range : null,
+    n: Number.isFinite(n0) ? n0 : null,
+    stations: span ? new Set(siteRows(fcRes).map(r => r && r.station_id)).size : null,
+    label: span ? `${span.range} ${name}` : name,
+  };
+};
+
+// Centred status text in place of a chart; SVG text does not wrap, so each
+// line is its own tspan.
+const ChartMessage = ({ width, height, lines }) => (
+  <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
+    <text x="50%" y={height / 2 - (lines.length - 1) * 9} textAnchor="middle" fontSize="13" fill="var(--ink-muted)">
+      {lines.map((l, i) => <tspan key={i} x="50%" dy={i ? 18 : 0}>{l}</tspan>)}
+    </text>
+  </svg>
+);
 
 /* ── WAPE comparison bar chart (real data from model_comparison.json) ── */
 const ROCCurve = ({ width = 460, height = 280 }) => {
-  const [data, setData] = React.useState(null);
-  React.useEffect(() => {
-    fetch('data/model_comparison.json').then(r => r.json()).catch(() => []).then(setData);
-  }, []);
+  const cmpRes = useSiteData('model_comparison.json');
+  const fcRes = useSiteData('forecasts.json');
+  const split = comparisonSplit(fcRes, cmpRes);
+  const data = cmpRes && cmpRes.status === 'ok' ? cmpRes.rows : null;
 
-  if (!data) return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
-      <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">Loading…</text>
-    </svg>
-  );
+  const message = (...lines) => <ChartMessage width={width} height={height} lines={lines} />;
+  if (!cmpRes || !fcRes) return message('Loading…');
+  if (siteFailed(cmpRes)) return message('The model comparison could not be loaded.', 'model_comparison.json · reload the page to try again');
+  if (!data.length) return message('model_comparison.json lists no models.');
 
   const DISPLAY_CAP = 30; // cap x-axis at 30% — Prophet 176% shown as overflow
   const pad = { l: 170, r: 70, t: 20, b: 38 };
@@ -82,37 +213,26 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
       <text
         x={pad.l + W / 2} y={height - 4}
         textAnchor="middle" fontSize="11" fill="var(--ink-muted)"
-      >WAPE % on the Jul–Dec 2025 test split · lower is better</text>
+      >WAPE % on the {split.label} · lower is better</text>
     </svg>
   );
 };
 
 /* ── Forecast interval chart — P10/P50/P90 vs actual riders for Embarcadero (real data) ── */
 const Calibration = ({ width = 460, height = 260 }) => {
-  const [pts, setPts] = React.useState(null);
-  const [actualByMonth, setActualByMonth] = React.useState({});
-  React.useEffect(() => {
-    Promise.all([
-      fetch('data/forecasts.json').then(r => r.json()).catch(() => []),
-      fetch('data/ridership_actuals.json').then(r => r.json()).catch(() => []),
-    ]).then(([fc, ac]) => {
-      // Station ids are BART's two-letter codes everywhere (data files and live API).
-      const em = (Array.isArray(fc) ? fc : []).filter(r => r.station_id === 'EM')
-                  .sort((a, b) => a.month.localeCompare(b.month));
-      const act = {};
-      (Array.isArray(ac) ? ac : []).forEach(r => {
-        if (r.station_id === 'EM' && r.ridership != null) act[r.month] = r.ridership;
-      });
-      setActualByMonth(act);
-      setPts(em);
-    });
-  }, []);
+  const fcRes = useSiteData('forecasts.json');
+  const acRes = useSiteData('ridership_actuals.json');
+  const message = (...lines) => <ChartMessage width={width} height={height} lines={lines} />;
+  if (!fcRes || !acRes) return message('Loading…');
+  if (siteFailed(fcRes)) return message('The forecasts could not be loaded.', 'forecasts.json · reload the page to try again');
 
-  if (!pts) return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
-      <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">Loading…</text>
-    </svg>
-  );
+  // Station ids are BART's two-letter codes everywhere (data files and live API).
+  const pts = siteRows(fcRes).filter(r => r && r.station_id === 'EM' && typeof r.month === 'string')
+    .sort((a, b) => a.month.localeCompare(b.month));
+  const actualByMonth = {};
+  siteRows(acRes).forEach(r => {
+    if (r && r.station_id === 'EM' && r.ridership != null) actualByMonth[r.month] = r.ridership;
+  });
 
   // export_website_data.py's _finite_or_none() documents that p10/p50/p90
   // can each independently be null for a given row. Passing a null straight
@@ -121,11 +241,7 @@ const Calibration = ({ width = 460, height = 260 }) => {
   // skipping the point. Drop any row missing a quantile before building the
   // paths.
   const validPts = pts.filter(r => r.p10 != null && r.p50 != null && r.p90 != null);
-  if (validPts.length === 0) return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
-      <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">No forecast data</text>
-    </svg>
-  );
+  if (validPts.length === 0) return message('No Embarcadero forecasts are published in forecasts.json.');
 
   // Actual riders for the forecast months, at the same x index as validPts.
   const actualPts = validPts
@@ -326,4 +442,7 @@ const Gauge = ({ value = 0.42 }) => {
   );
 };
 
-Object.assign(window, { ROCCurve, Calibration, HeroOrbit, Gauge });
+Object.assign(window, {
+  ROCCurve, Calibration, HeroOrbit, Gauge,
+  loadSiteData, useSiteData, siteRows, siteFailed, monthSpan, yearSpan, scoredForecasts, comparisonSplit,
+});

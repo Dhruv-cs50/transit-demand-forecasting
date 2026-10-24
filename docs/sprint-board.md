@@ -107,20 +107,35 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
   univariate (50 "Falling back to univariate mode" lines per run). No ranked
   model reads weather, events or `is_hub_station`.
 - `models/baselines/fetch_pems_roads.py:49-52` `near` values are four-letter (module unwired).
-- `website/data/*.json` fetches carry no cache-buster (`app.yaml` caches 1 day).
-- Hard-coded years that go stale on the next refresh: "2019 and 2022–2025" for
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): `website/data/*.json` fetches carry no cache-buster (`app.yaml` caches 1 day).
+  Now every data fetch uses `cache: 'no-cache'` (one shared loader in
+  `charts.jsx` for the index page), and `app.yaml` serves `data/*.json` with
+  `expiration: "0s"`.
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): Hard-coded years that go stale on the next refresh: "2019 and 2022–2025" for
   actuals; "Jul–Dec 2025 test split" labels beside `model_comparison.json`.
-- Dark mode: `index.html` sets `--primary` inline, so P50 values and forecast
-  month labels render navy on the dark background.
-- R2 N1: `website/app.yaml`'s `url: /` handler sets no expiration, so `index.html`
+  The actuals' years come from `ridership_actuals.json`. The split name comes
+  from `scored_split`, and the window comes from the `forecasts.json` months,
+  but only when those forecasts are the scored Chronos run. Sentences that also
+  carry hard-coded metrics were left alone (see below).
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): Dark mode: `index.html` sets `--primary` inline, so P50 values and forecast
+  month labels render navy on the dark background. `--primary`/`--accent` are
+  set inline only for a colour picked in the Tweaks panel. Text on
+  primary/accent buttons is `var(--bg)`, so it keeps contrast on the lighter
+  dark-theme colours.
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): R2 N1: `website/app.yaml`'s `url: /` handler sets no expiration, so `index.html`
   is cached for a day and returning visitors keep the old `?v=` cache-busters
-  until a reload.
-- R2 N2: when the `forecasts.json` fetch fails (network error, 5xx), the
+  until a reload. `/` and `/*.html` now use `expiration: "0s"`. This is unverified
+  until deploy: check with `curl -I`.
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): R2 N2: when the `forecasts.json` fetch fails (network error, 5xx), the
   forecast section says "No forecasts are published" (`sections.jsx` ~:687,
-  ~:787-795, ~:911-913).
-- The lede says the forecasts are "the predictions scored in the model
+  ~:787-795, ~:911-913). A failed load (network, non-2xx, bad JSON, non-array)
+  now has its own copy in the forecast section, the Intervals chart, the WAPE
+  chart, the Results tile and the Benchmarks table, separate from an empty file.
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): The lede says the forecasts are "the predictions scored in the model
   comparison below" without checking that `model_comparison.json` has the
-  Chronos row (the export now refuses to publish forecasts in that case).
+  Chronos row (the export now refuses to publish forecasts in that case). The
+  clause now appears only when the comparison has exactly one Chronos row and
+  its `n_predictions` equals the number of published forecasts.
 - F1 concern 5 (pre-existing): with `--allow-val-fallback` and no validation
   split, `export_model_comparison` raises `SystemExit(1)` after the station and
   actuals files were written.
@@ -134,6 +149,23 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
   local headless runs: "can't load Google Maps correctly", development
   watermark). That is a billing setting on the Maps project; whether the
   deployed page is affected is unverified.
+
+### Follow-ups found on `fix/website-followups` (not fixed there)
+
+- Headline metrics and their windows are still hard-coded and will go stale on the
+  next refresh: Hero float cards (3.2%, MAE 3,086, "Jul–Dec 2025 holdout"),
+  `HeroOrbit`'s 3.2% (`charts.jsx`), AtAGlance (3.2% vs 5.8%, 300
+  station-months, "2019 + 2022–2025"), Method's "2019 + 2022–2025", the Dataset
+  split labels, the Results lede, the error-band tiles (3.1k / 5.5k / 46–97% /
+  "test period Jul–Dec 2025") and their SARIMA line, the Benchmarks lede, and
+  Rec 02 (9.7% / 10.8%). Each sentence mixes a year with a metric, so deriving
+  only the year could produce a false sentence; they belong with the
+  published-claims audit.
+- `styles.css` has no `?v=` and is cached for `default_expiration` (1 day).
+- Coral buttons ("Fetch Live from API", the active EDA tab) put light text on
+  `--accent`, about 3:1 contrast in the light theme. This predates the branch.
+- Every page load requests `/favicon.ico`, which does not exist (a 404 in the
+  console).
 
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
