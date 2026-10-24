@@ -1,5 +1,27 @@
 # Sprint board
 
+## Sprint 4f — Lags count calendar months, not rows (opened 2026-10-24)
+
+(Named 4f: 4 to 4e are taken by sibling branches. Split out of Sprint 4e, the covariate
+experiment on `feat/covariate-benchmark`, by the user's decision of 2026-10-24.)
+
+**Goal.** `Processing/feature_engineering.py` `add_lag_features` shifts each station's series by
+rows, so early-2022 rows take their lags and rolling windows from 2019 across the 2020–21 gap.
+Shift by calendar month instead: a lag or window that reaches into months with no data is empty.
+Update the site copy (#141's feature catalog) that describes the old behaviour.
+
+**Branch.** `fix/lag-calendar-months`, cut from `origin/fix/site-model-claims` @ `0938526` (PR #141),
+because #141's copy describes the gap. The PR targets that branch.
+
+**Gates.** Leaderboard CSV byte-identical before and after (no ranked model reads a lag column);
+the enriched store differs only in the lag/rolling columns, on rows whose window reaches 2020–21
+(each delta counted); unit tests pass; `py_compile` and JSX parse pass.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4f.1 | Calendar-month lags and rolling windows (monthly branch only; sub-monthly path unchanged) + unit test + catalog copy + cache-buster | implementer | — | Gates above | in progress |
+| S4f.2 | Review the diff | code-reviewer | S4f.1 | No BLOCKER open | todo |
+
 ## Sprint 4c — Every site claim traces to a run (opened 2026-10-24)
 
 (Named 4c, ids S4c.x, because #138 adds a "Sprint 4" and #139 a "Sprint 4b".)
