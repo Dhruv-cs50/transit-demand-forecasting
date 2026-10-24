@@ -17,12 +17,35 @@ without it neither the image nor the API can be built from a clean clone.
 
 | File | Rows | Months | SHA-256 |
 |---|---|---|---|
-| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `d9135f03f1bd77093353ff39e11185e59dfed50e296fcddedf9dfabf3763c238` |
+| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `aa02436d44b5de83d77fab87036c046d0ca02983b9d8cbe807c37f9ad714f241` |
 
-Its `ridership` column is identical, row for row, to the stores behind the
+Built from the 60 workbooks plus the weather and events archives listed under
+[Covariate archives](#covariate-archives), with the code at the commit that last
+changed this file. A rebuild from the same inputs gives the same bytes in the
+environment that built it: Python 3.14.0, pandas 3.0.6, numpy 2.5.4, pyarrow
+26.0.0. `machine_learning_files/requirements.txt` sets only lower bounds, and
+other library versions can write different bytes, so outside that environment
+compare values (`pandas.testing.assert_frame_equal`), not the hash. Its
+`ridership` column is identical, row for row, to the stores behind the
 published leaderboard; SARIMA trained on it through `val_end` scores the
 published 3.21% WAPE (`tests/test_api.py` checks this). Rebuilding with the steps
 below overwrites it — commit the result only when the change is intended.
+
+Weather covers every store month, 2019 and 2022–2025, with no gaps. It is
+observed weather, so for the Jul–Dec 2025 test window it is hindsight, not a
+forecast.
+
+The events archive starts on 2019-09-17, so it misses the Sharks' 2018–19
+home games: the regular season through April 2019 and the playoff games that
+ran into May 2019. Those five months read as months without a game
+(`is_game_day` false, `hours_to_event` 0.0), the same as an off-season month.
+That is a gap in the data, not an observation. From Sep 2019 on, game days mark
+Jan–Apr and Sep–Dec, 8 store months a year: 1,800 of the 3,000 station-months
+have `is_game_day` true. (The archive flags no playoff games; the Sharks made no
+playoffs in 2022–2025.)
+
+No ranked model reads these columns: SARIMA, Prophet and SeasonalNaive are
+univariate, and the Chronos-1 zero-shot path falls back to univariate.
 
 ## Source archives
 
@@ -91,10 +114,30 @@ destinations, keyed on the entry station** — i.e. monthly boardings. See
 `load_bart()` in
 [`machine_learning_files/merge_pipeline.py`](../machine_learning_files/merge_pipeline.py).
 
+## Covariate archives
+
+The store's weather and event columns come from four raw files, also not in
+git. Put them under `data/raw/weather/` and `data/raw/events/` before
+rebuilding. `merge_pipeline.py` reads every `weather_all_stations_*.parquet`
+and `events_*.parquet` there. With any of them missing, the rebuild still runs,
+but the weather columns come out NaN and the event columns false for the
+missing years, and the bytes differ from the committed store. It also reads
+the newest `weather_forecast_*.parquet` (a 7-day-ahead forecast). There is none
+in the folder the committed store was built from, and holding one changes the
+store. Both sources are free and need no key. The 2024–2025 files were fetched
+on 2026-10-24.
+
+| File | Contents | SHA-256 |
+|---|---|---|
+| `weather_all_stations_2019-01-01_2023-12-31.parquet` | Open-Meteo hourly weather, 2019–2023, 306,768 rows (`fetch_weather_openmeteo.py`) | `3ae3ce7280077bc6b05ef6f2d9b65310d2c44574f6f9a957d6f8474a9f83a4a9` |
+| `weather_all_stations_2024-01-01_2025-12-31.parquet` | Open-Meteo hourly weather (archive API), 2024–2025, 122,808 rows | `c60b28184932a21d734b7f03536c5f0cb7afd957ac5d177c77d0c157f80ce72e` |
+| `events_2019-01-01_2023-12-31.parquet` | 174 San Jose Sharks home games at SAP Center, Sep 2019 → Dec 2023 (Jan–May 2019 missing, see above), from the NHL API (`fetch_events.py`) | `23748ca287ec18900a44b0cc6b1ad5dcc392a15afe140f5bd7b1bb3637c8ca27` |
+| `events_2024-01-01_2025-12-31.parquet` | 93 Sharks home games, Jan 2024 → Dec 2025, from the NHL API | `4c8203738470dc1dcf417a368726530f06338241a336f08619c6c057c0e87c08` |
+
 ## Rebuilding
 
 ```bash
-python machine_learning_files/bart_od_from_xlsx.py --zips /path/to/*.zip
+python machine_learning_files/bart_od_from_xlsx.py --zips /path/to/*.zip   # or --dir /path/to/workbooks
 python machine_learning_files/merge_pipeline.py
 python Processing/feature_engineering.py
 ```
@@ -111,5 +154,6 @@ the three `Avg` sheets, so it **cannot** define the `Total Trips` target;
 | Source | Key needed | Notes |
 |---|---|---|
 | Open-Meteo weather | none | `fetch_weather_openmeteo.py`; 7 station locations, hourly |
-| Ticketmaster / NHL events | free Ticketmaster key | absent here, so `is_game_day`, `is_sharks_game`, `is_sharks_game_window` are constant zero |
+| NHL events | none | Sharks home games, archived for Sep 2019 → Dec 2025 (above) |
+| Ticketmaster events | free Ticketmaster key | absent here; no concerts or other venues in the store |
 | 511 SF Bay transit | free 511 key | **not currently used** — `merge_pipeline.py:95` is a placeholder |

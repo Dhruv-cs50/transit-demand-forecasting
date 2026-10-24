@@ -1,5 +1,94 @@
 # Sprint board
 
+## Sprint 4d — Reconcile what #137, #138 and #139 publish together (opened 2026-10-24)
+
+(Named 4d, ids S4d.x. S4, S4b, S4c and Sprint 5, the adaptive-calibration branch, are taken.)
+
+**Goal.** One tracked feature store that carries #139's station names, per-station
+weather and the event features #137's store lacked. One published P10/P90 band
+whose coverage is the one `model_comparison.json` reports. `website/data/`
+regenerated from that state, with gate evidence.
+
+**Branch.** `sprint4d/store-rebuild`, stacked on `feat/serve-interval-bands`
+(Sprint 4c, PR #144) @ 9674f2d. The PR targets that branch.
+
+**User's decisions, 2026-10-24.**
+- #137, #138 and #139 were still open on GitHub, so they are merged locally rather
+  than waiting for the GitHub merges.
+- The published band was already decided in Sprint 4c: `forecasts.json` carries
+  the calibrated band, with the raw bounds alongside. This sprint does not build
+  a second export. It stacks on Sprint 4c instead.
+- The store is built from everything in the canonical raw folder
+  (`~/Desktop/transit-demand-forecasting/data/raw`). At 04:07 that folder gained
+  2024–2025 weather and Sharks-game files, fetched by the covariate-experiment
+  session. Asked after the final gate run showed the rebuild no longer matched
+  the 2019–2023 store committed in S4d.1. The alternative was to keep that store
+  and tell rebuilders to leave the new files out; it was turned down.
+
+**Gates** (Sprint 4b method: scratch copy of the commit, workbooks via
+`bart_od_from_xlsx.py --dir`, the raw weather/events folder, then
+`merge_pipeline`, `feature_engineering`, `benchmarks`, export):
+- Leaderboard: WAPE 3.21/5.75/9.70/10.75; `Coverage_%` 96.67/74.67/72.67/94.33;
+  `Coverage_raw_%` 96.67/46.0/51.0/94.33; n=300.
+- Export: 50/50/3,000/300.
+- `forecasts.json`: P50 identical to 087adcb; the exported band's coverage equals
+  the Chronos row's `Coverage_%` (72.67).
+- Two runs byte-identical.
+- Tracked store equals the rebuild.
+- Site renders.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4d.0 | Merge #137, #138 and #139 locally | orchestrator | — | Tree matches Sprint 4c's merged base | done — `reconcile/store-intervals` 8ce9c97 (conflicts resolved as Sprint 4c did: both board sections kept, #137's `api.py`). Its tree differs from `feat/serve-interval-bands` @ f1af3c7 only in Sprint 4c's own files. The branch was then re-cut onto Sprint 4c at the user's choice |
+| S4d.1 | Rebuild `data/processed/feature_store.parquet` with the merged code from the full raw inputs; commit it; update `data/MANIFEST.md` | orchestrator | S4d.0 | Target identical to #137's store; every other delta named; `tests/` pass | done — first from the 2019–2023 archives (5dbd586, run A), then from the full 2019–2025 folder (3fa3d80; runs D–G) |
+| S4d.2 | Rebase onto Sprint 4c's final tip | orchestrator | Sprint 4c S4c.5–S4c.6 | Clean rebase; `tests/` pass | done — 9674f2d, no conflicts; 116 tests pass |
+| S4d.3 | Two full gate runs on the stacked tip; regenerate `website/data/` | orchestrator | S4d.2 | Gates above | done — runs D and E on e847db3: every gate passes except "tracked store equals the rebuild", which is what led to the input decision above. Runs F and G on 3fa3d80 (the store commit): ALL PASS, including the tracked store. The export is byte-identical to the committed `website/data/`, so no data file changes |
+| S4d.4 | Serve the site locally; check the forecast table, calibration chart, map and model comparison render | orchestrator | S4d.3 | Screens recorded | done — see "Site check" below |
+| S4d.5 | Review the diff; open PR against `feat/serve-interval-bands` (not merged) | code-reviewer, orchestrator | S4d.4 | No BLOCKER; PR open | done — PR #147 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/147) against `feat/serve-interval-bands`, mergeable, not merged; the merge is the user's. scoped re-review of 07b6c3e: spec PASS, quality PASS; findings 1, 2 and 5–7 closed, 3, 4 and 9 correctly deferred. Two new MINOR fixed in the commit that marks this done: the 2019 gap runs to May (playoffs), and two "this commit" references now name 3fa3d80. 116 tests pass on 07b6c3e (pytest, pinned env). R1: review of 9674f2d..3fa3d80: spec FAIL on two MANIFEST statements, quality PASS; 0 BLOCKER, 3 MAJOR, 6 MINOR. Fixed in 07b6c3e: the MANIFEST claimed events covered every store month (Jan–May 2019 is a gap) and same bytes in any environment (now pinned to the build environment); its inputs now include `weather_forecast_*`; this board's drift and float-noise wording; F/G recorded. Not fixed here (other PRs' files, listed under follow-ups): the stale site copy (MAJOR) and the hindsight-weather wording (MINOR) in `sections.jsx`, and the zip name in the MANIFEST's verify command (MINOR, pre-existing) |
+| S4d.6 | Audit board against git | delivery-auditor | S4d.5 | No unresolved disagreement | blocked (audit started, then stopped unfinished when the usage limit was reached; rerun it before closing the sprint) |
+
+**Final store (3fa3d80), SHA-256 `aa02436d…`, vs #137's committed store (`d9135f03…`).**
+- Same 3,000 keys; `ridership` identical; same 27 columns in order.
+- `station_name`: set on every row.
+- Weather:
+  - every column is filled on all 3,000 station-months (#137: NaN on all 1,200 in 2024–2025);
+  - EM, MB, FM, BE, SO and 19 get their own location's weather;
+  - the other 44 stations' 2019–2023 regional weather differs slightly (`temp_f` on 1,584 rows, at most 0.0034 °F; `is_raining` on 176 rows, at most 0.0047; `precip_*` float noise), as #139 recorded.
+- Events:
+  - `is_game_day` and `is_sharks_game` are true on 1,800 rows (#137: 0): 200 in 2019, 400 in each later year. The events archive starts 2019-09-17, so the 2018–19 season's home games (Jan–Apr 2019, plus playoff games in May 2019) are missing and read as no game;
+  - `game_start_hour` is set on those 1,800;
+  - `hours_to_event` is set on all 3,000 (#137: all NaN).
+- The earlier 2019–2023 build (`9a777108…`) is byte-identical to #139's gate2 store. That was checked by SHA-256 against `gate2/data/processed/feature_store.parquet` in the #139 session's scratchpad (`…/d23f3905-…/scratchpad/gate2`, may be cleaned); runs A and B reproduce it. It differs from this one in 2024–2025 (the weather columns and the 800 new game-day rows) and in float noise in 2019–2023: `precip_mm` on 3 rows and `precip_in` on 47, at most 2.8e-17.
+
+**Gate runs (2026-10-24; pinned env rebuilt from the 66 pins, plus pytest, fastapi 0.162 and httpx for tests).**
+
+| Run | Code | Raw weather/events | Result |
+|---|---|---|---|
+| A | 8ce9c97 (merge only, no Sprint 4c) | 2019–2023 | Leaderboard as the gates; export byte-identical to the merged branch's `website/data/`, where `forecasts.json` still held Chronos-1's raw band (51.0% coverage) beside `Coverage_pct` 72.67. That mismatch is what Sprint 4c fixes |
+| B, C | 12a440a (Sprint 4c f1af3c7 + store) | 2019–2023 | All gates pass. Export byte-identical to Sprint 4c's `website/data/` at 4ead3f0 |
+| D, E | e847db3 (Sprint 4c 9674f2d + store) | 2019–2025 | All gates pass except "tracked store equals the rebuild" (`aa02436d…` vs the committed `9a777108…`). Leaderboard, results, LaTeX, both stores, both calibrators, Chronos preds (ignoring `generated_at`) and all five exports are byte-identical across the two runs. Export: 50/50/3,000/300, byte-identical to the committed `website/data/`. `forecasts.json`: P50 and `p10_raw`/`p90_raw` equal 087adcb's P50 and raw band; coverage computed from the published file is 72.67 for the band (= `Coverage_%`) and 51.0 for the raw band (= `Coverage_raw_%`) |
+
+**Site check (S4d.4, served from `website/` at e847db3, built-in browser).**
+- The forecast table shows the calibrated band: EM Jul 2025 is 367k / 434k / 501k, matching `forecasts.json` (raw 382k–462k kept as `p10_raw`/`p90_raw`).
+- The section copy says the band held 72.7% of station-months, matching `model_comparison.json`.
+- The Results "Intervals" chart draws the same band, labelled "not a validated 80% interval".
+- The Model comparison and Benchmarks tables render the 4 scored models, and the comparison shows n=300.
+- The station picker lists 50 stations.
+- The map page reads `stations_ridership.json` and lists 41 BART stations. Its Google base map fails with `BillingNotEnabledMapError`, as already recorded in Sprint 4b.
+- No console errors on the index page.
+
+**Follow-ups (not this sprint's files).**
+- Stale site copy now that the store has 2019–2025 weather and events (owner: the #141 copy update, which the covariate-experiment session plans):
+  - `website/sections.jsx:160` (Method 02) and `:487` (Rec 01) say the event covariates are "currently constant zero";
+  - #141's "available for 2019–2023 only";
+  - #143's EDA hand-over (built on `9a777108…`).
+- `website/sections.jsx:233` ("covariates rely only on data observable at prediction time") and `:160` ("known-future inputs"): the store's weather in the test window is observed, i.e. hindsight. No ranked model reads it, so no published number leaks.
+- Refetch the Sharks 2018–19 season (regular season and playoffs) so Jan–May 2019 game days stop reading as "no game". This changes the raw inputs and the store again.
+- The gate environment's 66 pins live outside git (`~/.venvs/tdf-py314-req.txt`, the side-session notes); the MANIFEST names the four versions that decide the bytes.
+- `data/MANIFEST.md` verify command names "Ridership Report 2025 (1).zip", while its table names "Ridership 2025 (1).zip" (pre-existing, bcd3b76; the store here was built with `--dir`).
+- #142 changes `Processing/feature_engineering.py`, which writes the untracked enriched store. The tracked store is unaffected.
+- #145 (adaptive calibration) adds `scheme: rolling`, which #144's `calibrate_intervals`/`serve_band` do not read. Whichever of the two lands second must carry it through.
+
 ## Sprint 4c — Label the bands the serving path publishes (opened 2026-10-24)
 
 (Named 4c, ids S4c.x: Sprint 4 (#138) and Sprint 4b (#139) ids are taken. PR #141, branch `fix/site-model-claims`, also calls its sprint "Sprint 4c" with ids S4c.1–S4c.5. Both branches were pushed before this was noticed, so commit messages keep the ids: S4c.x on `feat/serve-interval-bands` means this section.)
