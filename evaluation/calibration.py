@@ -236,6 +236,215 @@ def no_calibration(preds: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# ── Calibrations that track recent errors (Sprint 5) ──────────────────────────
+#
+# A single-window split-conformal quantile assumes next half-year's errors look
+# like last half-year's; PR #138 measured 7-12 points of coverage lost to that
+# drift. The functions below draw on many forecast origins instead of one:
+#
+#   pool        every forecast from rolling monthly origins whose target month
+#               is resolved (on or before `as_of`), each row carrying `origin`,
+#               `horizon` (months origin -> target) and `age` (months target ->
+#               as_of). Horizon must be explicit: dense-ranking timestamps, as
+#               add_horizon does for one window, mis-groups a frame that pools
+#               several origins.
+#   rolling     weighted split-conformal quantile over the pool (Barber et al.
+#               2023): weight 0.5**(age / half_life), the scored point weighted 1.
+#   aci         adaptive conformal inference (Gibbs & Candes 2021) run over the
+#               pool's monthly target batches; the final alpha sets the level.
+#
+# All of them return a calibrator dict that apply_conformal accepts, so P50 is
+# never touched.
+
+def months_between(start, end):
+    """Calendar months from `start` to `end` (Timestamps or datetime Series):
+    2024-11-30 -> 2024-12-01 is 1, 2024-12-01 -> 2024-12-31 is 0."""
+    def ym(x):
+        if isinstance(x, pd.Series):
+            return x.dt.year * 12 + x.dt.month
+        x = pd.Timestamp(x)
+        return x.year * 12 + x.month
+    return ym(end) - ym(start)
+
+
+def with_origin_horizon(preds: pd.DataFrame, origin=None) -> pd.DataFrame:
+    """Tag forecasts with their `origin` (if given) and the explicit `horizon`
+    = months from origin to target."""
+    out = preds.copy()
+    if origin is not None:
+        out["origin"] = pd.Timestamp(origin)
+    if "origin" not in out.columns:
+        raise ValueError("with_origin_horizon needs an origin (argument or column)")
+    out["origin"] = pd.to_datetime(out["origin"])
+    out["horizon"] = months_between(out["origin"], pd.to_datetime(out["timestamp"])).astype(int)
+    return out
+
+
+def rolling_pool(pool: pd.DataFrame, as_of) -> pd.DataFrame:
+    """Rows resolved by `as_of`: origin before as_of and target month on or
+    before it, with `age` = months from target to as_of. Raises if `origin` or
+    `horizon` is missing, or if a horizon disagrees with its origin."""
+    missing = [c for c in ("origin", "horizon") if c not in pool.columns]
+    if missing:
+        raise ValueError(f"a multi-origin calibration pool needs explicit {missing} column(s); "
+                         f"see with_origin_horizon")
+    as_of = pd.Timestamp(as_of)
+    ts = pd.to_datetime(pool["timestamp"])
+    origin = pd.to_datetime(pool["origin"])
+    expected = months_between(origin, ts)
+    bad = pool["horizon"].to_numpy() != expected.to_numpy()
+    if bad.any():
+        raise ValueError(f"{int(bad.sum())} pool row(s) whose horizon is not months(origin -> target)")
+    keep = (origin < as_of) & (ts <= as_of)
+    out = pool[keep].copy()
+    out["age"] = months_between(pd.to_datetime(out["timestamp"]), as_of).astype(int)
+    return out
+
+
+def weighted_conformal_quantile(scores: np.ndarray, weights: np.ndarray, level: float) -> float:
+    """Weighted split-conformal quantile (Barber, Candes, Ramdas & Tibshirani
+    2023): the smallest score s with sum(w_i : s_i <= s) >= level * (sum(w) + 1),
+    the "+ 1" being the scored point's weight. +inf when no score reaches it.
+    With unit weights this is exactly conformal_quantile."""
+    s = np.asarray(scores, dtype=float)
+    w = np.asarray(weights, dtype=float)
+    if len(s) == 0:
+        return float("inf")
+    if np.all(w == 1.0):
+        # Same arithmetic as the unweighted quantile, so the two agree exactly.
+        return conformal_quantile(s, level)
+    order = np.argsort(s, kind="stable")
+    s, cum = s[order], np.cumsum(w[order])
+    idx = int(np.searchsorted(cum, level * (w.sum() + 1.0), side="left"))
+    return float("inf") if idx >= len(s) else float(s[idx])
+
+
+def _tail_quantiles(s: np.ndarray, w: np.ndarray, method: str, alphas):
+    """Quantile(s) for one group. `alphas` is the miss rate to allow: a float
+    for the symmetric scores, a (lower, upper) pair for asym_relative."""
+    if method == "asym_relative":
+        a_lo, a_hi = alphas
+        return (-weighted_conformal_quantile(-s, w, 1.0 - a_lo),
+                weighted_conformal_quantile(s, w, 1.0 - a_hi))
+    return weighted_conformal_quantile(s, w, 1.0 - alphas)
+
+
+def _default_alphas(method: str, level: float):
+    alpha = 1.0 - level
+    return (alpha / 2, alpha / 2) if method == "asym_relative" else alpha
+
+
+def _pool_scores(df: pd.DataFrame, method: str) -> np.ndarray:
+    df = df[df["ridership"].notna()]
+    incomplete = df[_BAND_COLS].isna().any(axis=1)
+    if incomplete.any():
+        missing = sorted(df.loc[incomplete, "station_id"].unique().tolist(), key=str)
+        raise ValueError(
+            f"calibration pool incomplete: {int(incomplete.sum())} row(s) with an actual "
+            f"but no forecast or interval bound (stations: {missing[:10]})")
+    y = df["ridership"].to_numpy(dtype=float)
+    return _scores(y, *(df[c].to_numpy(dtype=float) for c in _BAND_COLS), method=method)
+
+
+def fit_rolling_conformal(
+    pool: pd.DataFrame,
+    method: str,
+    group: str,
+    level: float,
+    as_of,
+    half_life: float | None = None,
+    alphas=None,
+) -> dict:
+    """Split-conformal quantiles from a rolling-origin pool.
+
+    pool: forecasts from several origins with `origin` and `horizon` columns
+        (with_origin_horizon) and the actual in `ridership`. Only rows resolved
+        by `as_of` are used (rolling_pool).
+    half_life: months; each row is weighted 0.5**(age / half_life). None gives
+        equal weights, which reproduces fit_conformal on the same rows.
+    alphas: override the allowed miss rate (float, or a (lower, upper) pair for
+        asym_relative); used by the within-window ACI diagnostic.
+
+    group is "pooled" or "horizon" (the explicit column, never a rank).
+    """
+    if method not in METHODS:
+        raise ValueError(f"unknown calibration method {method!r}; expected one of {METHODS}")
+    if group not in ("pooled", "horizon"):
+        raise ValueError(f"rolling calibration groups are 'pooled' or 'horizon', not {group!r}")
+    df = rolling_pool(pool, as_of)
+    df = df[df["ridership"].notna()]
+    s = _pool_scores(df, method)
+    w = (np.ones(len(df)) if half_life is None
+         else 0.5 ** (df["age"].to_numpy(dtype=float) / float(half_life)))
+    keys = (np.full(len(df), "all", dtype=object) if group == "pooled"
+            else df["horizon"].to_numpy())
+    alphas = _default_alphas(method, level) if alphas is None else alphas
+    q, n_by = {}, {}
+    for key in pd.unique(keys):
+        m = keys == key
+        q[_plain(key)] = _tail_quantiles(s[m], w[m], method, alphas)
+        n_by[_plain(key)] = int(m.sum())
+    return {"method": method, "group": group, "level": level, "n": int(len(df)), "q": q,
+            "scheme": "rolling", "half_life": half_life, "as_of": str(pd.Timestamp(as_of).date()),
+            "n_by_group": n_by}
+
+
+def _clip_alpha(a: float, n: int) -> float:
+    """Keep the quantile finite (alpha >= 1/(n+1)) and at least the median (<= 0.5)."""
+    return float(min(max(a, 1.0 / (n + 1)), 0.5))
+
+
+def fit_aci_conformal(pool: pd.DataFrame, method: str, level: float, as_of,
+                      gamma: float = 0.1) -> dict:
+    """Adaptive conformal inference over the pool's monthly target batches.
+
+    For each target month m after the first, in order: the band for the rows
+    whose target is m uses the (unweighted) conformal quantile of the rows
+    whose target is before m, at level 1 - alpha_m; err_m is that batch's miss
+    rate; alpha_{m+1} = alpha_m + gamma * (target - err_m). alpha starts at
+    1 - level (or (1 - level)/2 per tail for asym_relative, one alpha per tail)
+    and is clipped to [1/(n+1), 0.5] whenever it sets a quantile from n
+    scores, so the quantile stays finite. The returned calibrator uses the
+    final alpha on the whole pool. Pooled only.
+    """
+    if method not in METHODS:
+        raise ValueError(f"unknown calibration method {method!r}; expected one of {METHODS}")
+    df = rolling_pool(pool, as_of)
+    df = df[df["ridership"].notna()]
+    s = _pool_scores(df, method)
+    month = pd.to_datetime(df["timestamp"]).dt.to_period("M").to_numpy()
+    months = sorted(pd.unique(month))
+    asym = method == "asym_relative"
+    target = _default_alphas(method, level)
+    alpha = target
+    path = []
+    ones = np.ones(len(s))
+    for m in months[1:]:
+        prev, batch = month < m, month == m
+        n = int(prev.sum())
+        if asym:
+            alpha = (_clip_alpha(alpha[0], n), _clip_alpha(alpha[1], n))
+            q_lo, q_hi = _tail_quantiles(s[prev], ones[prev], method, alpha)
+            err_lo = float(np.mean(s[batch] < q_lo))
+            err_hi = float(np.mean(s[batch] > q_hi))
+            path.append(alpha)
+            alpha = (alpha[0] + gamma * (target[0] - err_lo),
+                     alpha[1] + gamma * (target[1] - err_hi))
+        else:
+            alpha = _clip_alpha(alpha, n)
+            q_m = _tail_quantiles(s[prev], ones[prev], method, alpha)
+            err = float(np.mean(s[batch] > q_m))
+            path.append(alpha)
+            alpha = alpha + gamma * (target - err)
+    n = len(s)
+    alpha = (_clip_alpha(alpha[0], n), _clip_alpha(alpha[1], n)) if asym else _clip_alpha(alpha, n)
+    path.append(alpha)
+    q = _tail_quantiles(s, ones, method, alpha)
+    return {"method": method, "group": "pooled", "level": level, "n": int(n), "q": {"all": q},
+            "scheme": "aci", "gamma": gamma, "as_of": str(pd.Timestamp(as_of).date()),
+            "alpha_path": path, "alpha_final": alpha}
+
+
 def describe(calibrator: dict) -> str:
     """One-line summary for logs, e.g. 'scaled/pooled @0.8, n=300: q=1.87'."""
     qs = calibrator["q"]
