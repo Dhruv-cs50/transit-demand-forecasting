@@ -1,8 +1,10 @@
 # Do weather and event covariates improve the monthly BART forecast? — plan
 
-**Status: awaiting the user's go-ahead.** Nothing below has changed a model, `configs/model.yaml`,
-the store or anything published. Branch `feat/covariate-benchmark`, cut from
-`origin/sprint3/pr-backlog` @ `32a75df`.
+**Status: approved by the user, 2026-10-24.** Choices: the three SARIMAX arms only; a separate
+experiment table (not the leaderboard); stacked on PR #139; the lag-gap fix as its own small PR.
+The decision rule below was committed before any covariate arm was scored. Branch
+`feat/covariate-benchmark`, cut from `origin/fix/bart-station-table` @ `7598107` (first drafted on
+`origin/sprint3/pr-backlog` @ `32a75df`).
 
 ## The question, and how the run answers it
 
