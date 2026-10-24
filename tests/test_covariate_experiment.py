@@ -27,6 +27,7 @@ from models.baselines.covariate_experiment import (  # noqa: E402
     ARMS,
     IMPROVES,
     NO_IMPROVEMENT,
+    NOT_SCORED,
     TABLE_COLUMNS,
     build_window,
     decide_verdict,
@@ -300,10 +301,11 @@ def test_run_experiment_end_to_end(tmp_path, monkeypatch):
         assert sharks["stations_arm_better"] + sharks["stations_control_better"] <= 3
 
     for label, _ in ARMS[1:]:
-        assert by.loc[("test", label), "verdict"] in (IMPROVES, NO_IMPROVEMENT)
+        assert by.loc[("test", label), "verdict"] in (IMPROVES, NO_IMPROVEMENT, NOT_SCORED)
         assert by.loc[("validation", label), "verdict"] == ""
     for label in ("SARIMAX + weather (observed)", "SARIMAX + weather (observed) + Sharks games"):
-        assert by.loc[("test", label), "verdict"] == NO_IMPROVEMENT
+        # Rejected on both windows, so never scored: not a scored loss.
+        assert by.loc[("test", label), "verdict"] == NOT_SCORED
 
     assert list(per_station.columns) == ["window", "model", "station_id", "mae_control", "mae_arm", "d"]
     assert set(per_station["model"]) == {"SARIMAX + Sharks games"}

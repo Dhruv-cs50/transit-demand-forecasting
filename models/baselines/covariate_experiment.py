@@ -67,6 +67,10 @@ WINDOWS = ("test", "validation")
 
 IMPROVES = "improves"
 NO_IMPROVEMENT = "no measurable improvement"
+# An arm (or its control) that was rejected, or whose paired test could not run,
+# was never scored, so the rule has nothing to judge; saying "no measurable
+# improvement" would read as a scored loss.
+NOT_SCORED = "not scored"
 
 # ── Outputs ────────────────────────────────────────────────────────────────────
 
@@ -472,6 +476,10 @@ def run_experiment(df: pd.DataFrame, cfg: dict, eval_dir: Path = benchmarks.EVAL
     by_key = {(r["window"], r["model"]): r for r in rows}
     for label, _ in ARMS[1:]:
         test_row, val_row = by_key[("test", label)], by_key[("validation", label)]
+        scored = [test_row, val_row, by_key[("test", CONTROL)], by_key[("validation", CONTROL)]]
+        if any(r["status"] != "ok" for r in scored):
+            test_row["verdict"] = NOT_SCORED
+            continue
         test_row["verdict"] = decide_verdict(
             test_row["WAPE_%"], by_key[("test", CONTROL)]["WAPE_%"],
             test_row["clustered_p"], test_row["clustered_mean_d"],
