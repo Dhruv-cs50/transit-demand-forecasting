@@ -277,14 +277,17 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     """The band configs/model.yaml assigns to `model_key`.
 
     Returns {"model_key", "calibrated", "method", "group", "level", "reason",
-    "label", "description"}. `label` is the exact string benchmarks.py writes
-    to the leaderboard's Interval_method column, so a published band can be
-    matched to the coverage figure that scored it. `description` is one plain
-    sentence for people.
+    "checkpoint_mismatch", "label", "description"}. `label` is the exact
+    string benchmarks.py writes to the leaderboard's Interval_method column,
+    so a published band can be matched to the coverage figure that scored it.
+    `description` is one plain sentence for people. `checkpoint_mismatch` is
+    True only when a configured method is set aside because it was validated
+    for another checkpoint.
 
-    A model that is not listed, or whose method is "none", keeps its own band.
-    So does a model whose method was validated for a different checkpoint
-    (`validated_for`) than the one that produced the forecasts.
+    A model that is not listed, or whose method is "none" (or empty), keeps its
+    own band; its reason is the configured one, or "not validated" when none is
+    given. So does a model whose method was validated for a different
+    checkpoint (`validated_for`) than the one that produced the forecasts.
     """
     ccfg = cfg.get("calibration") or {}
     mcfg = (ccfg.get("models") or {}).get(model_key) or {}
@@ -293,17 +296,26 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     group = mcfg.get("group", "pooled")
     plan = {"model_key": model_key, "level": level}
 
-    reason = None
-    if method in (None, "none"):
-        reason = mcfg.get("reason", "not validated")
-    else:
-        validated_for = mcfg.get("validated_for")
-        if validated_for and checkpoint and checkpoint != validated_for:
-            reason = f"method validated for {validated_for} only"
+    # Raw or calibrated is decided here, from the method and the checkpoint
+    # alone; the reason text only labels a raw band. (Deciding from the reason
+    # turned `reason:` left blank in the YAML into "calibrated with method
+    # none".)
+    no_method = method in (None, "none")
+    validated_for = mcfg.get("validated_for")
+    checkpoint_mismatch = bool(
+        not no_method and validated_for and checkpoint and checkpoint != validated_for
+    )
 
-    if reason is not None:
+    if no_method or checkpoint_mismatch:
+        if checkpoint_mismatch:
+            reason = f"method validated for {validated_for} only"
+        else:
+            reason = mcfg.get("reason")
+            if reason is None or (isinstance(reason, str) and not reason.strip()):
+                reason = "not validated"
         plan.update(
             calibrated=False, method="none", group=None, reason=reason,
+            checkpoint_mismatch=checkpoint_mismatch,
             label=f"raw: {reason}",
             description=(f"{model_key}'s own P10/P90 band (nominal {level:.0%}), "
                          f"not calibrated: {reason}."),
@@ -315,6 +327,7 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     # serve_band as CalibratorUnavailable.
     plan.update(
         calibrated=True, method=method, group=group, reason=None,
+        checkpoint_mismatch=False,
         label=f"split-conformal {method}/{group}, fit on validation",
         description=(f"Split-conformal P10/P90 band ({method}/{group}, nominal "
                      f"{level:.0%}), fit on {model_key}'s validation-split errors."),
@@ -362,9 +375,20 @@ def save_calibrator(calibrator: dict, path, **provenance) -> None:
 
 def load_calibrator(path) -> dict:
     """Read a calibrator written by save_calibrator; apply_conformal accepts the
-    result as it does a freshly fitted one. Raises ValueError on a file this
-    code did not write."""
+    result as it does a freshly fitted one.
+
+    Raises OSError when the file cannot be read, and ValueError (including
+    json.JSONDecodeError) on a document this code did not write. A malformed
+    `q` or `level` can also raise KeyError or TypeError; serve_band turns all
+    of these into CalibratorUnavailable."""
     doc = json.loads(Path(path).read_text())
+    if not isinstance(doc, dict):
+        raise ValueError(f"{path}: calibrator is a JSON {type(doc).__name__}, not an object")
+    provenance = doc.get("provenance")
+    if provenance is None:
+        provenance = {}
+    elif not isinstance(provenance, dict):
+        raise ValueError(f"{path}: calibrator provenance is a JSON {type(provenance).__name__}, not an object")
     if doc.get("format") != CALIBRATOR_FORMAT:
         raise ValueError(f"{path}: calibrator format {doc.get('format')!r}, expected {CALIBRATOR_FORMAT}")
     method, group = doc.get("method"), doc.get("group")
@@ -386,7 +410,7 @@ def load_calibrator(path) -> dict:
         "level": float(doc["level"]),
         "n": int(doc["n"]),
         "q": q,
-        "provenance": doc.get("provenance") or {},
+        "provenance": provenance,
     }
 
 
@@ -411,8 +435,10 @@ def serve_band(
     one was applied.
 
     Raises CalibratorUnavailable when a method is configured but the file is
-    missing, unreadable, or was fitted for another method, group, level, model
-    or checkpoint: a stale calibrator would publish a band nobody scored.
+    missing, unreadable, or was fitted for another method, group, level,
+    model, checkpoint or training split (provenance `fit_end` other than the
+    config's data.train_end; checked only when the config names a train_end):
+    a stale calibrator would publish a band nobody scored.
     """
     plan = interval_plan(model_key, cfg, checkpoint)
     if not plan["calibrated"]:
@@ -427,10 +453,11 @@ def serve_band(
         )
     try:
         cal = load_calibrator(calibrator_path)
-    except (ValueError, KeyError, TypeError) as e:
-        raise CalibratorUnavailable(f"{model_key}: unreadable calibrator {calibrator_path}: {e}") from e
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise CalibratorUnavailable(f"{model_key}: unreadable calibrator {calibrator_path}: {e!r}") from e
 
     prov = cal["provenance"]
+    train_end = (cfg.get("data") or {}).get("train_end")
     mismatches = []
     if (cal["method"], cal["group"]) != (plan["method"], plan["group"]):
         mismatches.append(f"method {cal['method']}/{cal['group']} (config: {plan['method']}/{plan['group']})")
@@ -440,6 +467,10 @@ def serve_band(
         mismatches.append(f"model {prov.get('model_key')!r}")
     if checkpoint is not None and prov.get("checkpoint") != checkpoint:
         mismatches.append(f"checkpoint {prov.get('checkpoint')!r} (serving: {checkpoint!r})")
+    # A calibrator from a run on other splits (or saved with no fit_end at
+    # all) was not fitted on this config's validation window.
+    if train_end is not None and ("fit_end" not in prov or str(prov["fit_end"]) != str(train_end)):
+        mismatches.append(f"fit_end {prov.get('fit_end')!r} (config train_end: {str(train_end)!r})")
     if mismatches:
         raise CalibratorUnavailable(
             f"{model_key}: saved calibrator {calibrator_path} does not match: "

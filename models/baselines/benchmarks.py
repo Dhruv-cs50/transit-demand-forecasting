@@ -335,7 +335,10 @@ def calibrate_intervals(
         export and the API serve the band this leaderboard row scores (see
         evaluation.calibration.serve_band). Any file already there is removed
         first: a model left raw, or a failed calibration, leaves no calibrator
-        behind for a later step to apply.
+        behind for a later step to apply. A file that cannot be removed or
+        written is logged as an error and does not change the returned band or
+        label; the export and the API then refuse this model's calibrated band
+        for lack of a matching file.
 
     P50 is returned untouched, so every point metric is identical to the
     uncalibrated run. Returns (preds, interval_method): preds with p10/p90
@@ -347,11 +350,11 @@ def calibrate_intervals(
     under the calibrated column.
     """
     if calibrator_path is not None:
-        Path(calibrator_path).unlink(missing_ok=True)
+        _remove_calibrator(calibrator_path, model_name)
 
     plan = interval_plan(model_key, cfg, checkpoint)
     if not plan["calibrated"]:
-        if plan["reason"].startswith("method validated for"):
+        if plan["checkpoint_mismatch"]:
             log.warning(f"  {model_name}: calibration {plan['reason']}, not {checkpoint}; "
                         f"keeping the model's own band")
         return no_calibration(test_preds), plan["label"]
@@ -368,19 +371,7 @@ def calibrate_intervals(
         calibrator = fit_conformal(add_horizon(cal), method=method, group=group, level=plan["level"])
         log.info(f"  interval calibration: {describe(calibrator)}")
         calibrated = apply_conformal(add_horizon(test_preds), calibrator)
-        if calibrator_path is not None:
-            months = pd.to_datetime(val_df["timestamp"])
-            save_calibrator(
-                calibrator, calibrator_path,
-                model_key=model_key, model=model_name, checkpoint=checkpoint, label=label,
-                fit_end=str((cfg.get("data") or {}).get("train_end")),
-                window=[months.min().strftime("%Y-%m-%d"), months.max().strftime("%Y-%m-%d")],
-            )
-            log.info(f"  calibrator saved → {calibrator_path}")
-        return calibrated, label
     except Exception as e:
-        if calibrator_path is not None:
-            Path(calibrator_path).unlink(missing_ok=True)
         log.error(
             f"  {model_name}: interval calibration FAILED ({e}); calibrated "
             f"P10/P90 set to NaN, so Coverage_% is NaN for this model. "
@@ -389,6 +380,59 @@ def calibrate_intervals(
         out = no_calibration(test_preds)
         out["p10"], out["p90"] = np.nan, np.nan
         return out, f"FAILED: {method}/{group}"
+
+    # Saving is outside the scoring try: the leaderboard row scores the band
+    # computed above whether or not the file can be written.
+    if calibrator_path is not None:
+        try:
+            months = pd.to_datetime(val_df["timestamp"])
+            save_calibrator(
+                calibrator, calibrator_path,
+                model_key=model_key, model=model_name, checkpoint=checkpoint, label=label,
+                fit_end=str((cfg.get("data") or {}).get("train_end")),
+                window=[months.min().strftime("%Y-%m-%d"), months.max().strftime("%Y-%m-%d")],
+            )
+            log.info(f"  calibrator saved → {calibrator_path}")
+        except Exception as e:
+            log.error(
+                f"  {model_name}: could not save the calibrator to {calibrator_path} ({e!r}). "
+                f"The leaderboard row is unaffected, but the website export and the API "
+                f"will refuse this model's calibrated band until a run saves it."
+            )
+            # A partly written file must not be left for serve_band to find.
+            _remove_calibrator(calibrator_path, model_name)
+    return calibrated, label
+
+
+def _remove_calibrator(path: Path, model_name: str) -> None:
+    """Delete a saved calibrator if present. A failure is logged, not raised:
+    whether a file can be removed must not change the leaderboard."""
+    try:
+        Path(path).unlink(missing_ok=True)
+    except NotADirectoryError:
+        pass  # a parent is a regular file, so no calibrator can exist there
+    except OSError as e:
+        log.error(f"  {model_name}: could not remove the calibrator at {path} ({e!r}); "
+                  f"a stale file there could be served")
+
+
+def clear_saved_calibrators(directory: Path) -> int:
+    """Remove every saved calibrator (*.json directly in `directory`) and return
+    how many were removed. run_benchmarks calls this once at the start, so any
+    calibrator present afterwards was fitted by that run: a --quick run, a
+    model that crashes or is skipped, or a model rejected later, cannot leave
+    an older run's file behind. A missing directory has nothing to clear; a
+    file that cannot be removed raises, before any model has run."""
+    directory = Path(directory)
+    if not directory.is_dir():
+        return 0
+    removed = 0
+    for path in sorted(directory.glob("*.json")):
+        if path.is_dir() and not path.is_symlink():
+            continue
+        path.unlink(missing_ok=True)
+        removed += 1
+    return removed
 
 
 def _forecast_checked(predictor, as_of, window_end, output_path: Path, mode: str) -> pd.DataFrame:
@@ -563,6 +607,10 @@ def run_benchmarks(
     Run all models on the test set and produce a leaderboard.
     """
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
+    # Every calibrator left by an earlier run goes first, so a file present
+    # after this run was fitted by it (see clear_saved_calibrators).
+    removed = clear_saved_calibrators(CALIBRATOR_DIR)
+    log.info(f"Removed {removed} saved calibrator(s) from {CALIBRATOR_DIR} before this run")
 
     def _match_tz(ts: pd.Timestamp) -> pd.Timestamp:
         # Compare in the same tz space as df["timestamp"] — the feature store

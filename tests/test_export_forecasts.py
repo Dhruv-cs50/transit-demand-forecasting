@@ -224,6 +224,18 @@ class ExportForecastsTest(unittest.TestCase):
         self.assertIsNone(self._run())
         self.assertEqual(len(self._records()), len(self.preds))
 
+    def test_timezone_aware_forecasts_and_actuals_publish_the_same_file(self):
+        # The realistic tz case: benchmarks.py merges preds and store on the
+        # exact timestamp, so a tz-aware store means tz-aware preds too.
+        self.assertIsNone(self._run())
+        naive = self._records()
+        tz = "America/Los_Angeles"
+        self.preds.assign(timestamp=self.preds["timestamp"].dt.tz_localize(tz)) \
+            .to_parquet(self.preds_path, index=False)
+        actuals = self.actuals.assign(timestamp=self.actuals["timestamp"].dt.tz_localize(tz))
+        self.assertIsNone(self._run(actuals))
+        self.assertEqual(self._records(), naive)
+
     def test_model_left_raw_by_config_publishes_its_own_band(self):
         self._write_config(RAW)
         self.calibrator_path.unlink()  # not needed for a raw band
@@ -250,6 +262,16 @@ class ExportForecastsTest(unittest.TestCase):
     def test_calibrator_for_another_checkpoint_is_refused(self):
         self._save_calibrator(checkpoint="amazon/chronos-t5-base")
         self.assertRefused(self._run(), "does not match", "checkpoint")
+
+    def test_calibrator_fitted_to_another_train_end_is_refused(self):
+        self._save_calibrator(fit_end="2019-12-31")
+        self.assertRefused(self._run(), "does not match", "fit_end")
+
+    def test_unreadable_calibrator_is_refused_not_raised(self):
+        for content in ("[]", "{not json"):
+            with self.subTest(content=content):
+                self.calibrator_path.write_text(content)
+                self.assertRefused(self._run(), "unreadable calibrator")
 
     def test_calibrator_fitted_for_another_leaderboard_row_is_refused(self):
         self._save_calibrator(model="Chronos1_ZeroShot (chronos-t5-small) [older run]")
