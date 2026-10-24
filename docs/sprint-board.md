@@ -51,6 +51,20 @@ regenerated from that state, with gate evidence.
 | The inconsistency this sprint closes | That `forecasts.json` holds Chronos-1's raw band (51.0% coverage), while `model_comparison.json`'s `Coverage_pct` is 72.67 (the calibrated band) |
 | Tests | 87 pass on `feat/serve-interval-bands` @ f1af3c7 with the rebuilt store |
 
+**Runs B and C (2026-10-24, early check on 12a440a = Sprint 4c's f1af3c7 + the rebuilt store; the final gates rerun after S4d.2).**
+All gates pass:
+- Leaderboard as above.
+- Leaderboard, results, LaTeX, both stores, both calibrator files, Chronos preds
+  (ignoring `generated_at`) and all five exported JSONs are byte-identical across
+  the two runs.
+- Export: 50/50/3,000/300.
+- `forecasts.json` P50 identical to 087adcb; `p10_raw`/`p90_raw` equal 087adcb's
+  raw band. Coverage computed from the published file: 72.67 for the band (=
+  `Coverage_%`) and 51.0 for the raw band (= `Coverage_raw_%`).
+- The tracked store equals the rebuild.
+- All five exported JSONs are byte-identical to Sprint 4c's committed
+  `website/data/` at 4ead3f0. The rebuilt store changes no published file.
+
 ## Sprint 4c — Label the bands the serving path publishes (opened 2026-10-24)
 
 (Named 4c, ids S4c.x: Sprint 4 (#138) and Sprint 4b (#139) ids are taken. PR #141, branch `fix/site-model-claims`, also calls its sprint "Sprint 4c" with ids S4c.1–S4c.5. Both branches were pushed before this was noticed, so commit messages keep the ids: S4c.x on `feat/serve-interval-bands` means this section.)
