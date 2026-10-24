@@ -8,7 +8,12 @@ before any of their numbers existed.
 - **SARIMA and Chronos-1 keep their Sprint 4 entries:** no candidate
   qualified for them.
 - **Point metrics are unchanged.** P50 is never read for writing.
-- The test result is in [Test result](#test-result-scored-once).
+- **Test result (scored once):**
+  - SeasonalNaive: 94.3% → **83.7%**, tails 3.3% / 13.0%. It is now inside
+    75–85%.
+  - Prophet: 74.7% → **74.0%**, with a slightly worse interval score.
+  - SARIMA and Chronos-1 are unchanged at 96.7% and 72.7%.
+  - Details in [Test result](#test-result-scored-once).
 
 Sprint 4's single-window calibration (PR #138) follows unchanged under
 [Sprint 4](#sprint-4--one-validation-window-pr-138).
@@ -277,7 +282,63 @@ Sprint 4's single-window variants, scored on both windows (B calibrated on
 
 ### Test result (scored once)
 
-Pending: scored once, after the commit that records this choice.
+**Run.** `models/baselines/benchmarks.py` at 7cdfd11, the commit that
+recorded the choice, on the rebuilt pinned env. Scored on the 2025-H2
+holdout, n = 300 per model.
+
+**Gates:**
+- Two consecutive runs gave byte-identical leaderboard, results and LaTeX
+  files.
+- WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected and `Coverage_raw_%` are
+  identical to PR #138's leaderboard on every slice (`assert_frame_equal`).
+- The quantiles `benchmarks.py` logged equal the ones the study computed
+  before the run: SeasonalNaive q_hi − q_lo 0.1829–0.1840, Prophet
+  q = 0.0789, n = 4,650 each.
+
+| Model | Interval now | Own band | Before (PR #138) | **Now** | Below P10 / above P90 | Width, % of P50 (before → now) | Interval score % (before → now) | Coverage by month, Jul–Dec | Validation (2024-H2 / 2025-H1) |
+|---|---|---:|---:|---:|---|---|---|---|---|
+| SeasonalNaive | `rolling_hl6 asym_relative/horizon` | 94.33% | 94.33% | **83.67%** | 3.3% / 13.0% | 40.0 → 18.3 | 38.69 → 24.27 | 80 88 88 90 82 74 | 81.3% / 81.0% |
+| Prophet | `rolling_hl6 relative/pooled` | 46.00% | 74.67% | **74.00%** | 13.0% / 13.0% | 15.1 → 15.8 | 22.14 → 23.26 | 92 90 52 54 74 82 | 84.0% / 84.7% |
+| SARIMA | own band (unchanged) | 96.67% | 96.67% | 96.67% | 1.0% / 2.3% | — | — | — | — |
+| Chronos-1 zero-shot | `relative/pooled`, Sprint 4 (unchanged) | 51.00% | 72.67% | 72.67% | 0.0% / 27.3% | — | — | — | — |
+
+**Where the extra columns come from.** `scripts/interval_test_breakdown.py`
+computes the tails, widths, scores and by-month columns for SeasonalNaive and
+Prophet. It rebuilds each band with the leaderboard's code:
+- the new band must reproduce the leaderboard's Coverage_% exactly;
+- the band each model published before must reproduce PR #138's 94.33% and
+  74.67%, or the script stops.
+
+SARIMA's and Chronos-1's rows are Sprint 4's.
+
+**SeasonalNaive works on test.**
+- It covers 83.7%, with 3.3% below P10 and 13.0% above P90, inside every
+  limit of the rule.
+- Its band is less than half as wide as before, and its interval score falls
+  by 37%.
+- It is the only model whose calibrated test band is in 75–85% with both
+  tails within 15%.
+
+**Prophet did not improve.**
+- Coverage fell from 74.67% to 74.00%, and the interval score worsened from
+  22.14 to 23.26.
+- Its misses are now even (13.0% each side, instead of 10.0% / 15.3%), but
+  September and October covered 52% and 54%.
+- Validation predicted 84–85%; the drop of about 10 points is as large as in
+  Sprint 4.
+- The recency weights narrowed the band just before errors grew. The pool
+  through June 2025 gave ±7.9%, while 80% of the test errors were within
+  ±8.4% of P50. On 2025-H1 the same method used ±8.7%.
+
+**Prophet keeps the new method.** The rule chose it before the test was
+scored. Switching back on the strength of this result would choose a method
+on the test split.
+
+**The website wording stays "not calibrated".** Sprint 4's rule changes it
+only if every model's test coverage is 75–85%, and Prophet (74.0%), Chronos-1
+(72.7%) and SARIMA (96.7%) are not. The site's coverage range stays 73–97%.
+`website/data/model_comparison.json` carries the new Coverage_pct and
+Interval_method for SeasonalNaive and Prophet.
 
 ### Not covered
 
