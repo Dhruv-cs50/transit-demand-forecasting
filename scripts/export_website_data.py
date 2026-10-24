@@ -31,14 +31,25 @@ the store's `station_name` column.
       website/charts.jsx.
 
   forecasts.json
-      The Chronos zero-shot P10/P50/P90 test-window forecasts that
+      The Chronos zero-shot test-window forecasts that
       models/baselines/benchmarks.py wrote to
       evaluation/outputs/chronos2_zeroshot_preds.parquet and scored on the
-      leaderboard, sorted by station then month: station_id, month, p10, p50,
-      p90. Written only if the leaderboard has exactly one overall Chronos
-      row, every prediction came from the zero-shot model, each
-      (station_id, month) appears once, and the number of predictions equals
-      that row's `n` (and `n_expected`, when the leaderboard has it).
+      leaderboard, as a list sorted by station then month: station_id, month,
+      p10, p50, p90, p10_raw, p90_raw, interval_method. p50 is the model's
+      own. p10/p90 are the band the leaderboard's Coverage_% scored: the one
+      configs/model.yaml assigns to Chronos, applied from the calibrator
+      benchmarks.py saved to evaluation/outputs/calibration/calibrators/
+      Chronos.json, or the model's own band if the config leaves it raw.
+      p10_raw/p90_raw are the model's own bounds (what Coverage_raw_%
+      scored) and interval_method is the leaderboard's Interval_method
+      string for the band. Written only if the leaderboard has exactly one
+      overall Chronos row, every prediction came from the zero-shot model,
+      each (station_id, month) appears once, the number of predictions
+      equals that row's `n` (and `n_expected`, when the leaderboard has it),
+      a calibrated band's saved calibrator matches the config, the checkpoint
+      and that row's model, the row's Interval_method names the band served,
+      and the band (and the raw one) reproduce the row's Coverage_% (and
+      Coverage_raw_%) against the feature store's actuals.
       Otherwise forecasts.json is refused: an error is logged, any existing
       forecasts.json is left as it is (and is then stale), the other files
       are still written, and the script exits 1 so scripts/run_pipeline.sh
@@ -68,11 +79,14 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 # Run as a script, sys.path[0] is scripts/, so the repo's top-level packages
 # are not importable without the repo root on the path.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from evaluation.calibration import CalibratorUnavailable, serve_band  # noqa: E402
+from evaluation.metrics import coverage  # noqa: E402
 from machine_learning_files.bart_stations import (  # noqa: E402
     BY_CODE,
     CODE_TO_NAME,
@@ -94,6 +108,10 @@ AVERAGE_WINDOW_MONTHS = 12
 # benchmarks.py outputs, relative to the working directory (the repo root).
 LEADERBOARD_PATH = Path("evaluation/outputs/benchmark_leaderboard.csv")
 PREDS_PATH = Path("evaluation/outputs/chronos2_zeroshot_preds.parquet")
+CALIBRATOR_PATH = Path("evaluation/outputs/calibration/calibrators/Chronos.json")
+# The config benchmarks.py ran with: which band each model gets, and the
+# Chronos checkpoint the calibrator must have been fitted for.
+CONFIG_PATH = Path("configs/model.yaml")
 
 
 def require_leaderboard() -> None:
@@ -304,8 +322,9 @@ def export_ridership_actuals(df: pd.DataFrame, out_dir: Path) -> None:
     log.info(f"ridership_actuals.json → {out_dir / 'ridership_actuals.json'}  ({len(records)} records)")
 
 
-def export_forecasts(out_dir: Path) -> str | None:
-    """Export the benchmark run's Chronos zero-shot forecasts.
+def export_forecasts(out_dir: Path, actuals: pd.DataFrame) -> str | None:
+    """Export the benchmark run's Chronos zero-shot forecasts, with the band
+    the leaderboard scored.
 
     These are the predictions benchmarks.py scored on the leaderboard. When
     the Chronos backend cannot run, the Predictor falls back to seasonal
@@ -316,11 +335,35 @@ def export_forecasts(out_dir: Path) -> str | None:
     prediction per (station_id, month), as many as the row's `n` (and
     `n_expected`, when the leaderboard has that column).
 
+    The parquet holds the model's own P10/P90, which the leaderboard reports
+    as Coverage_raw_%; its Coverage_% scores the band configs/model.yaml
+    assigns (for Chronos, split-conformal fit on validation). Publishing the
+    raw band beside that figure would show one band and the coverage of
+    another, so p10/p90 are the assigned band (evaluation.calibration.
+    serve_band applies the calibrator benchmarks.py saved, never refits it),
+    p10_raw/p90_raw keep the model's own, P50 is unchanged, and every record
+    carries the band's label as `interval_method`. Also refused:
+      - the config is unreadable or names no chronos2.model_id;
+      - the calibrator is missing, or was fitted for another method, model
+        or checkpoint (CalibratorUnavailable);
+      - the row's Interval_method is absent or is not the band's label;
+      - the calibrator was fitted for another leaderboard model label;
+      - an exported row has no actual (or more than one) in `actuals`;
+      - the served band's coverage of `actuals`, rounded as the leaderboard
+        rounds, is not the row's Coverage_% (nor the raw band's its
+        Coverage_raw_%, when that column exists). The labels say which band
+        was scored; this shows these are the numbers it scored.
+
+    actuals: the feature store (station_id, timestamp, ridership). Only the
+        exported rows are read, to check the coverage above; nothing is fit.
+
     Returns None when forecasts.json was written, or the reason it was
     refused. On refusal nothing is written or deleted; main() then exits 1.
     """
     preds_path = PREDS_PATH
     leaderboard_path = LEADERBOARD_PATH
+    config_path = CONFIG_PATH
+    calibrator_path = CALIBRATOR_PATH
 
     def _refuse(reason: str) -> str:
         log.error(
@@ -413,22 +456,109 @@ def export_forecasts(out_dir: Path) -> str | None:
                 f"not the run that row scored"
             )
 
+    # The band. The checkpoint comes from the config benchmarks.py ran with;
+    # serve_band refuses a calibrator fitted for another one.
+    try:
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        checkpoint = cfg["chronos2"]["model_id"]
+    except (OSError, yaml.YAMLError, KeyError, TypeError) as e:
+        return _refuse(f"cannot read chronos2.model_id from {config_path}: {e!r}")
+    try:
+        served, plan = serve_band(df, "Chronos", cfg, calibrator_path=calibrator_path,
+                                  checkpoint=checkpoint)
+    except CalibratorUnavailable as e:
+        return _refuse(str(e))
+
+    # The leaderboard must say it scored this band. benchmarks.py writes the
+    # same label string to Interval_method, so anything else means the config
+    # or the calibrator changed since that run.
+    if "Interval_method" not in leaderboard.columns:
+        return _refuse(
+            f"{leaderboard_path} has no Interval_method column, so it does not "
+            f"say which band the {model_label} row scored"
+        )
+    scored_label = chronos_row["Interval_method"]
+    if not isinstance(scored_label, str) or scored_label != plan["label"]:
+        return _refuse(
+            f"{leaderboard_path} {model_label} overall Interval_method is "
+            f"{scored_label!r}, but the band configs/model.yaml assigns is "
+            f"{plan['label']!r}"
+        )
+    if plan["calibrated"]:
+        fitted_for = plan["provenance"].get("model")
+        if fitted_for != model_label:
+            return _refuse(
+                f"{calibrator_path} was fitted for {fitted_for!r}, not the "
+                f"leaderboard's {model_label!r}"
+            )
+
+    # Labels can agree while the numbers do not (a calibrator refit after the
+    # leaderboard was written), so recompute the row's coverage from the rows
+    # being published. Test-split actuals are only compared here, never fit.
+    # Scored on the unrounded band, as benchmarks.py scored it.
+    key = ["station_id", "month"]
+    truth = pd.DataFrame({
+        "station_id": actuals["station_id"].astype(str).to_numpy(),
+        "month": _month_strings(actuals["timestamp"]).to_numpy(),
+        "actual": pd.to_numeric(actuals["ridership"], errors="coerce").astype("float64").to_numpy(),
+    })
+    joined = served.merge(truth, on=key, how="left")
+    if len(joined) != len(served):
+        dup = joined.loc[joined.duplicated(key, keep=False), key].drop_duplicates()
+        shown = ", ".join(f"{s} {m}" for s, m in dup.to_numpy().tolist()[:10])
+        return _refuse(
+            f"more than one feature-store row for {len(dup)} exported "
+            f"(station_id, month) key(s): {shown}"
+        )
+    no_actual = joined["actual"].isna()
+    if no_actual.any():
+        keys = joined.loc[no_actual, key].to_numpy().tolist()
+        shown = ", ".join(f"{s} {m}" for s, m in keys[:10])
+        more = f" (+{len(keys) - 10} more)" if len(keys) > 10 else ""
+        return _refuse(
+            f"no feature-store actual for {len(keys)} exported (station_id, "
+            f"month) key(s): {shown}{more}; the leaderboard's coverage cannot "
+            f"be checked"
+        )
+    if "Coverage_%" not in leaderboard.columns:
+        return _refuse(f"{leaderboard_path} has no Coverage_% column to check the band against")
+    checks = [("Coverage_%", "p10", "p90", "the exported band")]
+    if "Coverage_raw_%" in leaderboard.columns:
+        checks.append(("Coverage_raw_%", "p10_raw", "p90_raw", "the model's own band"))
+    y = joined["actual"].to_numpy(dtype=float)
+    for col, lo, hi, what in checks:
+        got = round(coverage(y, joined[lo].to_numpy(dtype=float), joined[hi].to_numpy(dtype=float)), 2)
+        want = float(pd.to_numeric(chronos_row[col], errors="coerce"))
+        # NaN on either side is a mismatch, not a pass.
+        if not (math.isfinite(got) and math.isfinite(want)
+                and math.isclose(got, want, abs_tol=1e-9)):
+            return _refuse(
+                f"{what} ({lo}/{hi}) covers {got}% of the feature-store actuals "
+                f"but the leaderboard's {model_label} overall {col} is "
+                f"{chronos_row[col]}; the leaderboard did not score these numbers"
+            )
+
     records = [
         {
-            "station_id": row.station_id,
-            "month":      row.month,
-            "p10":        _finite_or_none(row.p10),
-            "p50":        _finite_or_none(row.p50),
-            "p90":        _finite_or_none(row.p90),
+            "station_id":      row.station_id,
+            "month":           row.month,
+            "p10":             _finite_or_none(row.p10),
+            "p50":             _finite_or_none(row.p50),
+            "p90":             _finite_or_none(row.p90),
+            "p10_raw":         _finite_or_none(row.p10_raw),
+            "p90_raw":         _finite_or_none(row.p90_raw),
+            "interval_method": plan["label"],
         }
-        for row in df.itertuples(index=False)
+        for row in served.itertuples(index=False)
     ]
     with open(out_dir / "forecasts.json", "w") as f:
         json.dump(records, f)
     log.info(
         f"forecasts.json → {out_dir / 'forecasts.json'}  ({len(records)} records, "
         f"{df['station_id'].nunique()} stations, {df['month'].min()} … {df['month'].max()}; "
-        f"{model_label} from {preds_path})"
+        f"{model_label} from {preds_path}; band: {plan['label']}, coverage "
+        f"{chronos_row['Coverage_%']}% as on the leaderboard)"
     )
     return None
 
@@ -581,7 +711,7 @@ def main():
     log.info(f"stations_meta.json     → {out_dir / 'stations_meta.json'}  ({len(meta_json)} stations)")
 
     export_ridership_actuals(df, out_dir)
-    forecasts_refused = export_forecasts(out_dir)
+    forecasts_refused = export_forecasts(out_dir, df)
     export_model_comparison(out_dir)
 
     if forecasts_refused is not None:
