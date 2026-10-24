@@ -778,6 +778,30 @@ const BARTForecasts = () => {
     : fcFirst.m === 1 ? `Dec ${fcFirst.y - 1}` : `${MON[fcFirst.m-2]} ${fcFirst.y}`;
   const fcCount = new Set(fcMonths.map(p => p.y * 12 + p.m)).size;
 
+  // Which band P10/P90 is, read from the records' interval_method (the
+  // leaderboard's Interval_method label). Exports written before the label
+  // existed carry the model's own band. A coverage figure is shown only when
+  // the Chronos leaderboard row carries the same label, so the number always
+  // scores the band on screen.
+  const bandLabels = [...new Set(forecasts.map(r =>
+    r && typeof r.interval_method === 'string' && r.interval_method ? r.interval_method : null))];
+  const bandLabel = bandLabels.length === 1 ? bandLabels[0] : null;
+  const conformal = bandLabel && /^split-conformal (\S+), fit on validation$/.exec(bandLabel);
+  const rawReason = bandLabel && /^raw: (.+)$/.exec(bandLabel);
+  const bandRow = bandLabel && comparison.find(r =>
+    r && /^Chronos/.test(r.model || '') && r.Interval_method === bandLabel
+    && typeof r.Coverage_pct === 'number');
+  const bandCoverage = bandRow
+    ? ` On the test split it covered ${bandRow.Coverage_pct.toFixed(1)}% of actuals, against a nominal 80%.`
+    : '';
+  const bandNote = conformal
+    ? `P10/P90 is the split-conformal band fit on validation (${conformal[1]}).${bandCoverage}`
+    : rawReason
+      ? `P10/P90 is the model's own band (${rawReason[1]}), not a validated 80% interval.${bandCoverage}`
+      : bandLabels.some(l => l !== null)
+        ? 'P10/P90 has no single recognised band label, so it is not a validated 80% interval.'
+        : "P10/P90 is the model's own band, not a validated 80% interval.";
+
   return (
     <section id="bart-data" style={{ background:'var(--bg-muted)', padding:'80px 0' }}>
       <div className="wrap">
@@ -791,7 +815,7 @@ const BARTForecasts = () => {
               {loading
                 ? 'Loading the static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) forecasts…'
                 : fcRange
-                  ? `Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}: the predictions scored in the model comparison below.`
+                  ? `Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}: the predictions scored in the model comparison below. ${bandNote}`
                   : 'No forecasts are published in the static export (forecasts.json), so the table shows actual ridership only.'}
               {' '}Actuals are BART monthly Total Trips boardings per entry station, 2019 and 2022–2025.
               The button below requests a forecast from the Cloud Run API.
@@ -859,6 +883,11 @@ const BARTForecasts = () => {
                     <div><span style={{ color:'var(--accent)' }}>P90 </span><b style={{ fontFamily:'var(--mono)' }}>{f.p90 != null ? fmt(f.p90) : '—'}</b></div>
                   </div>
                 ))}
+              </div>
+              <div style={{ marginTop:10, fontSize:12, color:'var(--ink-muted)' }}>
+                {typeof liveData.interval?.description === 'string' && liveData.interval.description.trim()
+                  ? liveData.interval.description.trim()
+                  : 'P10/P90: band not labelled by this API version; not a validated 80% interval.'}
               </div>
             </div>
           )}

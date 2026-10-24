@@ -125,7 +125,7 @@ input[type=range]{width:100%;accent-color:var(--primary);cursor:pointer;margin-t
     <p>
       Live interface for the <b>Bay Area Transit Demand Forecast</b> FastAPI service.
       Fits SARIMA — the best model on the benchmark leaderboard — per request and returns P10/P50/P90
-      monthly ridership per BART station for up to 6 months.
+      monthly ridership per BART station for up to 6 months. Each response says which P10/P90 band it returns.
     </p>
     <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <span id="healthBadge" class="status loading"><span class="status-dot"></span>Checking…</span>
@@ -246,6 +246,21 @@ function fmtRiders(n) {
   if (n >= 1e6) return (n/1e6).toFixed(2)+'M';
   if (n >= 1e3) return (n/1e3).toFixed(0)+'k';
   return String(Math.round(n));
+}
+
+/* Text from the API or the form goes into innerHTML templates, so escape it. */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
+
+/* Which P10/P90 band the response returned, in the API's own words
+   (`interval.description`). Older API versions send no `interval`. */
+function intervalNote(interval) {
+  const d = interval && interval.description;
+  if (typeof d === 'string' && d.trim()) return d.trim();
+  return 'P10/P90: band not labelled by this API version; not a validated 80% interval.';
 }
 
 /* ── Health check ── */
@@ -437,7 +452,7 @@ function renderChart(forecasts) {
   });
 }
 
-function renderTable(station, forecasts) {
+function renderTable(station, forecasts, interval) {
   const rows = forecasts.map(f => {
     const d = new Date(f.timestamp);
     const mo = isNaN(d) ? f.timestamp : d.toLocaleDateString('en-US', {month:'short', year:'numeric'});
@@ -462,7 +477,7 @@ function renderTable(station, forecasts) {
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:10px;font-size:11px;color:var(--ink-soft)">
-      Station: <b class="mono">${station}</b> · P10/P90 = 80% prediction interval
+      Station: <b class="mono">${escapeHtml(station)}</b> · ${escapeHtml(intervalNote(interval))}
     </div>`;
 }
 
@@ -503,7 +518,7 @@ async function runForecast() {
     document.getElementById('resultContent').innerHTML = `
       <div class="chart-wrap"><canvas id="forecastChart"></canvas></div>
       <div class="divider"></div>
-      ${renderTable(station, forecasts)}`;
+      ${renderTable(station, forecasts, data.interval)}`;
 
     renderChart(forecasts);
     updateHealthOk();
