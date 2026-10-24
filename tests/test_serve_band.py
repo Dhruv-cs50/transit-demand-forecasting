@@ -554,9 +554,6 @@ class ClearSavedCalibratorsTest(unittest.TestCase):
         self.assertEqual(list(self.dir.iterdir()), [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class LateRejectionTest(unittest.TestCase):
     """A model rejected after its calibrator was saved leaves no calibrator."""
@@ -589,3 +586,7 @@ class UnsearchableCalibratorTest(unittest.TestCase):
         with mock.patch.object(Path, "exists", side_effect=PermissionError("no search permission")):
             with self.assertRaises(CalibratorUnavailable):
                 serve_band(test, "Prophet", cfg, calibrator_path=Path("x/Prophet.json"))
+
+
+if __name__ == "__main__":
+    unittest.main()
