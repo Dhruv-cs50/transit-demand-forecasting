@@ -107,31 +107,31 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
   univariate (50 "Falling back to univariate mode" lines per run). No ranked
   model reads weather, events or `is_hub_station`.
 - `models/baselines/fetch_pems_roads.py:49-52` `near` values are four-letter (module unwired).
-- **Addressed on `fix/website-followups`** (stacked on #139): `website/data/*.json` fetches carry no cache-buster (`app.yaml` caches 1 day).
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): `website/data/*.json` fetches carry no cache-buster (`app.yaml` caches 1 day).
   Now every data fetch uses `cache: 'no-cache'` (one shared loader in
   `charts.jsx` for the index page), and `app.yaml` serves `data/*.json` with
   `expiration: "0s"`.
-- **Addressed on `fix/website-followups`** (stacked on #139): Hard-coded years that go stale on the next refresh: "2019 and 2022–2025" for
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): Hard-coded years that go stale on the next refresh: "2019 and 2022–2025" for
   actuals; "Jul–Dec 2025 test split" labels beside `model_comparison.json`.
   The actuals' years come from `ridership_actuals.json`. The split name comes
   from `scored_split`, and the window comes from the `forecasts.json` months,
   but only when those forecasts are the scored Chronos run. Sentences that also
   carry hard-coded metrics were left alone (see below).
-- **Addressed on `fix/website-followups`** (stacked on #139): Dark mode: `index.html` sets `--primary` inline, so P50 values and forecast
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): Dark mode: `index.html` sets `--primary` inline, so P50 values and forecast
   month labels render navy on the dark background. `--primary`/`--accent` are
   set inline only for a colour picked in the Tweaks panel. Text on
   primary/accent buttons is `var(--bg)`, so it keeps contrast on the lighter
   dark-theme colours.
-- **Addressed on `fix/website-followups`** (stacked on #139): R2 N1: `website/app.yaml`'s `url: /` handler sets no expiration, so `index.html`
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): R2 N1: `website/app.yaml`'s `url: /` handler sets no expiration, so `index.html`
   is cached for a day and returning visitors keep the old `?v=` cache-busters
   until a reload. `/` and `/*.html` now use `expiration: "0s"`. This is unverified
   until deploy: check with `curl -I`.
-- **Addressed on `fix/website-followups`** (stacked on #139): R2 N2: when the `forecasts.json` fetch fails (network error, 5xx), the
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): R2 N2: when the `forecasts.json` fetch fails (network error, 5xx), the
   forecast section says "No forecasts are published" (`sections.jsx` ~:687,
   ~:787-795, ~:911-913). A failed load (network, non-2xx, bad JSON, non-array)
   now has its own copy in the forecast section, the Intervals chart, the WAPE
   chart, the Results tile and the Benchmarks table, separate from an empty file.
-- **Addressed on `fix/website-followups`** (stacked on #139): The lede says the forecasts are "the predictions scored in the model
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): The lede says the forecasts are "the predictions scored in the model
   comparison below" without checking that `model_comparison.json` has the
   Chronos row (the export now refuses to publish forecasts in that case). The
   clause now appears only when the comparison has exactly one Chronos row and
