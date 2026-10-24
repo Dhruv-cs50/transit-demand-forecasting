@@ -43,6 +43,13 @@ RUN pip install --no-cache-dir \
 COPY machine_learning_files/__init__.py   ./machine_learning_files/__init__.py
 COPY machine_learning_files/api.py        ./machine_learning_files/api.py
 COPY models/baselines/arima.py            ./models/baselines/arima.py
+# serve_band(): which P10/P90 band /forecast returns, and its label. Imported
+# as a namespace package (no evaluation/__init__.py), like models/ above.
+# No calibrator JSON is copied: configs/model.yaml leaves SARIMA's band raw
+# (calibration.models.SARIMA method: none), so none is read. If a method is
+# ever configured, also copy evaluation/outputs/calibration/calibrators/
+# SARIMA.json (saved by benchmarks.py), or every /forecast answers 503.
+COPY evaluation/calibration.py            ./evaluation/calibration.py
 
 # Config
 COPY configs/model.yaml ./configs/model.yaml

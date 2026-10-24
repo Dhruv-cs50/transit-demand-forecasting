@@ -12,6 +12,7 @@ Run from the repository root:
 
 from __future__ import annotations
 
+import copy
 import os
 from pathlib import Path
 
@@ -19,6 +20,8 @@ import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+
+from evaluation.calibration import apply_conformal, fit_conformal, load_calibrator, save_calibrator
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -127,3 +130,111 @@ def test_health_names_the_served_model(client):
     assert body["status"] == "ok"
     assert "SARIMA" in body["model"]
     assert "chronos" not in str(body).lower()
+
+
+# ── Which P10/P90 band is served ───────────────────────────────────────────────
+# configs/model.yaml leaves SARIMA's band raw (calibration.models.SARIMA:
+# method none). The tests below check that the response says so, that the raw
+# band is served as SARIMA produces it, and -- with the config patched to name
+# a method -- that the saved calibrator's band is served instead, or a 503.
+
+SARIMA_RAW_LABEL = "raw: no method passed validation"
+
+
+def test_health_labels_the_served_band(client):
+    assert client.get("/health").json()["interval"] == SARIMA_RAW_LABEL
+
+
+def test_response_names_the_model_and_labels_sarimas_own_band(client):
+    r = _forecast(client, station_id="EM", horizon_hours=6)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert list(body) == ["station_id", "horizon_hours", "generated_at", "model", "interval", "forecasts"]
+    assert body["model"] == "SARIMA(0, 1, 1)x(0, 1, 1, 12)"
+    interval = body["interval"]
+    assert interval["calibrated"] is False
+    assert interval["method"] == "none"
+    assert interval["nominal_level"] == 0.8
+    assert interval["label"] == SARIMA_RAW_LABEL
+    assert "not calibrated" in interval["description"]
+    assert "80% interval" not in interval["description"]
+
+
+def test_raw_band_is_served_as_sarima_produces_it(client):
+    import machine_learning_files.api as api
+    from models.baselines.arima import fit_station, predict_station
+
+    cfg = api._get_config()
+    freq = cfg["data"]["resample_freq"]
+    store = pd.read_parquet(REPO_ROOT / "data/processed/feature_store.parquet")
+    store["timestamp"] = pd.to_datetime(store["timestamp"])
+    history = store[(store["station_id"] == "EM") & (store["timestamp"] >= cfg["data"]["train_start"])]
+    fit, last_ts = fit_station(history, "EM", freq)
+    direct = predict_station(fit, last_ts, 6, freq)
+
+    rows = _forecast(client, station_id="EM", horizon_hours=6).json()["forecasts"]
+    for col in ("p10", "p50", "p90"):
+        assert [row[col] for row in rows] == direct[col].tolist(), col
+
+
+def _calibrate_sarima_in_config(monkeypatch, calibrator_dir: Path) -> None:
+    """Point the API at a config that names a method for SARIMA, and at
+    `calibrator_dir` for the saved calibrator. The cached config is copied,
+    not edited, and monkeypatch restores both afterwards."""
+    import machine_learning_files.api as api
+
+    cfg = copy.deepcopy(api._get_config())
+    cfg["calibration"]["models"]["SARIMA"] = {"method": "relative", "group": "pooled"}
+    monkeypatch.setattr(api, "_get_config", lambda: cfg)
+    monkeypatch.setattr(api, "CALIBRATOR_DIR", calibrator_dir)
+
+
+def _synthetic_calibrator() -> dict:
+    """relative/pooled at 0.8 from 12 rows with errors of +-1%..6%: q = 0.06,
+    a band clearly narrower than SARIMA's own and with P10 above zero."""
+    cal = pd.DataFrame({
+        "station_id": "X",
+        "timestamp": pd.date_range("2025-01-01", periods=12, freq="MS"),
+        "p10": 900.0, "p50": 1000.0, "p90": 1100.0,
+    })
+    cal["ridership"] = 1000.0 * (1 + np.array([1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6]) / 100)
+    return fit_conformal(cal, method="relative", group="pooled", level=0.8)
+
+
+def test_configured_calibration_rebuilds_p10_p90_and_keeps_p50(client, monkeypatch, tmp_path):
+    raw = _forecast(client, station_id="EM", horizon_hours=6)
+    assert raw.status_code == 200, raw.text
+    raw_rows = pd.DataFrame(raw.json()["forecasts"]).assign(station_id="EM")
+
+    path = tmp_path / "SARIMA.json"
+    save_calibrator(_synthetic_calibrator(), path, model_key="SARIMA")
+    _calibrate_sarima_in_config(monkeypatch, tmp_path)
+
+    r = _forecast(client, station_id="EM", horizon_hours=6)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    got = pd.DataFrame(body["forecasts"])
+    expected = apply_conformal(raw_rows, load_calibrator(path))
+
+    assert got["timestamp"].tolist() == raw_rows["timestamp"].tolist()
+    assert got["p50"].tolist() == raw_rows["p50"].tolist()
+    assert got["p10"].tolist() == [max(0.0, v) for v in expected["p10"]]
+    assert got["p90"].tolist() == [max(0.0, v) for v in expected["p90"]]
+    # Not vacuous: the served band is the calibrator's, not SARIMA's own.
+    assert got["p10"].tolist() != raw_rows["p10"].tolist()
+    assert got["p90"].tolist() != raw_rows["p90"].tolist()
+    assert (got["p10"] > 0).all()
+
+    interval = body["interval"]
+    assert interval["calibrated"] is True
+    assert interval["method"] == "relative"
+    assert interval["nominal_level"] == 0.8
+    assert interval["label"] == "split-conformal relative/pooled, fit on validation"
+    assert body["model"] == "SARIMA(0, 1, 1)x(0, 1, 1, 12)"
+
+
+def test_configured_calibration_without_a_saved_calibrator_is_503(client, monkeypatch, tmp_path):
+    _calibrate_sarima_in_config(monkeypatch, tmp_path)  # tmp_path holds no SARIMA.json
+    r = _forecast(client, station_id="EM", horizon_hours=6)
+    assert r.status_code == 503, r.text
+    assert "calibrator" in r.json()["detail"]
