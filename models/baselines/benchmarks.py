@@ -416,6 +416,18 @@ def _remove_calibrator(path: Path, model_name: str) -> None:
                   f"a stale file there could be served")
 
 
+def accept_rows_and_calibrator(rows: list[dict], model_name: str, calibrator_path: Path) -> list[dict]:
+    """accept_model_rows, and a rejected model's calibrator goes with it.
+
+    A model can be rejected after calibrate_intervals saved its calibrator in
+    this run (same fit_end), so serve_band would otherwise serve a band whose
+    leaderboard row was never published."""
+    accepted = accept_model_rows(rows, model_name)
+    if not accepted:
+        _remove_calibrator(calibrator_path, model_name)
+    return accepted
+
+
 def clear_saved_calibrators(directory: Path) -> int:
     """Remove every saved calibrator (*.json directly in `directory`) and return
     how many were removed. run_benchmarks calls this once at the start, so any
@@ -660,7 +672,7 @@ def run_benchmarks(
         model_preds["SeasonalNaive"] = naive_preds
         rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df,
                                interval_method=naive_interval)
-        rows = accept_model_rows(rows, "SeasonalNaive")
+        rows = accept_rows_and_calibrator(rows, "SeasonalNaive", CALIBRATOR_DIR / "SeasonalNaive.json")
         all_rows.extend(rows)
         log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
 
@@ -683,7 +695,7 @@ def run_benchmarks(
                 model_preds["SARIMA"] = arima_preds
                 rows = compute_metrics(test_df, arima_preds, "SARIMA", train_df=train_df,
                                        interval_method=arima_interval)
-                rows = accept_model_rows(rows, "SARIMA")
+                rows = accept_rows_and_calibrator(rows, "SARIMA", CALIBRATOR_DIR / "SARIMA.json")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -707,7 +719,7 @@ def run_benchmarks(
                 model_preds["Prophet"] = prophet_preds
                 rows = compute_metrics(test_df, prophet_preds, "Prophet", train_df=train_df,
                                        interval_method=prophet_interval)
-                rows = accept_model_rows(rows, "Prophet")
+                rows = accept_rows_and_calibrator(rows, "Prophet", CALIBRATOR_DIR / "Prophet.json")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -761,7 +773,7 @@ def run_benchmarks(
             model_preds[chronos_label] = zs_preds
             rows = compute_metrics(test_df, zs_preds, chronos_label, train_df=train_df,
                                    interval_method=zs_interval)
-            rows = accept_model_rows(rows, chronos_label)
+            rows = accept_rows_and_calibrator(rows, chronos_label, CALIBRATOR_DIR / "Chronos.json")
             all_rows.extend(rows)
             log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
     except Exception as e:
@@ -789,7 +801,7 @@ def run_benchmarks(
                 model_preds["AutoGluon_Ensemble"] = ft_preds
                 rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble", train_df=train_df,
                                        interval_method=ft_interval)
-                rows = accept_model_rows(rows, "AutoGluon_Ensemble")
+                rows = accept_rows_and_calibrator(rows, "AutoGluon_Ensemble", CALIBRATOR_DIR / "AutoGluon_Ensemble.json")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:

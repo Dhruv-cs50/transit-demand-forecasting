@@ -521,11 +521,20 @@ class ClearSavedCalibratorsTest(unittest.TestCase):
         for name in ("SARIMA.json", "Chronos.json"):
             (self.dir / name).write_text("{}")
         (self.dir / "notes.txt").write_text("not a calibrator")
-        (self.dir / "sub").mkdir()
-        (self.dir / "sub" / "x.json").write_text("{}")
+        # A directory whose name matches *.json is skipped, not removed.
+        (self.dir / "sub.json").mkdir()
+        (self.dir / "sub.json" / "x.json").write_text("{}")
         self.assertEqual(clear_saved_calibrators(self.dir), 2)
-        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["notes.txt", "sub"])
-        self.assertTrue((self.dir / "sub" / "x.json").exists())
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["notes.txt", "sub.json"])
+        self.assertTrue((self.dir / "sub.json" / "x.json").exists())
+
+    def test_a_file_that_cannot_be_removed_fails_the_run(self):
+        # Carrying on would leave an older run's calibrator to be served.
+        self.dir.mkdir()
+        (self.dir / "SARIMA.json").write_text("{}")
+        with mock.patch.object(Path, "unlink", side_effect=PermissionError("read-only")):
+            with self.assertRaises(PermissionError):
+                clear_saved_calibrators(self.dir)
 
     def test_missing_directory_is_nothing_to_clear(self):
         self.assertEqual(clear_saved_calibrators(self.dir), 0)
@@ -547,3 +556,36 @@ class ClearSavedCalibratorsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LateRejectionTest(unittest.TestCase):
+    """A model rejected after its calibrator was saved leaves no calibrator."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "M.json"
+        self.path.write_text("{}")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _rows(n: int) -> list[dict]:
+        return [{"model": "M", "slice": "overall", "n": n, "n_expected": 300, "WAPE_%": 5.0}]
+
+    def test_rejected_model_loses_its_calibrator(self):
+        self.assertEqual(benchmarks.accept_rows_and_calibrator(self._rows(299), "M", self.path), [])
+        self.assertFalse(self.path.exists())
+
+    def test_accepted_model_keeps_its_calibrator(self):
+        self.assertTrue(benchmarks.accept_rows_and_calibrator(self._rows(300), "M", self.path))
+        self.assertTrue(self.path.exists())
+
+
+class UnsearchableCalibratorTest(unittest.TestCase):
+    def test_permission_error_on_lookup_is_refused_not_raised(self):
+        cfg = _cfg(Prophet={"method": "scaled", "group": "horizon"})
+        test = _preds("2025-07-01", seed=2)[BAND]
+        with mock.patch.object(Path, "exists", side_effect=PermissionError("no search permission")):
+            with self.assertRaises(CalibratorUnavailable):
+                serve_band(test, "Prophet", cfg, calibrator_path=Path("x/Prophet.json"))

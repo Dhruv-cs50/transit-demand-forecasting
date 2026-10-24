@@ -444,7 +444,11 @@ def serve_band(
     if not plan["calibrated"]:
         return no_calibration(preds), plan
 
-    if calibrator_path is None or not Path(calibrator_path).exists():
+    try:
+        present = calibrator_path is not None and Path(calibrator_path).exists()
+    except OSError as e:  # e.g. an unsearchable parent directory on Python <= 3.11
+        raise CalibratorUnavailable(f"{model_key}: cannot read calibrator {calibrator_path}: {e!r}") from e
+    if not present:
         raise CalibratorUnavailable(
             f"{model_key}: configs/model.yaml calibrates this model's band "
             f"({plan['method']}/{plan['group']}) but no saved calibrator was found"
