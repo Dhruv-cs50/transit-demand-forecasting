@@ -35,12 +35,14 @@ Weather covers every store month, 2019 and 2022–2025, with no gaps. It is
 observed weather, so for the Jul–Dec 2025 test window it is hindsight, not a
 forecast.
 
-The events archive starts on 2019-09-17, so it misses the Sharks' Jan–Apr 2019
-home games (the 2018–19 season). Those four months read as months without a
-game (`is_game_day` false, `hours_to_event` 0.0), the same as May–Aug every
-year. That is a gap in the data, not an observation. From Sep 2019 on, game
-days mark Jan–Apr and Sep–Dec, 8 store months a year: 1,800 of the 3,000
-station-months have `is_game_day` true.
+The events archive starts on 2019-09-17, so it misses the Sharks' 2018–19
+home games: the regular season through April 2019 and the playoff games that
+ran into May 2019. Those five months read as months without a game
+(`is_game_day` false, `hours_to_event` 0.0), the same as an off-season month.
+That is a gap in the data, not an observation. From Sep 2019 on, game days mark
+Jan–Apr and Sep–Dec, 8 store months a year: 1,800 of the 3,000 station-months
+have `is_game_day` true. (The archive flags no playoff games; the Sharks made no
+playoffs in 2022–2025.)
 
 No ranked model reads these columns: SARIMA, Prophet and SeasonalNaive are
 univariate, and the Chronos-1 zero-shot path falls back to univariate.
@@ -129,7 +131,7 @@ on 2026-10-24.
 |---|---|---|
 | `weather_all_stations_2019-01-01_2023-12-31.parquet` | Open-Meteo hourly weather, 2019–2023, 306,768 rows (`fetch_weather_openmeteo.py`) | `3ae3ce7280077bc6b05ef6f2d9b65310d2c44574f6f9a957d6f8474a9f83a4a9` |
 | `weather_all_stations_2024-01-01_2025-12-31.parquet` | Open-Meteo hourly weather (archive API), 2024–2025, 122,808 rows | `c60b28184932a21d734b7f03536c5f0cb7afd957ac5d177c77d0c157f80ce72e` |
-| `events_2019-01-01_2023-12-31.parquet` | 174 San Jose Sharks home games at SAP Center, Sep 2019 → Dec 2023 (Jan–Apr 2019 missing, see above), from the NHL API (`fetch_events.py`) | `23748ca287ec18900a44b0cc6b1ad5dcc392a15afe140f5bd7b1bb3637c8ca27` |
+| `events_2019-01-01_2023-12-31.parquet` | 174 San Jose Sharks home games at SAP Center, Sep 2019 → Dec 2023 (Jan–May 2019 missing, see above), from the NHL API (`fetch_events.py`) | `23748ca287ec18900a44b0cc6b1ad5dcc392a15afe140f5bd7b1bb3637c8ca27` |
 | `events_2024-01-01_2025-12-31.parquet` | 93 Sharks home games, Jan 2024 → Dec 2025, from the NHL API | `4c8203738470dc1dcf417a368726530f06338241a336f08619c6c057c0e87c08` |
 
 ## Rebuilding
