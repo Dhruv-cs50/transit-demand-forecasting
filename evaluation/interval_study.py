@@ -30,6 +30,19 @@ MCMC mode Prophet's yhat comes from posterior-mean parameters instead of the
 MAP fit, so its P50 (and WAPE) differ from the leaderboard model's; it is
 scored as a hybrid whose MCMC offsets are re-anchored on the MAP P50.
 
+Sprint 5 (adaptive_study): calibrations that track recent errors, under the
+rule fixed on docs/sprint-board.md before any of these numbers existed.
+  pool        forecasts from rolling monthly origins 2023-12-31 .. T - 1 month,
+              rows whose target is on or before T, store cut at
+              min(origin + 6 months, T)
+  windows     B = 2024-H2 scored from T = 2024-06-30, V = 2025-H1 from
+              T = 2024-12-31; a candidate must qualify in both
+  eligible    incumbent (configs/model.yaml), rolling_hl6 (weighted conformal,
+              half-life 6 months) x 3 scores x {pooled, horizon}, aci_origin
+              (gamma 0.1) x 3 scores
+  diagnostic  rolling_eq, single-window variants, aci_window, monthly_recal
+              (the last two use the scored window's own earlier actuals)
+
 Usage:
     python evaluation/interval_study.py            # reuse cached forecasts
     python evaluation/interval_study.py --refresh  # refit every model
@@ -50,7 +63,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from evaluation.calibration import (  # noqa: E402
-    GROUPS, METHODS, add_horizon, apply_conformal, describe, fit_conformal,
+    GROUPS, METHODS, clip_alpha, default_alphas, add_horizon, apply_conformal, describe,
+    fit_aci_conformal, fit_conformal, fit_rolling_conformal, no_calibration, with_origin_horizon,
 )
 from evaluation.metrics import coverage  # noqa: E402
 
@@ -71,6 +85,13 @@ BAND = (75.0, 85.0)
 MAX_TAIL_MISS = 15.0
 MCMC_SAMPLES = 400      # 4 chains x 200 post-warmup draws = 800 posterior draws
 N_FOLDS = 5
+
+# Sprint 5, fixed on docs/sprint-board.md (6daa610) before measuring.
+ROLLING_START = pd.Timestamp("2023-12-31")   # first origin every model can use as deployed
+HALF_LIFE = 6                                # months, rolling_hl6
+GAMMA = 0.1                                  # ACI step size
+SCORES = ("scaled", "relative", "asym_relative")
+ELIGIBLE = ("incumbent", "rolling_hl6", "aci_origin")
 
 
 def load_config() -> dict:
@@ -100,11 +121,17 @@ def _target_window(df: pd.DataFrame, origin: pd.Timestamp, horizon: int) -> pd.D
     return df[(df["timestamp"] > origin) & (df["timestamp"] <= end)]
 
 
-def _store_as_of_window_end(df: pd.DataFrame, origin: pd.Timestamp, horizon: int) -> pd.DataFrame:
+def _store_as_of_window_end(df: pd.DataFrame, origin: pd.Timestamp, horizon: int,
+                            cut: pd.Timestamp = None) -> pd.DataFrame:
     """The store a model sees when forecasting from `origin`: history plus the
     forecast window's rows (Chronos reads future covariate rows from it), and
-    nothing after — the same shape the leaderboard's test origin sees."""
-    return df[df["timestamp"] <= origin + pd.DateOffset(months=horizon)]
+    nothing after — the same shape the leaderboard's test origin sees. A
+    rolling-origin forecast for a calibration pool is also cut at the pool's
+    cutoff (`cut`), so no row after it reaches the forecast."""
+    end = origin + pd.DateOffset(months=horizon)
+    if cut is not None:
+        end = min(end, cut)
+    return df[df["timestamp"] <= end]
 
 
 def chronos_label(cfg: dict) -> str:
@@ -114,9 +141,9 @@ def chronos_label(cfg: dict) -> str:
 
 
 def forecast(model: str, df: pd.DataFrame, cfg: dict, origin: pd.Timestamp,
-             horizon: int, scratch: Path) -> pd.DataFrame:
+             horizon: int, scratch: Path, cut: pd.Timestamp = None) -> pd.DataFrame:
     freq = cfg["data"].get("resample_freq", "MS")
-    store = _store_as_of_window_end(df, origin, horizon)
+    store = _store_as_of_window_end(df, origin, horizon, cut)
     train_start = pd.Timestamp(cfg["data"]["train_start"])
 
     if model == "SeasonalNaive":
@@ -198,8 +225,12 @@ def prophet_mcmc_forecast(store: pd.DataFrame, cfg: dict, origin: pd.Timestamp,
 
 
 def cached_forecast(model: str, df: pd.DataFrame, cfg: dict, origin: pd.Timestamp,
-                    horizon: int, refresh: bool) -> pd.DataFrame:
+                    horizon: int, refresh: bool, cut: pd.Timestamp = None) -> pd.DataFrame:
     tag = f"{model.split(' ')[0]}_{origin:%Y-%m-%d}"
+    if cut is not None and cut < origin + pd.DateOffset(months=horizon):
+        tag += f"_cut{cut:%Y-%m-%d}"
+    else:
+        cut = None   # a cut at or after the window end changes nothing
     path = OUT_DIR / f"forecast_{tag}.parquet"
     meta = OUT_DIR / f"forecast_{tag}.meta.yaml"
     if path.exists() and not refresh:
@@ -209,8 +240,8 @@ def cached_forecast(model: str, df: pd.DataFrame, cfg: dict, origin: pd.Timestam
         return preds
     scratch = OUT_DIR / "scratch" / tag
     scratch.mkdir(parents=True, exist_ok=True)
-    log.info(f"forecasting {model} from {origin:%Y-%m-%d}")
-    preds = forecast(model, df, cfg, origin, horizon, scratch)
+    log.info(f"forecasting {model} from {origin:%Y-%m-%d}" + (f", store cut at {cut:%Y-%m-%d}" if cut else ""))
+    preds = forecast(model, df, cfg, origin, horizon, scratch, cut)
     attrs = dict(preds.attrs)
     preds = preds[["timestamp", "station_id", "p10", "p50", "p90"]].copy()
     preds["timestamp"] = pd.to_datetime(preds["timestamp"])
@@ -264,6 +295,172 @@ def station_folds(frame: pd.DataFrame, method: str, group: str) -> pd.DataFrame:
         calib = fit_conformal(frame[fold != k], method, group, LEVEL)
         parts.append(apply_conformal(frame[fold == k], calib))
     return pd.concat(parts).sort_index()
+
+
+# ── Sprint 5: calibrations that track recent errors ──────────────────────────
+
+def month_ends(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
+    return list(pd.date_range(start, end, freq="ME"))
+
+
+def rolling_forecasts(model: str, df: pd.DataFrame, cfg: dict, origins, horizon: int,
+                      refresh: bool, cut: pd.Timestamp = None) -> pd.DataFrame:
+    """Forecasts from every origin, each with its actuals (left merge, as
+    with_actuals) and the explicit origin/horizon columns a pool needs."""
+    parts = []
+    for o in origins:
+        preds = cached_forecast(model, df, cfg, o, horizon, refresh, cut=cut)
+        parts.append(with_origin_horizon(with_actuals(_target_window(df, o, horizon), preds), o))
+    return pd.concat(parts, ignore_index=True)
+
+
+def aci_within_window(pool: pd.DataFrame, scored: pd.DataFrame, method: str,
+                      as_of: pd.Timestamp) -> pd.DataFrame:
+    """Diagnostic: scored month k uses rolling_hl6's quantile at level 1 - alpha_k;
+    alpha is updated after each month with that month's miss rate."""
+    target = default_alphas(method, LEVEL)
+    alpha, parts = target, []
+    for _, rows in scored.groupby("timestamp", sort=True):
+        n = fit_rolling_conformal(pool, method, "pooled", LEVEL, as_of, half_life=HALF_LIFE)["n"]
+        if method == "asym_relative":
+            alpha = (clip_alpha(alpha[0], n), clip_alpha(alpha[1], n))
+        else:
+            alpha = clip_alpha(alpha, n)
+        cal = fit_rolling_conformal(pool, method, "pooled", LEVEL, as_of,
+                                    half_life=HALF_LIFE, alphas=alpha)
+        out = apply_conformal(rows, cal)
+        y = out["ridership"].to_numpy(float)
+        below = float(np.mean(y < out["p10"].to_numpy(float)))
+        above = float(np.mean(y > out["p90"].to_numpy(float)))
+        if method == "asym_relative":
+            alpha = (alpha[0] + GAMMA * (target[0] - below), alpha[1] + GAMMA * (target[1] - above))
+        else:
+            alpha = alpha + GAMMA * (target - (below + above))
+        parts.append(out)
+    return pd.concat(parts).sort_index()
+
+
+def monthly_recal(pool_full: pd.DataFrame, scored: pd.DataFrame, method: str,
+                  as_of: pd.Timestamp) -> pd.DataFrame:
+    """Diagnostic: rolling_hl6 refit before each scored month with every row
+    resolved by then (origins <= as_of, including the scored window's own)."""
+    parts = []
+    for k, (_, rows) in enumerate(scored.groupby("timestamp", sort=True)):
+        cutoff = as_of + pd.offsets.MonthEnd(k)
+        cal = fit_rolling_conformal(pool_full, method, "pooled", LEVEL, cutoff, half_life=HALF_LIFE)
+        parts.append(apply_conformal(rows, cal))
+    return pd.concat(parts).sort_index()
+
+
+def _q_summary(calib: dict) -> str:
+    text = describe(calib)
+    if calib.get("scheme") == "aci":
+        a = calib["alpha_final"]
+        text += f"; final alpha {a[0]:.4f}/{a[1]:.4f}" if isinstance(a, tuple) else f"; final alpha {a:.4f}"
+    return text
+
+
+def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
+                   model_keys: dict, horizon: int, refresh: bool, val_end: pd.Timestamp) -> dict:
+    """Score every Sprint 5 candidate on windows B and V and apply the rule
+    fixed on docs/sprint-board.md. Returns the tables and the decision."""
+    train_end = pd.Timestamp(cfg["data"]["train_end"]) + pd.offsets.MonthEnd(0)
+    windows = {
+        # name: (scored origin T, frame key of the scored window, frame key of the previous half-year)
+        "B": (train_end - pd.DateOffset(months=horizon) + pd.offsets.MonthEnd(0), "cal", "cal2"),
+        "V": (train_end, "eval", "cal"),
+    }
+    chosen = (cfg.get("calibration") or {}).get("models") or {}
+
+    rows, checks = [], []
+    for model in models:
+        mcfg = chosen.get(model_keys[model]) or {}
+        for wname, (T, scored_key, prev_key) in windows.items():
+            scored = with_origin_horizon(frames[(model, scored_key)], T)
+            prev = frames[(model, prev_key)]
+            origins = month_ends(ROLLING_START, T - pd.offsets.MonthEnd(1))
+            pool = rolling_forecasts(model, df, cfg, origins, horizon, refresh, cut=T)
+            pool_full = pd.concat([rolling_forecasts(model, df, cfg, origins, horizon, refresh),
+                                   scored], ignore_index=True)
+            assert pool["timestamp"].max() <= val_end and pool_full["timestamp"].max() <= val_end, \
+                "a pool row falls after val_end"
+
+            # Store-cut check: a forecast cut at T must equal the uncut one on shared rows.
+            key = ["timestamp", "station_id", "origin"]
+            both = pool.merge(pool_full, on=key, suffixes=("_cut", "_full"))
+            diff = max(float(np.nanmax(np.abs(both[f"{c}_cut"] - both[f"{c}_full"]))) for c in ("p10", "p50", "p90"))
+            checks.append({"model": model, "window": wname, "T": f"{T:%Y-%m-%d}", "origins": len(origins),
+                           "pool_rows_resolved": int(((pool["timestamp"] <= T)
+                                                      & pool["ridership"].notna()).sum()),
+                           "cut_vs_uncut_max_abs_diff": diff, "shared_rows": len(both)})
+
+            def add(candidate, scheme, method, group, eligible, out, calib_text):
+                rows.append({"model": model, "window": wname, "candidate": candidate, "scheme": scheme,
+                             "method": method, "group": group, "eligible": eligible,
+                             "calibrator": calib_text, **score(out, val_end)})
+
+            # Incumbent: the current configs/model.yaml entry, fit on the previous half-year.
+            imethod = mcfg.get("method", "none")
+            if imethod in (None, "none"):
+                add("incumbent", "own band", "-", "-", True, no_calibration(scored), "own band")
+            else:
+                igroup = mcfg.get("group", "pooled")
+                calib = fit_conformal(prev, imethod, igroup, LEVEL)
+                add("incumbent", "single", imethod, igroup, True, apply_conformal(scored, calib), describe(calib))
+
+            for method in SCORES:
+                for group in ("pooled", "horizon"):
+                    for scheme, hl, eligible in (("rolling_hl6", HALF_LIFE, True), ("rolling_eq", None, False)):
+                        calib = fit_rolling_conformal(pool, method, group, LEVEL, T, half_life=hl)
+                        add(f"{scheme} {method}/{group}", scheme, method, group, eligible,
+                            apply_conformal(scored, calib), describe(calib))
+                    calib = fit_conformal(prev, method, group, LEVEL)
+                    add(f"single {method}/{group}", "single", method, group, False,
+                        apply_conformal(scored, calib), describe(calib))
+                calib = fit_aci_conformal(pool, method, LEVEL, T, gamma=GAMMA)
+                add(f"aci_origin {method}/pooled", "aci_origin", method, "pooled", True,
+                    apply_conformal(scored, calib), _q_summary(calib))
+                add(f"aci_window {method}/pooled", "aci_window", method, "pooled", False,
+                    aci_within_window(pool, scored, method, T), "per month")
+                add(f"monthly_recal {method}/pooled", "monthly_recal", method, "pooled", False,
+                    monthly_recal(pool_full, scored, method, T), "per month")
+
+    cand = pd.DataFrame(rows)
+    checks = pd.DataFrame(checks)
+
+    # ── The rule (docs/sprint-board.md, Sprint 5) ─────────────────────────────
+    elig = cand[cand["eligible"]].copy()
+    elig["passes"] = (elig["Coverage_%"].between(*BAND)
+                      & (elig["Below_P10_%"] <= MAX_TAIL_MISS)
+                      & (elig["Above_P90_%"] <= MAX_TAIL_MISS))
+    wide = elig.pivot_table(index=["model", "candidate"], columns="window",
+                            values=["passes", "Coverage_%", "Below_P10_%", "Above_P90_%", "IntervalScore_%"],
+                            aggfunc="first")
+    wide.columns = [f"{v}_{w}" for v, w in wide.columns]
+    sel = wide.reset_index()
+    # A window with no row (NaN) is a failure, never a pass.
+    sel["qualifies"] = sel["passes_B"].eq(True) & sel["passes_V"].eq(True)
+    sel["mean_IntervalScore_%"] = ((sel["IntervalScore_%_B"] + sel["IntervalScore_%_V"]) / 2).round(2)
+    sel = sel.drop(columns=["passes_B", "passes_V"]).sort_values(["model", "mean_IntervalScore_%"])
+
+    q = sel[sel["qualifies"]]
+    common = (q[q["candidate"] != "incumbent"].groupby("candidate")
+              .agg(models=("model", "nunique"), mean_score=("mean_IntervalScore_%", "mean")))
+    common = common[common["models"] == len(models)].sort_values("mean_score")
+    decision = {}
+    if not common.empty:
+        winner = common.index[0]
+        decision = {m: {"choice": winner, "basis": "one method qualifies for every model"} for m in models}
+    else:
+        for m in models:
+            qm = q[q["model"] == m].sort_values("mean_IntervalScore_%")
+            if qm.empty:
+                decision[m] = {"choice": "keep current entry", "basis": "no eligible candidate qualifies"}
+            else:
+                decision[m] = {"choice": qm.iloc[0]["candidate"], "basis": "lowest-scoring qualifier for this model",
+                               "mean_IntervalScore_%": float(qm.iloc[0]["mean_IntervalScore_%"])}
+    return {"candidates": cand, "selection": sel, "common": common.reset_index(),
+            "checks": checks, "decision": decision}
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -378,7 +575,15 @@ def main():
                          "q": {k: [round(x, 4) for x in v] if isinstance(v, tuple) else round(v, 4)
                                for k, v in calib["q"].items()}})
 
+    # ── Sprint 5: calibrations that track recent errors ────────────────────────
+    adaptive = adaptive_study(df, cfg, models, frames, model_keys, horizon, args.refresh, val_end)
+
     # ── Write ──────────────────────────────────────────────────────────────────
+    adaptive["candidates"].to_csv(OUT_DIR / "adaptive_candidates.csv", index=False)
+    adaptive["selection"].to_csv(OUT_DIR / "adaptive_selection.csv", index=False)
+    adaptive["checks"].to_csv(OUT_DIR / "adaptive_checks.csv", index=False)
+    (OUT_DIR / "adaptive_decision.yaml").write_text(
+        yaml.safe_dump(adaptive["decision"], sort_keys=False, allow_unicode=True))
     table.to_csv(OUT_DIR / "validation_methods.csv", index=False)
     sens.to_csv(OUT_DIR / "validation_sensitivity.csv", index=False)
     per_method.to_csv(OUT_DIR / "validation_selection.csv", index=False)
@@ -405,6 +610,19 @@ def main():
     print(yaml.safe_dump(mcmc_note, sort_keys=False))
     print("=== Deployed calibrators (configs/model.yaml), fit on 2025-H1 validation forecasts ===")
     print(yaml.safe_dump(deployed, sort_keys=False, allow_unicode=True))
+
+    print("\n=== Sprint 5: pools and store-cut check ===")
+    print(adaptive["checks"].to_string(index=False))
+    cols = ["model", "window", "candidate", "eligible", "Coverage_%", "Below_P10_%", "Above_P90_%",
+            "Width_%_of_P50", "IntervalScore_%", "Coverage_by_month"]
+    print("\n=== Sprint 5: every candidate, windows B (2024-H2) and V (2025-H1) ===")
+    print(adaptive["candidates"][cols].to_string(index=False))
+    print("\n=== Sprint 5: eligible candidates under the fixed rule (both windows) ===")
+    print(adaptive["selection"].to_string(index=False))
+    print("\nCommon qualifiers (every model):")
+    print(adaptive["common"].to_string(index=False) if not adaptive["common"].empty else "  none")
+    print("\nDecision:")
+    print(yaml.safe_dump(adaptive["decision"], sort_keys=False, allow_unicode=True))
 
 
 if __name__ == "__main__":

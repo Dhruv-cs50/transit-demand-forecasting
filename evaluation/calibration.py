@@ -329,7 +329,7 @@ def _tail_quantiles(s: np.ndarray, w: np.ndarray, method: str, alphas):
     return weighted_conformal_quantile(s, w, 1.0 - alphas)
 
 
-def _default_alphas(method: str, level: float):
+def default_alphas(method: str, level: float):
     alpha = 1.0 - level
     return (alpha / 2, alpha / 2) if method == "asym_relative" else alpha
 
@@ -378,7 +378,7 @@ def fit_rolling_conformal(
          else 0.5 ** (df["age"].to_numpy(dtype=float) / float(half_life)))
     keys = (np.full(len(df), "all", dtype=object) if group == "pooled"
             else df["horizon"].to_numpy())
-    alphas = _default_alphas(method, level) if alphas is None else alphas
+    alphas = default_alphas(method, level) if alphas is None else alphas
     q, n_by = {}, {}
     for key in pd.unique(keys):
         m = keys == key
@@ -389,7 +389,7 @@ def fit_rolling_conformal(
             "n_by_group": n_by}
 
 
-def _clip_alpha(a: float, n: int) -> float:
+def clip_alpha(a: float, n: int) -> float:
     """Keep the quantile finite (alpha >= 1/(n+1)) and at least the median (<= 0.5)."""
     return float(min(max(a, 1.0 / (n + 1)), 0.5))
 
@@ -415,7 +415,7 @@ def fit_aci_conformal(pool: pd.DataFrame, method: str, level: float, as_of,
     month = pd.to_datetime(df["timestamp"]).dt.to_period("M").to_numpy()
     months = sorted(pd.unique(month))
     asym = method == "asym_relative"
-    target = _default_alphas(method, level)
+    target = default_alphas(method, level)
     alpha = target
     path = []
     ones = np.ones(len(s))
@@ -423,7 +423,7 @@ def fit_aci_conformal(pool: pd.DataFrame, method: str, level: float, as_of,
         prev, batch = month < m, month == m
         n = int(prev.sum())
         if asym:
-            alpha = (_clip_alpha(alpha[0], n), _clip_alpha(alpha[1], n))
+            alpha = (clip_alpha(alpha[0], n), clip_alpha(alpha[1], n))
             q_lo, q_hi = _tail_quantiles(s[prev], ones[prev], method, alpha)
             err_lo = float(np.mean(s[batch] < q_lo))
             err_hi = float(np.mean(s[batch] > q_hi))
@@ -431,13 +431,13 @@ def fit_aci_conformal(pool: pd.DataFrame, method: str, level: float, as_of,
             alpha = (alpha[0] + gamma * (target[0] - err_lo),
                      alpha[1] + gamma * (target[1] - err_hi))
         else:
-            alpha = _clip_alpha(alpha, n)
+            alpha = clip_alpha(alpha, n)
             q_m = _tail_quantiles(s[prev], ones[prev], method, alpha)
             err = float(np.mean(s[batch] > q_m))
             path.append(alpha)
             alpha = alpha + gamma * (target - err)
     n = len(s)
-    alpha = (_clip_alpha(alpha[0], n), _clip_alpha(alpha[1], n)) if asym else _clip_alpha(alpha, n)
+    alpha = (clip_alpha(alpha[0], n), clip_alpha(alpha[1], n)) if asym else clip_alpha(alpha, n)
     path.append(alpha)
     q = _tail_quantiles(s, ones, method, alpha)
     return {"method": method, "group": "pooled", "level": level, "n": int(n), "q": {"all": q},
