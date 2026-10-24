@@ -25,8 +25,9 @@ calibration.
 - **No single method qualified for all four models.** The rule was fixed
   before any number was seen (see below), so the fallback is a per-model
   choice.
-- **Prophet and Chronos-1 are calibrated.** Both were badly over-confident
-  (54% and 49% raw coverage). Prophet's winner, `scaled/horizon` (interval
+- **Prophet and Chronos-1 get split-conformal bands.** On test these reach
+  74.7% and 72.7%, short of 80% (see Test result). Both were badly over-confident
+  (54% and 49% raw coverage on validation). Prophet's winner, `scaled/horizon` (interval
   score 20.31), edges the next qualifiers, `relative/pooled` (20.77) and
   `scaled/pooled` (20.89), by less than the noise in a 300-row window. It was taken because the rule says lowest interval score,
   not because it looks better. Chronos-1 qualifies only under
