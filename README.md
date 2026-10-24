@@ -12,15 +12,15 @@ CS163 Data Science Senior Project - Dhruv Shah
 
 ---
 
-Bay Area Transit Demand Forecasting is an end-to-end forecasting project for monthly BART station ridership. It builds a station-level feature store from public transit, weather, event, and calendar data; trains statistical and machine-learning forecasting models; evaluates them on chronological splits; and exports the results to a static website hosted on Google App Engine.
+Bay Area Transit Demand Forecasting is an end-to-end forecasting project for monthly BART station ridership. It builds a station-level feature store from public transit, weather, event, and calendar data; fits statistical forecasting models and runs a pretrained foundation model (Chronos-1) zero-shot; evaluates them on chronological splits; and exports the results to a static website hosted on Google App Engine.
 
 The current production path models BART origin-destination ridership at a month-start cadence. The codebase also includes ingestion and feature hooks for broader Bay Area transit feeds, event calendars, weather covariates, and road context so the project can expand beyond the current monthly BART target.
 
 ## Highlights
 
 - Monthly station-level BART ridership forecasting with chronological train, validation, and test splits.
-- External covariates from Open-Meteo weather and NHL/Ticketmaster event schedules.
-- Baselines and model comparison across seasonal naive, SARIMA, Prophet, Chronos zero-shot, and AutoGluon time-series models.
+- Weather (Open-Meteo) and San Jose Sharks home-game columns in the feature store, 2019–2023 only. No ranked model uses them yet (see the Chronos caveat below); Ticketmaster ingestion exists but needs a key.
+- Baselines and model comparison across seasonal naive, SARIMA, Prophet and Chronos-1 zero-shot. AutoGluon fine-tuning code exists but has never produced a result (see below).
 - Data validation for required columns, missing windows, station coverage, and ridership anomalies.
 - Static website export that turns feature stores and model outputs into JSON consumed by the frontend.
 - FastAPI service for station forecasts with cached-output and live-inference paths.
@@ -134,7 +134,7 @@ The merge pipeline aggregates BART OD records to origin station-month totals, jo
 
 ## Setup
 
-**Prerequisites:** Python 3.11, Git. AutoGluon and Chronos require Python 3.11 — newer versions have dependency conflicts.
+**Prerequisites:** Python 3.11, Git. AutoGluon needs Python below 3.14; the published benchmark (SARIMA, Prophet, Chronos-1) ran on Python 3.14 without it.
 
 ```bash
 # Clone
@@ -159,7 +159,7 @@ pip install -r machine_learning_files/requirements.txt
 | Open-Meteo | Weather data | No key required |
 | PeMS | Road data | Manual download, CALTRANS account |
 
-The pipeline works without these keys if you skip the corresponding fetchers — BART OD data (the core dataset) requires no API key and is fetched directly.
+The pipeline works without these keys if you skip the corresponding fetchers — BART OD data (the core dataset) requires no API key, but bart.gov blocks automated downloads, so the Ridership workbooks are downloaded by hand (see `data/MANIFEST.md` and Troubleshooting).
 
 ## Reproduce The Pipeline
 
@@ -379,7 +379,7 @@ Additional project documentation:
 ## Known Limitations
 
 - The active modeled target is monthly BART OD ridership. Some files describe future higher-frequency transit support, but the current reliable pipeline is monthly.
-- Weather and event data are currently aggregated to the monthly modeling cadence.
+- Weather and event data are aggregated to the monthly modeling cadence, and both raw archives end in December 2023, so 2024–2025 rows (the test window included) have no weather and no games. No ranked model reads these columns.
 - `scripts/run_pipeline.sh` assumes `.venv311/bin/python` exists.
 - Chronos defaults to `cpu` in `configs/model.yaml` (suitable for Cloud Run); change it to `mps` on Apple Silicon or `cuda` on a GPU machine for faster inference.
 - Some source fetchers require external credentials or manual data access.

@@ -36,7 +36,7 @@ const Reveal = ({ as: Tag = 'div', className = '', children, delay, ...rest }) =
 const Nav = ({ dark, onToggleDark }) => {
   const links = [
     ['overview','Overview'], ['method','Method'], ['data','Data'],
-    ['results','Results'], ['demo','Live demo'], ['recs','Recommendations'], ['eda','EDA'], ['about','About']
+    ['results','Results'], ['demo','Demo'], ['recs','Recommendations'], ['about','About']
   ];
   const extLinks = [
     { href:'transit-demo.html', label:'Map Demo ↗' },
@@ -84,20 +84,20 @@ const Hero = () => (
         <div className="eyebrow"><span className="pip" /> CS 163 · Senior Project · Spring 2026</div>
         <div style={{ height: 22 }} />
         <h1 className="hero-title">
-          Forecasting <em>public transit ridership</em>, stop by stop, hour by hour.
+          Forecasting <em>public transit ridership</em>, station by station, month by month.
         </h1>
         <div style={{ height: 20 }} />
         <p className="lede">
-          A machine‑learning pipeline that predicts monthly ridership across 50 BART stations
-          using Chronos‑1 (chronos-t5-small), a pretrained time‑series foundation model — enriched with weather and
-          events data to capture seasonal and surge patterns, built to support smarter service
-          planning decisions.
+          A machine‑learning pipeline that forecasts monthly ridership at all 50 BART stations,
+          six months ahead, built to support service planning decisions. Four models are scored
+          on the same holdout: SARIMA, Prophet, a seasonal‑naïve baseline and Chronos‑1
+          (chronos-t5-small), a pretrained time‑series foundation model run zero‑shot. None of the
+          ranked models uses weather or event data yet.
         </p>
         <div style={{ height: 28 }} />
         <div className="flex gap-md" style={{ flexWrap:'wrap' }}>
-          <a href="#demo" className="btn btn-primary">Try the live demo <I.arrowR /></a>
+          <a href="#demo" className="btn btn-primary">Try the map demo <I.arrowR /></a>
           <a href="#results" className="btn btn-secondary">See results</a>
-          <a href="#" className="btn btn-ghost"><I.download /> Project report (PDF)</a>
         </div>
         <div style={{ height: 28 }} />
         <div className="hero-meta">
@@ -109,7 +109,7 @@ const Hero = () => (
         <div className="hero-art">
           <HeroOrbit />
           <div className="float-card" style={{ top: '6%', left: '-4%' }}>
-            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>STATION · 12TH ST</div>
+            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>ALL 50 STATIONS</div>
             <div style={{ display:'flex', alignItems:'baseline', gap:8 }}>
               <div className="mono" style={{ fontSize: 22, fontWeight:600, color:'var(--accent)' }}>3.2%</div>
               <div style={{ fontSize: 12, color:'var(--ink-muted)' }}>WAPE · best model</div>
@@ -133,7 +133,7 @@ const AtAGlance = () => {
     { ic: <I.target />, num: '3.2', unit:'% WAPE', lbl:'SARIMA best model — vs 5.8% Prophet', delta:'Jul–Dec 2025 holdout · 300 station-months' },
     { ic: <I.chart />, num: '50', unit:' stations', lbl:'Full BART network covered', delta:'All OD pairs · Bay Area' },
     { ic: <I.database />, num: '3,000', unit:' mo', lbl:'Station-month ridership records', delta:'2019 + 2022–2025 BART OD' },
-    { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'Point forecasts calibrated; intervals are not' },
+    { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'Intervals not calibrated yet' },
   ];
   return (
     <section id="overview-metrics" style={{ padding:'40px 0 80px', borderTop:'none' }}>
@@ -156,8 +156,8 @@ const AtAGlance = () => {
 /* ── Methodology timeline ──────────────────────────────────────── */
 const Method = () => {
   const steps = [
-    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public ridership reports (bart.gov workbooks, 2019 + 2022–2025; BART published none for 2020–21), joined with Open-Meteo hourly weather and a Bay Area events calendar. Stored as Parquet in a local feature store.", tools:['BART reports','Open-Meteo','Parquet'] },
-    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built covariates including lag windows, rolling means, holiday and school-calendar flags, weather, and event proximity indicators as known-future inputs. The event covariates are currently constant zero — the pipeline has no Ticketmaster key — and the Chronos checkpoint cannot accept covariates at all.', tools:['pandas','scikit-learn'] },
+    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public ridership reports (bart.gov workbooks, 2019 + 2022–2025; BART published none for 2020–21), joined with Open-Meteo weather aggregated to months and a San Jose Sharks home-game schedule. Both archives end in December 2023. Stored as Parquet in a local feature store.", tools:['BART reports','Open-Meteo','Parquet'] },
+    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built lag and rolling-mean features, calendar flags, monthly weather summaries and Sharks game-day indicators. Because both archives end in 2023, the 2024–2025 rows, the test window included, have no weather and no games. No ranked model reads these features: SARIMA and the seasonal-naive baseline are univariate, Prophet uses only a US federal holiday calendar, and the Chronos-1 checkpoint cannot accept covariates.', tools:['pandas'] },
     { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline. AutoGluon fine-tuning is scaffolded but has never been run — autogluon.timeseries will not install on this Python.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
     { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations. Intervals are not yet calibrated.', tools:['WAPE','MAE'] },
     { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station) with pre-computed outputs exported to JSON powering the website heat map.', tools:['FastAPI','React','JSON'] },
@@ -168,8 +168,8 @@ const Method = () => {
         <div className="section-h">
           <Reveal><div className="eyebrow"><span className="pip" /> Methodology</div></Reveal>
           <Reveal delay="1"><div className="row">
-            <h2>Five steps from raw APC feed to a per‑stop forecast.</h2>
-            <p className="lede" style={{ maxWidth:'42ch' }}>The pipeline is reproducible end‑to‑end from a single Makefile. Every artifact — features, splits, model, error report — is checksummed and version‑pinned.</p>
+            <h2>Five steps from BART's monthly ridership reports to a per‑station forecast.</h2>
+            <p className="lede" style={{ maxWidth:'42ch' }}>scripts/run_pipeline.sh chains the steps. The benchmark seeds its sampling models, and two consecutive benchmark runs produced bit‑identical leaderboards.</p>
           </div></Reveal>
         </div>
         <div className="timeline">
@@ -195,16 +195,12 @@ const Dataset = () => {
     { nm:'Validation (Jan–Jun 2025)', v:300, w:0.125 },
     { nm:'Test (Jul–Dec 2025)', v:300, w:0.125 },
   ];
-  const cohort = [
-    { nm:'East Bay commuter stations', v:44.0, w:0.44 },
-    { nm:'Core SF stations (EMB/MTG/PWL/CVC)', v:32.0, w:0.32 },
-    { nm:'Peninsula / South Bay stations', v:14.0, w:0.14 },
-    { nm:'Airport / transfer stations', v:10.0, w:0.10 },
-  ];
+  // Columns of feature_store_enriched.parquet. p = external data, which
+  // covers 2019–2023 only (the weather and Sharks archives end there).
   const features = [
-    {n:'Is game day', p:true}, {n:'Hour of day', p:true}, {n:'Temperature (°F)', p:true}, {n:'Is holiday', p:true},
-    {n:'Precipitation (mm)', p:true}, {n:'Is weekend', p:true}, {n:'Hours to event', p:true}, {n:'Month-of-year'},
-    {n:'Is post-COVID period'}, {n:'Station OD volume'}, {n:'Rolling mean (3-mo)'}, {n:'Lag ridership (12-mo)'},
+    {n:'Lag ridership (1, 2, 3, 6, 12 mo)'}, {n:'Rolling mean (3-mo, 12-mo)'}, {n:'Rolling std (3-mo)'},
+    {n:'Month-of-year'}, {n:'Temperature (°F)', p:true}, {n:'Precipitation (mm)', p:true},
+    {n:'Wind speed (mph)', p:true}, {n:'Sharks game day', p:true},
   ];
   return (
     <section id="data">
@@ -213,11 +209,11 @@ const Dataset = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Dataset</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>BART OD · 3,000 station‑months across 50 stations.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public ridership reports (bart.gov), fused with Open-Meteo weather and a curated Bay Area events calendar. Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public ridership reports (bart.gov), joined with Open-Meteo weather and a San Jose Sharks home-game schedule (both 2019–2023 only; no ranked model uses them). Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
           </div></Reveal>
         </div>
         <div className="ds-grid">
-          <Reveal className="card ds-card">
+          <Reveal className="card ds-card" style={{ gridColumn:'1 / -1' }}>
             <h3>Temporal splits <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· n = 2,400 station-months</span></h3>
             <div className="flex flex-col gap-md">
               {splits.map(s => (
@@ -230,30 +226,14 @@ const Dataset = () => {
             </div>
             <div className="divider" />
             <p className="text-muted" style={{ fontSize: 13 }}>
-              Forecast horizon covers the 6-month test period. No future leakage — covariates rely only on data observable at prediction time.
-            </p>
-          </Reveal>
-          <Reveal delay="1" className="card ds-card">
-            <h3>Network composition <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· % of station-months</span></h3>
-            <div className="flex flex-col gap-md">
-              {cohort.map(s => (
-                <div key={s.nm} className="bar-row">
-                  <span className="nm">{s.nm}</span>
-                  <span className="bar"><i style={{ '--w': s.w }} /></span>
-                  <span className="v">{s.v.toFixed(1)}%</span>
-                </div>
-              ))}
-            </div>
-            <div className="divider" />
-            <p className="text-muted" style={{ fontSize: 13 }}>
-              All 50 BART stations are included — from Embarcadero (highest OD volume) to small suburban stations on the East Bay corridor.
+              Forecast horizon covers the 6-month test period. No future leakage: every model is fit only on data before the test window. All 50 BART stations are included; Embarcadero has the highest volume.
             </p>
           </Reveal>
         </div>
         <div style={{ height: 24 }} />
         <Reveal className="card" style={{ padding: 28 }}>
           <h3 style={{ display:'flex', alignItems:'center', gap:10, marginBottom: 18 }}>
-            <I.flask /> Feature catalog <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· known-future covariates</span>
+            <I.flask /> Feature catalog <span className="text-muted mono" style={{ fontSize: 12, fontWeight:400 }}>· feature store columns</span>
           </h3>
           <div className="pills">
             {features.map(f => (
@@ -262,7 +242,7 @@ const Dataset = () => {
           </div>
           <div className="divider" />
           <p className="text-muted" style={{ fontSize: 13 }}>
-            <span className="mono" style={{ color:'var(--ink)' }}>●</span> covariates available at prediction time. Influence ordering is illustrative, not a measured attribution.
+            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data, available for 2019–2023 only. No ranked model reads any of these columns, so their influence on the forecasts has not been measured.
           </p>
         </Reveal>
       </div>
@@ -281,16 +261,6 @@ const Results = () => {
   }, []);
   const cmpRows = Array.isArray(cmp) ? cmp.filter(r => r.WAPE_pct != null) : [];
   const bestRow = cmpRows.length ? cmpRows.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a)) : null;
-  const cm = { tp: 168240, tn: 51820, fp: 14380, fn: 6360 };
-  const shap = [
-    {n:'Is game day', v: 0.46, dir:'pos'},
-    {n:'Hour of day', v: 0.34, dir:'pos'},
-    {n:'Temperature (°F)', v: 0.29, dir:'pos'},
-    {n:'Is holiday', v: 0.22, dir:'neg'},
-    {n:'Precipitation (mm)', v: 0.20, dir:'neg'},
-    {n:'Is weekend', v: 0.17, dir:'neg'},
-    {n:'Hours to event', v: 0.15, dir:'pos'},
-  ];
   return (
     <section id="results" style={{ background:'var(--bg-muted)' }}>
       <div className="wrap">
@@ -332,33 +302,13 @@ const Results = () => {
               SARIMA airline (0,1,1)(0,1,1,12): WAPE 3.21% · MAE 3,086 riders/month · Jul–Dec 2025 holdout · 300 station-months
             </div>
           </Reveal>
-          <Reveal delay="2" className="card chart-card" style={{ gridColumn:'1 / -1' }}>
-            <div className="chart-head">
-              <div>
-                <h3>Top known-future covariates</h3>
-                <p>Relative influence on monthly ridership forecasts. Coral = positive effect; indigo = negative. Magnitudes are illustrative from ablation study — not SHAP.</p>
-              </div>
-            </div>
-            <div className="shap">
-              {shap.map(s => (
-                <div key={s.n} className="shap-row">
-                  <span className="nm">{s.n}</span>
-                  <span className="track">
-                    <span className="mid" />
-                    <i className={s.dir} style={{ width: `${s.v*100}%` }} />
-                  </span>
-                  <span className="v">{(s.dir==='neg'?-s.v:s.v).toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-          </Reveal>
         </div>
       </div>
     </section>
   );
 };
 
-/* ── Live demo: teaser card linking to standalone map page ─────── */
+/* ── Map demo: teaser card linking to standalone map page ──────── */
 const Demo = () => {
   const features = [
     { icon: '🗺', title: 'Real Google Maps', desc: '41 BART and 39 VTA stations plotted at true lat/lng.' },
@@ -370,9 +320,9 @@ const Demo = () => {
     <section id="demo">
       <div className="wrap">
         <div className="section-h">
-          <Reveal><div className="eyebrow"><span className="pip" /> Live demo</div></Reveal>
+          <Reveal><div className="eyebrow"><span className="pip" /> Map demo</div></Reveal>
           <Reveal delay="1"><div className="row">
-            <h2>Where is the rush, right now?</h2>
+            <h2>Explore the network on a map.</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
               An interactive Google Maps view shows expected boardings across BART and VTA.
               Scrub through the hour, change the day, add weather or a major event — the
@@ -448,9 +398,9 @@ const Benchmarks = () => {
   ] : [];
 
   const recs = [
-    { n:'01', t:'Integrate surge alerts into operations.', d:"Event calendars are ingested but the event covariates are currently constant zero, because the pipeline has no Ticketmaster key. Wiring that up is what would let surge effects be measured at all, let alone flagged ahead of time.", who:'Operations Control' },
+    { n:'01', t:'Integrate surge alerts into operations.', d:"The only event data ingested is a Sharks home-game schedule that ends in 2023 (the pipeline has no Ticketmaster key), and no ranked model reads it. Extending the event and weather archives through the forecast window, then fitting a model that accepts covariates, is what would let surge effects be measured at all, let alone flagged ahead of time.", who:'Operations Control' },
     { n:'02', t:'Fine-tune Chronos per station cluster.', d:'Zero-shot Chronos-1 (chronos-t5-small) scores 9.7% WAPE here — ahead of seasonal-naïve at 10.8%, behind both classical baselines. It also runs univariate, since the pipeline cannot pass covariates to this checkpoint. Fixing that, then fine-tuning per station cluster, is the path worth testing.', who:'Data / ML' },
-    { n:'03', t:'Add real-time OD data to the pipeline.', d:"BART's 511 API supports near-real-time OD pulls, and the 511 ingestion path is still a placeholder. Replacing monthly batch updates with weekly ingestion would cut data staleness; how much of the residual error that accounts for has not been measured.", who:'Data / IT' },
+    { n:'03', t:'Test fresher data sources.', d:"The model trains on BART's monthly ridership reports. The 511 SF Bay API offers real-time stop monitoring and historical stop observations (arrival times, not ridership counts); the repo has a fetcher for them, but nothing joins them into the feature store yet. Whether they would cut data staleness, and how much of the residual error staleness accounts for, has not been measured.", who:'Data / IT' },
   ];
   return (
     <>
@@ -511,74 +461,12 @@ const Benchmarks = () => {
           <Reveal>
             <div className="pull">
               "Forecasts on dashboards don't change service. A forecast with three reasons next to it does."
-              <cite>— summary takeaway, Section 6 of the project report</cite>
+              <cite>— project takeaway</cite>
             </div>
           </Reveal>
         </div>
       </section>
     </>
-  );
-};
-
-/* ── EDA Visualizations ────────────────────────────────────────── */
-const EDA_PLOTS = [
-  { file:'01_ridership_overview.png', title:'Ridership Overview', desc:'Total BART ridership over time. COVID crash (2020) and recovery visible clearly.' },
-  { file:'02_monthly_heatmap.png',    title:'Monthly Seasonality Heatmap', desc:'Top 15 stations × month-of-year. Summer peaks and Jan/Feb troughs.' },
-  { file:'03_dow_distribution.png',  title:'Day-of-Week Distribution', desc:'Weekday vs weekend ridership spread by station.' },
-  { file:'04_sharks_game_spike.png', title:'Sharks Game Night Spike', desc:'Diridon-area stations spike ~40% on game nights — a key event covariate.' },
-  { file:'05_rain_vs_ridership.png', title:'Rain vs Ridership', desc:'Precipitation shows a weak negative signal — heavy rain correlates with slight ridership dip.' },
-  { file:'06_station_ranking.png',   title:'Station Ranking', desc:'Embarcadero, Montgomery, and Powell dominate — SF core drives the aggregate signal.' },
-  { file:'10_correlation_heatmap.png', title:'Feature Correlation Heatmap', desc:'Pearson correlations between all covariates and ridership. Lag features dominate.' },
-];
-
-const EDAViz = () => {
-  const [active, setActive] = React.useState(0);
-  const plot = EDA_PLOTS[active];
-  return (
-    <section id="eda" style={{ background:'var(--bg)' }}>
-      <div className="wrap">
-        <div className="section-h">
-          <Reveal><div className="eyebrow"><span className="pip" /> Exploratory Analysis</div></Reveal>
-          <Reveal delay="1"><div className="row">
-            <h2>Patterns in the data.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>Seven visualizations from the full EDA notebook — station seasonality, event spikes, weather effects, and feature correlations.</p>
-          </div></Reveal>
-        </div>
-        <div style={{ display:'flex', gap:24, marginTop:32, flexWrap:'wrap' }}>
-          <div style={{ display:'flex', flexDirection:'column', gap:8, minWidth:200 }}>
-            {EDA_PLOTS.map((p,i) => (
-              <button
-                key={i}
-                onClick={() => setActive(i)}
-                style={{
-                  textAlign:'left', padding:'8px 14px', borderRadius:8,
-                  border: i===active ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
-                  background: i===active ? 'var(--accent)' : 'transparent',
-                  color: i===active ? '#fff' : 'var(--ink)',
-                  cursor:'pointer', fontSize:13, fontWeight: i===active ? 600 : 400,
-                  transition:'all .15s',
-                }}
-              >{p.title}</button>
-            ))}
-          </div>
-          <div style={{ flex:1, minWidth:280 }}>
-            <Reveal key={active}>
-              <div className="card" style={{ padding:0, overflow:'hidden' }}>
-                <img
-                  src={`data/eda_plots/${plot.file}`}
-                  alt={plot.title}
-                  style={{ width:'100%', display:'block', borderRadius:'var(--r) var(--r) 0 0' }}
-                />
-                <div style={{ padding:'16px 20px' }}>
-                  <h4 style={{ margin:0 }}>{plot.title}</h4>
-                  <p style={{ margin:'6px 0 0', color:'var(--ink-muted)', fontSize:14 }}>{plot.desc}</p>
-                </div>
-              </div>
-            </Reveal>
-          </div>
-        </div>
-      </div>
-    </section>
   );
 };
 
@@ -623,12 +511,10 @@ const About = () => (
       </div>
       <div className="res">
         {[
-          { lbl:'Report · 38 pages', t:'Final project report', d:'Full methodology, experiments, error audit, and limitations.', href:'#' },
-          { lbl:'Slides · 22 slides', t:'Defense presentation', d:'The 15-minute version — what to skim before a one‑on‑one.', href:'#' },
-          { lbl:'Repo · MIT license', t:'Source code', d:'Reproducible pipeline scripts, Chronos-1 (chronos-t5-small) fine-tuning, baselines, and this website.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting' },
-          { lbl:'Notebook', t:'Exploratory analysis', d:'Station-level missingness, COVID recovery patterns, and the case for temporal splits.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting/blob/main/transit_eda/notebooks/eda_complete.ipynb' },
+          { lbl:'Repo · GitHub', t:'Source code', d:'Pipeline scripts, the benchmark runner (SARIMA, Prophet, seasonal naive, Chronos-1 zero-shot) and this website. AutoGluon fine-tuning code is included but has never been run.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting' },
+          { lbl:'Notebook', t:'Exploratory analysis', d:'Summary statistics, seasonality, missing-data and correlation plots. Its saved plots come from an earlier version of the feature store and are due to be regenerated.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting/blob/main/transit_eda/notebooks/eda_complete.ipynb' },
           { lbl:'BART OD ridership', t:'Dataset · BART OD', d:'Public BART origin-destination monthly ridership data from BART.gov.', href:'https://www.bart.gov/about/reports/ridership' },
-          { lbl:'Open-Meteo weather', t:'Dataset · Open-Meteo', d:'Free historical weather API used for weather covariates — hourly granularity, Bay Area stations.', href:'https://open-meteo.com' },
+          { lbl:'Open-Meteo weather', t:'Dataset · Open-Meteo', d:'Free historical weather API. The feature store aggregates it to months for 2019–2023; no ranked model uses it yet.', href:'https://open-meteo.com' },
         ].map((r,i) => (
           <Reveal key={i} delay={(i%3)+1}>
             <a href={r.href} target={r.href !== '#' ? '_blank' : undefined} rel="noopener noreferrer">
@@ -882,4 +768,4 @@ const BARTForecasts = () => {
   );
 };
 
-Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, EDAViz, About, Footer, BARTForecasts });
+Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, About, Footer, BARTForecasts });
