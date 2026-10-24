@@ -7,7 +7,8 @@ experiment on `feat/covariate-benchmark`, by the user's decision of 2026-10-24.)
 
 **Goal.** `Processing/feature_engineering.py` `add_lag_features` shifts each station's series by
 rows, so early-2022 rows take their lags and rolling windows from 2019 across the 2020–21 gap.
-Shift by calendar month instead: a lag or window that reaches into months with no data is empty.
+Shift by calendar month instead: a lag that lands in a month with no data is empty, and a rolling
+window counts only the months in it that have data against its `min_periods`.
 Update the site copy (#141's feature catalog) that describes the old behaviour.
 
 **Branch.** `fix/lag-calendar-months`, cut from `origin/fix/site-model-claims` @ `0938526` (PR #141),
@@ -20,7 +21,7 @@ the enriched store differs only in the lag/rolling columns, on rows whose window
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
 | S4f.1 | Calendar-month lags and rolling windows (monthly branch only; sub-monthly path unchanged) + unit test + catalog copy + cache-buster | implementer | — | Gates above | done (535039d, f702310, ca7915e) — 14 tests pass (8 fail on the old code); before/after on canonical 2019–23 inputs: leaderboard CSV, `benchmark_results.csv` and base store byte-identical (3.21 / 5.75 / 9.70 / 10.75, n = 300); enriched store: only the 8 lag/rolling columns change, 2,100 cells, all 2022 (1,700 become empty), plus 2,028 `rolling_std_3mo` cells 2022-04..2025-12 that differ by ≤ 1.0e-11 relative (pandas' running-variance rounding restarts across the empty months); TypeScript 5.9.3 parses `sections.jsx` with 0 diagnostics |
-| S4f.2 | Review the diff | code-reviewer | S4f.1 | No BLOCKER open | in progress |
+| S4f.2 | Review the diff | code-reviewer | S4f.1 | No BLOCKER open | in progress — R1 on ca7915e: quality PASS; spec PASS with 1 MAJOR (F1: footnote and audit note say rolling windows reaching 2020–21 are left empty, but 400 of the 2,100 changed cells are partial-window values; cause: this board's goal line, now corrected), 2 MINOR (F2: 2,028 float-noise `rolling_std_3mo` cells outside 2022 breach the gate's wording; accepted deviation, nothing reads the column and every published output is byte-identical; F3: NaN/NaT/single-row cases untested), 2 NIT (F4 stale line ref in the audit note; F5 `Int64` → float64, as specified). Fix round for F1, F3, F4 dispatched |
 
 ## Sprint 4c — Every site claim traces to a run (opened 2026-10-24)
 
