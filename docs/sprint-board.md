@@ -94,11 +94,11 @@ identical to PR #138's leaderboard; `Coverage_raw_%` = 96.67 / 46.0 / 51.0 /
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
 | S5.1 | Rebuild env and store; reproduce PR #138's validation CSVs | orchestrator | — | Four CSVs byte-identical | done — see Environment above |
-| S5.2 | Fix the rule and candidate definitions before measuring | orchestrator | S5.1 | Board committed before any new number | in progress |
-| S5.3 | `evaluation/calibration.py`: weighted quantile, rolling-pool fit (explicit horizon required), ACI | implementer (orchestrator) | S5.2 | Tests written first, pass | todo |
-| S5.4 | `evaluation/interval_study.py`: rolling origins, windows B and V, eligible and diagnostic candidates, selection by the S5.2 rule | implementer (orchestrator) | S5.3 | Store cut at `val_end` and asserted; CSVs written | todo |
-| S5.5 | Apply the rule; write-up; commit the choice before any test run | orchestrator | S5.4 | Commit precedes S5.6's run | todo |
-| S5.6 | If a method changes: wire into `benchmarks.py`, gates, score test once | implementer (orchestrator) | S5.5 | All gates green | todo (conditional) |
+| S5.2 | Fix the rule and candidate definitions before measuring | orchestrator | S5.1 | Board committed before any new number | done (6daa610, committed 03:18:18; no Sprint 5 number existed until the S5.4 run after 122fc9c) |
+| S5.3 | `evaluation/calibration.py`: weighted quantile, rolling-pool fit (explicit horizon required), ACI | implementer (orchestrator) | S5.2 | Tests written first, pass | done (a244698) — 19 new tests in `tests/test_adaptive_calibration.py`, written and failing first; 47 calibration tests pass |
+| S5.4 | `evaluation/interval_study.py`: rolling origins, windows B and V, eligible and diagnostic candidates, selection by the S5.2 rule | implementer (orchestrator) | S5.3 | Store cut at `val_end` and asserted; CSVs written | done — code committed (122fc9c) before its first run; store-cut check 0.0 on every shared row; PR #138's four CSVs still byte-identical. One diagnostic bug found in the results and fixed (2589ed8: `aci_window` clipped α to the row count, not the total weight); every eligible result and the decision byte-identical before and after |
+| S5.5 | Apply the rule; write-up; commit the choice before any test run | orchestrator | S5.4 | Commit precedes S5.6's run | done (this commit) — no candidate qualified for every model; per model: SeasonalNaive `rolling_hl6 asym_relative/horizon`, Prophet `rolling_hl6 relative/pooled`; SARIMA and Chronos-1 no qualifier, Sprint 4 entries kept. Deployed quantiles computed from data to `val_end` in the study: SeasonalNaive q_lo −0.0129…−0.0150, q_hi 0.1686…0.1700 by horizon; Prophet q = 0.0789 (n = 4,650 each) |
+| S5.6 | If a method changes: wire into `benchmarks.py`, gates, score test once | implementer (orchestrator) | S5.5 | All gates green | in progress — `scheme: rolling` wired for SeasonalNaive and Prophet with 5 tests written first (this commit); test run follows this commit |
 | S5.7 | Review the sprint diff | code-reviewer | S5.6 | No BLOCKER open | todo |
 | S5.8 | Audit board against git; push; open PR against `feat/interval-calibration` (not merged) | delivery-auditor, orchestrator | S5.7 | Audit clean; PR open | todo |
 

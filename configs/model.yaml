@@ -67,22 +67,27 @@ prophet:
   changepoint_prior_scale: 0.05   # flexibility of trend — low = smooth
 
 # ── Interval calibration (P10/P90) ────────────────────────────────────────────
-# Split-conformal widening of each model's band, fit on the validation split
-# (from a fit ending train_end) and applied to the test forecasts by
+# Conformal widening of each model's band, applied to the test forecasts by
 # models/baselines/benchmarks.py. P50 is never changed.
 #
-# Chosen per model on validation only (evaluation/interval_study.py:
-# calibrate on 2024-H2, score 2025-H1). The rule, fixed before any number was
-# seen: 75-85% coverage with neither tail above 15% misses; lowest interval
-# score among qualifiers. No single method qualified for every model, and none
-# qualified for SARIMA or SeasonalNaive, so those two keep their own bands.
-# See docs/interval-calibration.md. A model not listed keeps its own band.
+# scheme: split (default, Sprint 4) — one quantile from the validation split's
+#   forecasts (fit ending train_end).
+# scheme: rolling (Sprint 5) — weighted quantile over forecasts from every
+#   monthly origin first_origin .. val_end - 1 month whose target is on or
+#   before val_end, weight 0.5**(age / half_life months).
+#
+# Chosen per model on data up to val_end only (evaluation/interval_study.py).
+# Sprint 5 rule, fixed before any number was seen: 75-85% coverage with
+# neither tail above 15% misses on BOTH 2024-H2 and 2025-H1; lowest mean
+# interval score; a model with no qualifier keeps its entry. SARIMA and
+# Chronos-1 had none, so they keep their Sprint 4 entries. See
+# docs/interval-calibration.md. A model not listed keeps its own band.
 calibration:
   level: 0.8
   models:
-    SeasonalNaive: {method: none, reason: "no method passed validation"}
+    SeasonalNaive: {method: asym_relative, group: horizon, scheme: rolling, half_life: 6, first_origin: "2023-12-31"}
     SARIMA:        {method: none, reason: "no method passed validation"}
-    Prophet:       {method: scaled, group: horizon}
+    Prophet:       {method: relative, group: pooled, scheme: rolling, half_life: 6, first_origin: "2023-12-31"}
     Chronos:       {method: relative, group: pooled, validated_for: "amazon/chronos-t5-small"}
 
 # ── Serving ───────────────────────────────────────────────────────────────────

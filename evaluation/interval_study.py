@@ -92,6 +92,14 @@ HALF_LIFE = 6                                # months, rolling_hl6
 GAMMA = 0.1                                  # ACI step size
 SCORES = ("scaled", "relative", "asym_relative")
 ELIGIBLE = ("incumbent", "rolling_hl6", "aci_origin")
+# The incumbent is the configs/model.yaml entry when the Sprint 5 rule was fixed
+# (Sprint 4's choice), pinned here so the study reproduces after the config moves on.
+INCUMBENT = {
+    "SeasonalNaive": {"method": "none"},
+    "SARIMA": {"method": "none"},
+    "Prophet": {"method": "scaled", "group": "horizon"},
+    "Chronos": {"method": "relative", "group": "pooled"},
+}
 
 
 def load_config() -> dict:
@@ -372,11 +380,9 @@ def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
         "B": (train_end - pd.DateOffset(months=horizon) + pd.offsets.MonthEnd(0), "cal", "cal2"),
         "V": (train_end, "eval", "cal"),
     }
-    chosen = (cfg.get("calibration") or {}).get("models") or {}
-
     rows, checks = [], []
     for model in models:
-        mcfg = chosen.get(model_keys[model]) or {}
+        mcfg = INCUMBENT[model_keys[model]]
         for wname, (T, scored_key, prev_key) in windows.items():
             scored = with_origin_horizon(frames[(model, scored_key)], T)
             prev = frames[(model, prev_key)]
@@ -401,7 +407,7 @@ def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
                              "method": method, "group": group, "eligible": eligible,
                              "calibrator": calib_text, **score(out, val_end)})
 
-            # Incumbent: the current configs/model.yaml entry, fit on the previous half-year.
+            # Incumbent: Sprint 4's entry (INCUMBENT), fit on the previous half-year.
             imethod = mcfg.get("method", "none")
             if imethod in (None, "none"):
                 add("incumbent", "own band", "-", "-", True, no_calibration(scored), "own band")
@@ -559,10 +565,11 @@ def main():
     qualifiers = per_method[per_method["all_models_qualify"]]
     winner = qualifiers.iloc[0] if not qualifiers.empty else None
 
-    # ── Deployed calibrators: fit on 2025-H1, as benchmarks.py will ────────────
-    # benchmarks.py fits each model's calibrator on its validation-window
-    # forecasts (fit ending train_end) — the same forecasts as the "eval"
-    # frames here — so these are the quantiles the test band will use.
+    # ── Deployed calibrators: fit as benchmarks.py will ────────────────────────
+    # scheme split: benchmarks.py fits on the validation-window forecasts (fit
+    # ending train_end) — the "eval" frames here. scheme rolling: on the pool
+    # of origins up to val_end - 1 month. Either way only data up to val_end,
+    # and these are the quantiles the test band will use.
     model_keys = {"SeasonalNaive": "SeasonalNaive", "SARIMA": "SARIMA",
                   "Prophet": "Prophet", chronos_label(cfg): "Chronos"}
     chosen = (cfg.get("calibration") or {}).get("models") or {}
@@ -572,7 +579,16 @@ def main():
         if mcfg.get("method", "none") == "none":
             deployed.append({"model": model, "calibrator": f"none ({mcfg.get('reason', 'not listed')})"})
             continue
-        calib = fit_conformal(frames[(model, "eval")], mcfg["method"], mcfg.get("group", "pooled"), LEVEL)
+        if mcfg.get("scheme", "split") == "rolling":
+            # The test-time pool: origins first_origin .. val_end - 1 month,
+            # targets on or before val_end — all inside this study's data.
+            vend = val_end + pd.offsets.MonthEnd(0)
+            origins = month_ends(pd.Timestamp(mcfg["first_origin"]), vend - pd.offsets.MonthEnd(1))
+            pool = rolling_forecasts(model, df, cfg, origins, horizon, args.refresh, cut=vend)
+            calib = fit_rolling_conformal(pool, mcfg["method"], mcfg.get("group", "pooled"), LEVEL, vend,
+                                          half_life=mcfg.get("half_life"))
+        else:
+            calib = fit_conformal(frames[(model, "eval")], mcfg["method"], mcfg.get("group", "pooled"), LEVEL)
         deployed.append({"model": model, "calibrator": describe(calib),
                          "q": {k: [round(x, 4) for x in v] if isinstance(v, tuple) else round(v, 4)
                                for k, v in calib["q"].items()}})
@@ -610,7 +626,7 @@ def main():
     print("\n=== Prophet MCMC on 2025-H1 (not eligible) ===")
     print(pd.DataFrame(mcmc_rows).to_string(index=False))
     print(yaml.safe_dump(mcmc_note, sort_keys=False))
-    print("=== Deployed calibrators (configs/model.yaml), fit on 2025-H1 validation forecasts ===")
+    print("=== Deployed calibrators (configs/model.yaml), fit on data up to val_end ===")
     print(yaml.safe_dump(deployed, sort_keys=False, allow_unicode=True))
 
     print("\n=== Sprint 5: pools and store-cut check ===")
