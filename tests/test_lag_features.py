@@ -198,6 +198,39 @@ def test_two_rows_in_one_month_raise():
         add_lag_features(pd.concat([panel, dup], ignore_index=True))
 
 
+# ── Rows with no station, no timestamp, or no history ─────────────────────────
+
+def test_null_station_nat_timestamp_and_single_row_station_get_nan(out):
+    extra = pd.DataFrame(
+        [
+            # Two null-station rows in one month: not a duplicate, must not raise.
+            {"timestamp": pd.Timestamp("2022-03-01"), "station_id": None, "ridership": 7.0},
+            {"timestamp": pd.Timestamp("2022-03-01"), "station_id": None, "ridership": 8.0},
+            # Two NaT rows for a real station: no month, so not a duplicate either.
+            {"timestamp": pd.NaT, "station_id": "A", "ridership": 9.0},
+            {"timestamp": pd.NaT, "station_id": "A", "ridership": 10.0},
+            # A station with a single row has no history.
+            {"timestamp": pd.Timestamp("2022-06-01"), "station_id": "C", "ridership": 11.0},
+        ]
+    )
+    result = add_lag_features(pd.concat([monthly_panel(), extra], ignore_index=True))
+
+    new_cols = LAG_COLS + ROLLING_COLS
+    null_station = result["station_id"].isna()
+    nat = result["timestamp"].isna()
+    single = result["station_id"] == "C"
+    assert null_station.sum() == 2 and nat.sum() == 2 and single.sum() == 1
+    for mask in (null_station, nat, single):
+        assert result.loc[mask, new_cols].isna().all().all()
+        assert (result.loc[mask, new_cols].dtypes == np.float64).all()
+
+    # The extra rows change nothing for A and B's dated rows.
+    dated = result[result["station_id"].isin(["A", "B"]) & result["timestamp"].notna()]
+    pd.testing.assert_frame_equal(
+        dated[new_cols].reset_index(drop=True), out[new_cols].reset_index(drop=True)
+    )
+
+
 # ── Sub-monthly branch: unchanged row shifts ──────────────────────────────────
 
 def test_sub_monthly_output_is_a_plain_row_shift():
