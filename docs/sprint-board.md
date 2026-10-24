@@ -1,5 +1,107 @@
 # Sprint board
 
+## Sprint 5 — Interval calibration that tracks recent errors (opened 2026-10-24)
+
+**Goal.** Close the gap PR #138 left (test coverage Prophet 74.7%, Chronos-1
+72.7%; SARIMA 96.7% and SeasonalNaive 94.3% on their own bands) with
+calibrations that weight recent errors, without changing a point forecast.
+Methods are measured on data up to `val_end` only; the test split is scored
+once, and only if a model's method changes. Branch
+`feat/adaptive-interval-calibration`, stacked on `feat/interval-calibration`
+(PR #138 open).
+
+**Environment.** `/tmp/tdf-venv` was found damaged on 2026-10-24 (files
+removed by macOS's `/tmp` cleanup at 00:36; `import pandas` fails). Every
+gate in this sprint runs on a private rebuild with the same 68 pinned
+packages (Python 3.14.0, pandas 3.0.6, numpy 2.5.4, statsmodels 0.15.0,
+prophet 1.5.0, torch 2.14.1, chronos-forecasting 2.3.2). The feature store
+rebuilt from `data/raw` is identical to PR #138's (`assert_frame_equal`, both
+files), and `interval_study.py --refresh` on the rebuild reproduces PR #138's
+four validation CSVs byte-identical.
+
+**Decision rules, fixed before any new number was seen** (user's "go ahead
+with the defaults", 2026-10-24):
+
+*Calibration data.* Rolling monthly forecast origins from 2023-12-31, each
+forecasting 6 months through the code path `benchmarks.py` uses for that
+model. 2023-12-31 is the first origin every model can use as deployed:
+SARIMA's airline model needs 24 observations, Prophet drops its yearly term
+under 18, and Chronos's 24-month context would otherwise reach 2019 rows. For
+a window scored from origin T, the calibration pool is every row from origins
+2023-12-31 … T − 1 month whose target month is on or before T. Each row
+carries `horizon` = months from its origin to its target (an explicit column,
+required whenever origins are pooled) and `age` = months from its target to
+T. The store a forecast sees is cut at min(origin + 6 months, T).
+
+*Scored windows* (both before `val_end`; the store is cut at `val_end` and
+asserted, as in PR #138): **B** = 2024-H2 from origin 2024-06-30 (pool: 6
+origins), **V** = 2025-H1 from origin 2024-12-31 (pool: 12 origins), 300
+station-months per model each.
+
+*Eligible candidates, 10 per model, settings fixed now:*
+- `incumbent`: the model's current `configs/model.yaml` entry (Prophet
+  `scaled/horizon`, Chronos-1 `relative/pooled`, each fit on the previous
+  half-year as in PR #138; SARIMA and SeasonalNaive their own band).
+- `rolling_hl6` × score {`scaled`, `relative`, `asym_relative`} × group
+  {`pooled`, `horizon`} (6): weighted split-conformal quantile (Barber et al.
+  2023) over the pool, weight 0.5^(age/6), the scored point weighted 1. The
+  quantile is the smallest score s with Σ_{s_i ≤ s} w_i ≥ level·(Σ w_i + 1),
+  +∞ if none. `asym_relative` calibrates each tail at 0.1 as in PR #138.
+- `aci_origin` × score {`scaled`, `relative`, `asym_relative`}, pooled (3):
+  adaptive conformal inference (Gibbs & Candès 2021) over monthly batches.
+  For each target month m from the second month in the pool through T, in
+  order: the band for the batch (pool rows whose target is m) uses the
+  unweighted conformal quantile of the pool rows whose target is before m, at
+  level 1 − α_m; err_m = the batch's miss rate; α_{m+1} = α_m + 0.1·(0.2 −
+  err_m). α starts at 0.2 and is clipped to [1/(n+1), 0.5], n = rows in that
+  quantile's pool, so the quantile stays finite. `asym_relative` runs one α per
+  tail, starting at 0.1 and targeting 0.1. The scored window's band uses the
+  final α on the whole pool.
+
+*Measured and reported, not eligible:* `rolling_eq` (equal weights, 3 scores
+× 2 groups); PR #138's other single-window variants; and two methods that
+revise the band inside the scored window with that window's earlier actuals,
+which a band fixed at the forecast origin cannot use, both pooled, 3 scores
+each: `aci_window` (scored month k uses `rolling_hl6`'s weighted quantile at
+level 1 − α_k, α_1 = 0.2 or 0.1 per tail, updated after each month with that
+month's miss rate as in `aci_origin`) and `monthly_recal` (`rolling_hl6`
+refit before each scored month with every row resolved by then from origins
+≤ T, ages counted from the latest resolved month).
+
+*Qualification and choice.* A candidate qualifies for a model if, on **both**
+B and V, coverage is 75–85% and neither tail has more than 15% misses.
+Qualifiers rank by the mean of their B and V interval scores (Winkler, α =
+0.2, summed and divided by total ridership, as in PR #138). If one
+non-incumbent candidate qualifies for all four models, the one with the
+lowest mean score across models is used for all; otherwise each model takes
+its own lowest-scoring qualifier; a model with no qualifier keeps its current
+entry. Prophet MCMC stays ineligible. Known weakness, accepted with the rule:
+SARIMA's B pool comes from 24–29-observation fits and horizon 6 from a single
+origin, and Prophet's and SARIMA's settings were picked by inspecting 2024-H2,
+so B can fail a model for reasons that do not apply to the deployed fit (it
+then keeps its current entry).
+
+*Test.* Scored once, after the choice is committed, only if some model's
+method changes. Deployed mirror of the study one step later: origins
+2023-12-31 … 2025-05-31, pool targets ≤ `val_end`, forecasts made after the
+test forecasts. The website's "not calibrated" wording changes only if every
+model's calibrated test coverage is 75–85% (Sprint 4 rule, unchanged).
+
+**Gates.** Point metrics (WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected)
+identical to PR #138's leaderboard; `Coverage_raw_%` = 96.67 / 46.0 / 51.0 /
+94.33; two runs byte-identical; unit tests pass; `py_compile` passes.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S5.1 | Rebuild env and store; reproduce PR #138's validation CSVs | orchestrator | — | Four CSVs byte-identical | done — see Environment above |
+| S5.2 | Fix the rule and candidate definitions before measuring | orchestrator | S5.1 | Board committed before any new number | in progress |
+| S5.3 | `evaluation/calibration.py`: weighted quantile, rolling-pool fit (explicit horizon required), ACI | implementer (orchestrator) | S5.2 | Tests written first, pass | todo |
+| S5.4 | `evaluation/interval_study.py`: rolling origins, windows B and V, eligible and diagnostic candidates, selection by the S5.2 rule | implementer (orchestrator) | S5.3 | Store cut at `val_end` and asserted; CSVs written | todo |
+| S5.5 | Apply the rule; write-up; commit the choice before any test run | orchestrator | S5.4 | Commit precedes S5.6's run | todo |
+| S5.6 | If a method changes: wire into `benchmarks.py`, gates, score test once | implementer (orchestrator) | S5.5 | All gates green | todo (conditional) |
+| S5.7 | Review the sprint diff | code-reviewer | S5.6 | No BLOCKER open | todo |
+| S5.8 | Audit board against git; push; open PR against `feat/interval-calibration` (not merged) | delivery-auditor, orchestrator | S5.7 | Audit clean; PR open | todo |
+
 ## Sprint 4 — Calibrate the P10/P90 intervals (opened 2026-10-22)
 
 **Goal.** Bring every leaderboard model's P10–P90 coverage to ~80% on the
