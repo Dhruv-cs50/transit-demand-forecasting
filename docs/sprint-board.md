@@ -21,7 +21,7 @@ byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, m
 | S4e.1 | Rebuild the store | orchestrator | — | sha256 equals #139's gate2 store | done — `9a777108…` |
 | S4e.2 | Rewrite the notebook; regenerate PNGs | orchestrator | S4e.1 | Executes with 0 errors; every caption claim asserted; image outputs byte-identical to the PNGs; rerun gives identical PNGs | done (13f265f) |
 | S4e.3 | Restore `EDAViz`, nav link, mount; `?v=12` | orchestrator | S4e.2 | Notebook's site check passes; local render: 4 tabs, every image loads, 0 console errors | done (3cb7a1d) |
-| S4e.4 | Review the diff | code-reviewer | S4e.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 3 MAJOR (games claim overreached; seasonality range driven by 2022; this board lost the Sprint 4c heading), 7 MINOR. All fixed in the fix round (see rulings) |
+| S4e.4 | Review the diff | code-reviewer | S4e.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 3 MAJOR (games claim overreached; seasonality range driven by 2022; this board lost the Sprint 4c heading), 7 MINOR. Fix round 41b712a: all fixed except MINOR 7's no-CI point, which is now documented in the notebook and the code comment. Scoped re-review R2: spec PASS, quality PASS; its two optional MINORs (ambiguous growth sentence, this row's wording) fixed in the next commit |
 | S4e.5 | Push; open PR (no merge) | orchestrator | S4e.4 | PR open with claim → evidence table | in progress — branch pushed |
 
 ### Rulings (Sprint 4e)
