@@ -339,7 +339,7 @@ any of them.
 
 | Surface | Model | P10/P90 served | Label |
 |---|---|---|---|
-| Leaderboard (`model_comparison.json`) | all four | Per model, as in the [Decision](#decision) table: calibrated for Prophet and Chronos-1, own band for SARIMA and SeasonalNaive. `Coverage_pct` scores that band; `Coverage_raw_pct` scores the model's own band | `Interval_method` |
+| Leaderboard (`model_comparison.json`) | all four | Per model, as in the [Decision](#decision) table: split-conformal band for Prophet and Chronos-1, own band for SARIMA and SeasonalNaive. `Coverage_pct` scores that band; `Coverage_raw_pct` scores the model's own band | `Interval_method` |
 | `website/data/forecasts.json` | Chronos-1 zero-shot, Jul–Dec 2025 | The split-conformal `relative/pooled` band, the one the leaderboard scores (72.7%). The model's own bounds stay as `p10_raw`/`p90_raw` | `interval_method` on every record |
 | API `POST /forecast` | SARIMA, fit per request | SARIMA's own band (nominal 80%), not calibrated: no method passed validation | `interval` (`calibrated`, `method`, `nominal_level`, `label`, `description`) |
 
@@ -352,11 +352,13 @@ Where the calibrator comes from:
   2025-H1 validation forecasts from a fit ending 2024-12-31 (`train_end`).
 - It saves it to `evaluation/outputs/calibration/calibrators/<model_key>.json`,
   with the model key, model, checkpoint, label, fit end and calibration window.
-  It deletes the old file before fitting, and again if fitting fails, so a
-  failed run leaves no stale file behind.
+  Each run first removes every saved calibrator, so any file present
+  afterwards was fitted by the latest run. A model left on its own band, or
+  whose calibration fails or cannot be saved, has no file.
 - `serve_band` in `evaluation/calibration.py` applies the saved calibrator. It
-  never refits. It checks the file's method, group, level, model key and
-  checkpoint against `configs/model.yaml` and the forecasts being served.
+  never refits. It checks the file's method, group, level, model key,
+  checkpoint and fit end against `configs/model.yaml` and the forecasts being
+  served, and refuses an unreadable file.
 - A model whose method is `none` keeps its own band, and no calibrator file is
   read. That is SARIMA today, so the API image carries no calibrator.
 

@@ -53,7 +53,8 @@ the store's `station_name` column.
       Otherwise forecasts.json is refused: an error is logged, any existing
       forecasts.json is left as it is (and is then stale), the other files
       are still written, and the script exits 1 so scripts/run_pipeline.sh
-      stops before its deploy step. Read by website/sections.jsx and
+      (set -e) stops before printing its deploy command. Read by
+      website/sections.jsx and
       website/charts.jsx.
 
   model_comparison.json
@@ -715,8 +716,9 @@ def main():
     export_model_comparison(out_dir)
 
     if forecasts_refused is not None:
-        # Exit non-zero so scripts/run_pipeline.sh (set -e) stops before its
-        # deploy step instead of publishing the stale file beside fresh data.
+        # Exit non-zero so scripts/run_pipeline.sh (set -e) stops before it
+        # prints the deploy command, rather than inviting a deploy of the
+        # stale file beside fresh data.
         log.error(
             f"forecasts.json NOT written; {out_dir / 'forecasts.json'} (if "
             f"present) is stale. Reason: {forecasts_refused}. The other files "

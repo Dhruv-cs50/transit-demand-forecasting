@@ -206,8 +206,13 @@ def test_configured_calibration_rebuilds_p10_p90_and_keeps_p50(client, monkeypat
     assert raw.status_code == 200, raw.text
     raw_rows = pd.DataFrame(raw.json()["forecasts"]).assign(station_id="EM")
 
+    import machine_learning_files.api as api
+
     path = tmp_path / "SARIMA.json"
-    save_calibrator(_synthetic_calibrator(), path, model_key="SARIMA")
+    # serve_band refuses a calibrator fitted on other splits; benchmarks.py
+    # records the config's train_end as fit_end.
+    save_calibrator(_synthetic_calibrator(), path, model_key="SARIMA",
+                    fit_end=str(api._get_config()["data"]["train_end"]))
     _calibrate_sarima_in_config(monkeypatch, tmp_path)
 
     r = _forecast(client, station_id="EM", horizon_hours=6)
