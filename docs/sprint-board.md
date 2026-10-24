@@ -1,6 +1,43 @@
 # Sprint board
 
-## Sprint 4c — Every site claim traces to a run (opened 2026-10-24)
+## Sprint 4e — EDA section rebuilt from the current store (opened 2026-10-24)
+
+(4e because the reconcile session uses 4d.)
+
+**Goal.** Close Sprint 4c's follow-up "Regenerate the EDA plots from the current store": rewrite
+`transit_eda/notebooks/eda_complete.ipynb` for monthly station rows, regenerate the PNGs, and
+restore the site's EDA section with captions that state only what each plot shows.
+
+**Branch.** `fix/eda-from-store`, cut from `origin/fix/site-model-claims` @ `0938526` (#141, the
+only branch without `EDAViz`). PR targets it. None of #139/#140/#141 had merged.
+
+**Store.** Rebuilt with #139's pipeline (`origin/fix/bart-station-table` @ `7598107`) from the 60
+hand-downloaded workbooks plus the weather and Sharks-schedule files used by the gate runs:
+`feature_store.parquet` sha256 `9a7771080c592a1206c4d7553d78012157df958d3a6bda279895a2151a323cea`,
+byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, matplotlib 3.11.2).
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4e.1 | Rebuild the store | orchestrator | — | sha256 equals #139's gate2 store | done — `9a777108…` |
+| S4e.2 | Rewrite the notebook; regenerate PNGs | orchestrator | S4e.1 | Executes with 0 errors; every caption claim asserted; image outputs byte-identical to the PNGs; rerun gives identical PNGs | done (13f265f) |
+| S4e.3 | Restore `EDAViz`, nav link, mount; `?v=12` | orchestrator | S4e.2 | Notebook's site check passes; local render: 4 tabs, every image loads, 0 console errors | done (3cb7a1d) |
+| S4e.4 | Review the diff | code-reviewer | S4e.3 | No BLOCKER open | todo |
+| S4e.5 | Push; open PR (no merge) | orchestrator | S4e.4 | PR open with claim → evidence table | todo |
+
+### Rulings (Sprint 4e)
+
+- **Kept:** network level (with the 2020–21 gap drawn as missing, not a crash), seasonality,
+  station ranking, coverage map. **Dropped:** hour-of-day, day-of-week, game-night spike, rain
+  scatter, hourly decomposition, event proximity, correlation heatmap: they need daily or hourly
+  rows (notebook section 6).
+- **Weather and games vs 2022→23 YoY not plotted.** r(YoY, extra rain) = 0.82 over 12 months, but
+  the wettest 2023 months (Jan–Mar) are also the months that grew most while growth fell from
+  +51.4% to +9.8% through the year; games r = −0.05. Printed in notebook section 5, not published
+  as a plot.
+- **Sharks schedule window comes from the raw file** (2019-09-17 to 2023-12-28), because the
+  store's game flags are `False` both for no game and for no data.
+
+
 
 (Named 4c, ids S4c.x, because #138 adds a "Sprint 4" and #139 a "Sprint 4b".)
 
