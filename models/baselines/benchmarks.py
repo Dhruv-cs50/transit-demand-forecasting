@@ -1,6 +1,6 @@
 """
-evaluation/benchmarks.py
-─────────────────────────
+models/baselines/benchmarks.py
+─────────────────────────────────
 Head-to-head comparison of all models on the held-out test set.
 
 Models compared:
@@ -15,8 +15,6 @@ Produces:
   - Per-slice breakdown (game days, rainy days, AM peak, PM peak)
   - Statistical significance tests (Diebold-Mariano)
   - Latex-ready table for your project report
-
-This is what powers the "MAPE 11.8%" number on your website hero.
 
 Usage:
     python models/baselines/benchmarks.py
@@ -42,7 +40,7 @@ import yaml
 # export_website_data.py kept taking its validation-split fallback.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from evaluation.metrics import wape, mae, rmse, mape, smape, coverage
+from evaluation.metrics import wape, mae, rmse, mape, smape, coverage, mase, _infer_seasonal_period
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,7 +90,15 @@ def seasonal_naive_forecast(
         n_test = len(grp)
         repeated = np.tile(last_week, (n_test // lag) + 1)[:n_test]
 
-        grp = grp.copy()
+        # `repeated` is built assuming positional row i == the i-th chronological
+        # test timestamp (e.g. repeated[0] is the seasonal-naive value for the
+        # earliest test month). test_df's on-disk row order isn't guaranteed
+        # sorted per station (predict.py/zero_shot.py/ablation.py all explicitly
+        # re-sort after filtering by station for the same reason) — without
+        # sorting here, np.tile's positionally-built array gets assigned to
+        # whatever order grp's rows happen to be in, silently pairing each
+        # timestamp with the wrong seasonal-naive value.
+        grp = grp.sort_values("timestamp").copy()
         grp["p50"] = np.maximum(repeated, 0)
         grp["p10"] = grp["p50"] * 0.80
         grp["p90"] = grp["p50"] * 1.20
@@ -112,16 +118,48 @@ MAX_PLAUSIBLE_WAPE = float(os.environ.get("MAX_PLAUSIBLE_WAPE", "100"))
 
 
 def accept_model_rows(rows: list[dict], model_name: str) -> list[dict]:
-    """Keep a model's metrics only if its overall WAPE is physically sensible.
+    """Keep a model's metrics only if it forecast every test row and its overall
+    WAPE is valid and physically sensible.
 
-    Rejected models are reported loudly and left off the leaderboard. They are
-    a failure to investigate, not a ranking to publish.
+    A model is rejected when it did not forecast every test row (overall n <
+    n_expected), when its overall WAPE is missing or NaN (at least one
+    forecast was missing), or when it exceeds MAX_PLAUSIBLE_WAPE. A model is
+    scored on every test row or not at all. Rejected models are reported
+    loudly and left off the leaderboard. They are a failure to investigate,
+    not a ranking to publish.
     """
     overall = next((r for r in rows if r.get("slice") == "overall"), None)
     if overall is None:
         return rows
 
+    n_scored = overall.get("n")
+    n_expected = overall.get("n_expected")
+    if n_scored is not None and n_expected is not None and n_scored < n_expected:
+        missing = overall.get("missing_stations") or []
+        if missing:
+            shown = ", ".join(str(m) for m in missing[:10])
+            more = f" (+{len(missing) - 10} more)" if len(missing) > 10 else ""
+            where = f" No forecast for {len(missing)} station(s): {shown}{more}."
+        else:
+            where = ""
+        log.error(
+            f"  {model_name} REJECTED: forecast {n_scored:,} of {n_expected:,} "
+            f"test rows.{where} A model is scored on every test row or not at "
+            f"all; excluded from the leaderboard; diagnose before reporting it."
+        )
+        return []
+
     wape_pct = overall.get("WAPE_%")
+    if wape_pct is None or np.isnan(wape_pct):
+        # evaluation.metrics returns NaN when a forecast is missing on a row
+        # whose actual is present. A model must never be ranked on only the
+        # rows it chose to forecast, so a NaN overall score is a failure.
+        log.error(
+            f"  {model_name} REJECTED: no valid score — at least one forecast "
+            f"is missing; excluded from the leaderboard; diagnose before "
+            f"reporting it."
+        )
+        return []
     if wape_pct is not None and wape_pct > MAX_PLAUSIBLE_WAPE:
         log.error(
             f"  {model_name} REJECTED: WAPE {wape_pct:,.1f}% exceeds "
@@ -138,31 +176,57 @@ def compute_metrics(
     preds: pd.DataFrame,
     model_name: str,
     slices: dict = None,
+    train_df: pd.DataFrame = None,
 ) -> list[dict]:
     """
     Compute metrics for a model overall and on each diagnostic slice.
     slices: dict of {slice_name: boolean mask on merged df}
+    train_df: training data used to scale MASE (mirrors evaluation.metrics._compute's
+        contract). Omitted -> "MASE" is left out of every row, same as before this
+        param existed.
+
+    Every test row is kept (left merge), so a test row the model did not
+    forecast reaches the metrics as a missing forecast (NaN metric) instead of
+    silently dropping out of the score. Each row reports "n" (rows scored:
+    actual and forecast both present) and "n_expected" (rows with an actual).
+    When a slice has n < n_expected, the row also lists "missing_stations".
     """
     merged = actuals.merge(
         preds[["timestamp", "station_id", "p10", "p50", "p90"]],
         on=["timestamp", "station_id"],
-        how="inner",
+        how="left",
+        indicator="_forecast_merge",
     )
-    if merged.empty:
+    if merged.empty or not (merged["_forecast_merge"] == "both").any():
         log.warning(f"No overlapping rows for {model_name}")
         return []
+    merged = merged.drop(columns="_forecast_merge")
 
     rows = []
+
+    # MASE scale is fixed for the whole training set, computed once here rather
+    # than per-slice, matching evaluation.metrics._compute's own approach.
+    y_train = seasonal_period = ids = None
+    if train_df is not None and "ridership" in train_df.columns:
+        seasonal_period = _infer_seasonal_period(train_df)
+        train_sorted = train_df.sort_values("timestamp") if "timestamp" in train_df.columns else train_df
+        train_valid = train_sorted.dropna(subset=["ridership"])
+        y_train = train_valid["ridership"].values.astype(float)
+        ids = train_valid["station_id"].values if "station_id" in train_valid.columns else None
+        if len(y_train) <= seasonal_period:
+            y_train = None
 
     def _metrics_row(label: str, subset: pd.DataFrame) -> dict | None:
         if subset.empty:
             return None
         y_true = subset["ridership"].values.astype(float)
         y_pred = np.maximum(subset["p50"].values.astype(float), 0)
-        return {
+        has_actual = ~np.isnan(y_true)
+        has_forecast = ~np.isnan(y_pred)
+        row = {
             "model":   model_name,
             "slice":   label,
-            "n":       len(subset),
+            "n":       int(np.sum(has_actual & has_forecast)),
             "WAPE_%":  round(wape(y_true, y_pred),  2),
             "MAE":     round(mae(y_true, y_pred),   2),
             "RMSE":    round(rmse(y_true, y_pred),  2),
@@ -170,6 +234,14 @@ def compute_metrics(
             "sMAPE_%": round(smape(y_true, y_pred), 2),
             "Coverage_%": round(coverage(y_true, subset["p10"].values.astype(float), subset["p90"].values.astype(float)), 2),
         }
+        if y_train is not None:
+            row["MASE"] = round(mase(y_true, y_pred, y_train, seasonality=seasonal_period, ids=ids), 4)
+        # Appended last so every existing column keeps its position.
+        row["n_expected"] = int(np.sum(has_actual))
+        if row["n"] < row["n_expected"]:
+            unforecast = subset.loc[has_actual & ~has_forecast, "station_id"]
+            row["missing_stations"] = sorted(unforecast.unique().tolist(), key=str)
+        return row
 
     # Overall
     r = _metrics_row("overall", merged)
@@ -240,8 +312,24 @@ def diebold_mariano_test(
         return {}
 
     y_true = common["ridership"].values.astype(float)
-    e_a = np.abs(y_true - np.maximum(common["p50_a"].values.astype(float), 0))
-    e_b = np.abs(y_true - np.maximum(common["p50_b"].values.astype(float), 0))
+    p50_a  = common["p50_a"].values.astype(float)
+    p50_b  = common["p50_b"].values.astype(float)
+
+    # Pair only the rows where the actual and both models' p50 are present.
+    # This is a significance test between two models, not a score for either
+    # of them (the leaderboard rejects any model that missed test rows; see
+    # accept_model_rows). A single NaN row would poison d.mean()/t_stat/
+    # p_value to NaN for the WHOLE comparison, and `p_value < 0.05` against
+    # that NaN is always False -- so `winner` would fall through to model_a
+    # even when model_b (the challenger) was actually better, misreporting an
+    # undefined test as a clean loss.
+    valid = ~(np.isnan(y_true) | np.isnan(p50_a) | np.isnan(p50_b))
+    if valid.sum() < 2:
+        return {}
+    y_true, p50_a, p50_b = y_true[valid], p50_a[valid], p50_b[valid]
+
+    e_a = np.abs(y_true - np.maximum(p50_a, 0))
+    e_b = np.abs(y_true - np.maximum(p50_b, 0))
     d   = e_a - e_b   # positive = B is better
 
     t_stat, p_value = stats.ttest_1samp(d, 0)
@@ -257,6 +345,60 @@ def diebold_mariano_test(
 
 
 # ── Main benchmark runner ──────────────────────────────────────────────────────
+
+# MASE here is the forecast's MAE divided by the in-sample seasonal-naive MAE
+# on the TRAINING series (evaluation.metrics.mase). Its value is not a
+# comparison with the SeasonalNaive model scored on the test window, which is
+# a separate row of this table and routinely has MASE > 1 itself. The CSV
+# column stays "MASE" (stable schema for readers of the CSV); the printed and
+# LaTeX tables label it so it cannot be read as a comparison with that row.
+MASE_LABEL = "MASE (in-sample)"
+MASE_NOTE_LINES = (
+    "MASE (in-sample) = forecast MAE / in-sample seasonal-naive MAE, training series.",
+    "Below 1 = below that in-sample error; NOT a comparison with the SeasonalNaive row.",
+)
+
+
+def format_leaderboard_console(leaderboard: pd.DataFrame) -> str:
+    """Render the console leaderboard table (and the MASE note, once, below it)."""
+    has_mase = "MASE" in leaderboard.columns
+    out = [f"\n{'═'*70}", "  MODEL BENCHMARK LEADERBOARD", f"{'═'*70}"]
+    header = f"\n{'Rank':<6}{'Model':<25}{'WAPE%':>8}{'MAE':>10}{'RMSE':>10}{'MAPE%':>9}{'Cov%':>8}"
+    if has_mase:
+        header += f"{MASE_LABEL:>18}"
+    out.append(header)
+    out.append(f"{'─'*76}")
+    for rank, row in leaderboard.iterrows():
+        marker = " ← best" if rank == 1 else ""
+        line = (f"  {rank:<4}{row['model']:<25}{row['WAPE_%']:>7.1f}%"
+                f"{row['MAE']:>10.0f}{row['RMSE']:>10.0f}"
+                f"{row['MAPE_%']:>8.1f}%{row['Coverage_%']:>7.1f}%")
+        if has_mase:
+            mase_val = row.get("MASE")
+            line += f"{mase_val:>18.3f}" if pd.notna(mase_val) else f"{'n/a':>18}"
+        out.append(line + marker)
+    if has_mase:
+        out.append("")
+        out.extend(f"  {note}" for note in MASE_NOTE_LINES)
+    return "\n".join(out)
+
+
+def leaderboard_latex(leaderboard: pd.DataFrame) -> str:
+    """Render the report-ready LaTeX table. Needs jinja2 (raises ImportError without it)."""
+    has_mase = "MASE" in leaderboard.columns
+    latex_cols = ["model", "WAPE_%", "MAE", "RMSE", "MAPE_%", "Coverage_%"]
+    caption = "Model comparison on Bay Area transit test set"
+    if has_mase:
+        latex_cols.append("MASE")
+        caption += ". " + " ".join(MASE_NOTE_LINES)
+    table = leaderboard[latex_cols].rename(columns={"MASE": MASE_LABEL})
+    return table.to_latex(
+        index=True,
+        float_format="%.2f",
+        caption=caption,
+        label="tab:benchmark",
+    )
+
 
 def run_benchmarks(
     df: pd.DataFrame,
@@ -305,7 +447,7 @@ def run_benchmarks(
     naive_preds = seasonal_naive_forecast(train_df, test_df, freq)
     if not naive_preds.empty:
         model_preds["SeasonalNaive"] = naive_preds
-        rows = compute_metrics(test_df, naive_preds, "SeasonalNaive")
+        rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df)
         rows = accept_model_rows(rows, "SeasonalNaive")
         all_rows.extend(rows)
         log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
@@ -320,7 +462,7 @@ def run_benchmarks(
             )
             if not arima_preds.empty:
                 model_preds["SARIMA"] = arima_preds
-                rows = compute_metrics(test_df, arima_preds, "SARIMA")
+                rows = compute_metrics(test_df, arima_preds, "SARIMA", train_df=train_df)
                 rows = accept_model_rows(rows, "SARIMA")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
@@ -336,7 +478,7 @@ def run_benchmarks(
             )
             if not prophet_preds.empty:
                 model_preds["Prophet"] = prophet_preds
-                rows = compute_metrics(test_df, prophet_preds, "Prophet")
+                rows = compute_metrics(test_df, prophet_preds, "Prophet", train_df=train_df)
                 rows = accept_model_rows(rows, "Prophet")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
@@ -382,7 +524,7 @@ def run_benchmarks(
             )
         elif not zs_preds.empty:
             model_preds[chronos_label] = zs_preds
-            rows = compute_metrics(test_df, zs_preds, chronos_label)
+            rows = compute_metrics(test_df, zs_preds, chronos_label, train_df=train_df)
             rows = accept_model_rows(rows, chronos_label)
             all_rows.extend(rows)
             log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
@@ -403,7 +545,7 @@ def run_benchmarks(
             )
             if not ft_preds.empty:
                 model_preds["AutoGluon_Ensemble"] = ft_preds
-                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble")
+                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble", train_df=train_df)
                 rows = accept_model_rows(rows, "AutoGluon_Ensemble")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
@@ -440,16 +582,15 @@ def run_benchmarks(
                     dm_results.append(dm)
 
     # ── Print report ───────────────────────────────────────────────────────────
-    print(f"\n{'═'*70}")
-    print("  MODEL BENCHMARK LEADERBOARD")
-    print(f"{'═'*70}")
-    print(f"\n{'Rank':<6}{'Model':<25}{'WAPE%':>8}{'MAE':>10}{'RMSE':>10}{'MAPE%':>9}{'Cov%':>8}")
-    print(f"{'─'*76}")
-    for rank, row in leaderboard.iterrows():
-        marker = " ← best" if rank == 1 else ""
-        print(f"  {rank:<4}{row['model']:<25}{row['WAPE_%']:>7.1f}%"
-              f"{row['MAE']:>10.0f}{row['RMSE']:>10.0f}"
-              f"{row['MAPE_%']:>8.1f}%{row['Coverage_%']:>7.1f}%{marker}")
+    # 2026-09-24 wired MASE into compute_metrics()'s output rows (so
+    # `leaderboard` genuinely carries a "MASE" column here), but never updated
+    # this console table or the LaTeX table below to display it -- the module's
+    # own docstring promises "Leaderboard table (WAPE, MAE, RMSE, MAPE, MASE)",
+    # yet the actual printed leaderboard and report-ready LaTeX table silently
+    # dropped the one metric that matches the project's own eval_metric
+    # (configs/model.yaml's finetune.eval_metric: "MASE"). Only the raw
+    # benchmark_leaderboard.csv (saved with all columns) ever carried it.
+    print(format_leaderboard_console(leaderboard))
 
     if dm_results:
         print(f"\n{'─'*70}")
@@ -474,13 +615,7 @@ def run_benchmarks(
 
     # ── Latex table (cosmetic; never fatal) ────────────────────────────────────
     try:
-        latex = leaderboard[["model", "WAPE_%", "MAE", "RMSE", "MAPE_%", "Coverage_%"]].to_latex(
-            index=True,
-            float_format="%.2f",
-            caption="Model comparison on Bay Area transit test set",
-            label="tab:benchmark",
-        )
-        (EVAL_DIR / "benchmark_latex.tex").write_text(latex)
+        (EVAL_DIR / "benchmark_latex.tex").write_text(leaderboard_latex(leaderboard))
     except ImportError as e:
         log.warning(f"Skipping LaTeX table ({e}); leaderboard CSV is unaffected")
 

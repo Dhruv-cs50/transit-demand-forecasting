@@ -14,7 +14,8 @@ models/chronos2/weights/
 
 # Claude / agent internals
 .agents/
-.claude/
+.claude/*
+!.claude/agents/
 skills-lock.json
 
 # Redundant / scratch directories

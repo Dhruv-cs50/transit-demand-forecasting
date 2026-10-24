@@ -1,5 +1,5 @@
 """
-models/chronos2/zero_shot.py
+machine_learning_files/zero_shot.py
 ─────────────────────────────
 Zero-shot Chronos-2 inference — no fine-tuning required.
 Uses your historical ridership data as context, with weather and events
@@ -9,8 +9,8 @@ This is your baseline. Run it first to establish a performance floor
 before investing in fine-tuning.
 
 Usage:
-    python models/chronos2/zero_shot.py
-    python models/chronos2/zero_shot.py --station EMBR --horizon 24
+    python machine_learning_files/zero_shot.py
+    python machine_learning_files/zero_shot.py --station EM --horizon 24
 """
 
 import argparse
@@ -40,7 +40,7 @@ def load_feature_store(station_id: str = None) -> pd.DataFrame:
     path = PROCESSED_DIR / "feature_store.parquet"
     if not path.exists():
         raise FileNotFoundError(
-            "Feature store not found. Run: python processing/merge_pipeline.py"
+            "Feature store not found. Run: python machine_learning_files/merge_pipeline.py"
         )
     df = pd.read_parquet(path)
     if station_id:
@@ -222,6 +222,20 @@ def evaluate_predictions(
 
     y_pred = merged[median_col].values.astype(float)
     y_true = merged["actual"].values.astype(float)
+
+    # Exclude NaN rows before computing -- ridership can legitimately have
+    # null values (check_target_null_rate tolerates up to ~10% before
+    # erroring), and np.mean/np.sum over an array containing even one NaN
+    # silently return NaN for the WHOLE station, not just that row (same
+    # NaN-propagation family already fixed in evaluation/metrics.py's
+    # mae/rmse/mape/wape/smape/mase via _valid_mask() on 2026-09-15 --
+    # this module reimplements the same metrics independently and needs
+    # the same guard).
+    valid = ~(np.isnan(y_true) | np.isnan(y_pred))
+    y_true = y_true[valid]
+    y_pred = y_pred[valid]
+    if len(y_true) == 0:
+        return {}
 
     mae  = np.mean(np.abs(y_pred - y_true))
     rmse = np.sqrt(np.mean((y_pred - y_true) ** 2))

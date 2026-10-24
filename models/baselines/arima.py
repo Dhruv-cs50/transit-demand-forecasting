@@ -16,7 +16,7 @@ something is wrong.
 
 Usage:
     python models/baselines/arima.py
-    python models/baselines/arima.py --station EMBR
+    python models/baselines/arima.py --station EM
 """
 
 from __future__ import annotations
@@ -265,7 +265,7 @@ def run_arima_all_stations(
 ) -> pd.DataFrame:
     """
     Fit SARIMA for every station and generate forecasts.
-    Used by evaluation/benchmarks.py for head-to-head comparison.
+    Used by models/baselines/benchmarks.py for head-to-head comparison.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 

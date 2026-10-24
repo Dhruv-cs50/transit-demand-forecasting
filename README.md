@@ -89,6 +89,8 @@ See `updates/` for the audit trail.
 |-- machine_learning_files/
 |   |-- fetch_511_transit.py       # 511 SF Bay transit feed ingestion
 |   |-- fetch_bart_od.py           # BART OD ridership report ingestion
+|   |-- bart_od_from_xlsx.py       # BART OD parquet builder from the hand-downloaded bart.gov Ridership_YYYYMM.xlsx workbooks (see data/MANIFEST.md)
+|   |-- bart_od_from_csv.py        # Legacy fallback from bart_clean.csv; has no Total block, so merge_pipeline.py rejects its output
 |   |-- fetch_weather_openmeteo.py # Open-Meteo station weather ingestion
 |   |-- fetch_events.py            # NHL and Ticketmaster event ingestion
 |   |-- merge_pipeline.py          # raw sources -> feature_store.parquet + splits
@@ -170,7 +172,9 @@ bash scripts/run_pipeline.sh
 That script performs:
 
 1. Build `data/processed/feature_store.parquet` and chronological splits.
-2. Build `data/processed/feature_store_enriched.parquet`.
+2. Build `data/processed/feature_store_enriched.parquet`, then regenerate the
+   chronological splits from it (step 1's splits are pre-enrichment and get
+   overwritten here so `finetune.py` trains on the full enriched schema).
 3. Validate the enriched feature store.
 4. Run Chronos zero-shot forecasts.
 5. Run SARIMA and Prophet baselines.
@@ -206,7 +210,8 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 | `data/processed/splits/val.parquet` | validation split |
 | `data/processed/splits/test.parquet` | held-out test split |
 | `data/processed/validation_report.csv` | latest validation summary |
-| `models/chronos2/outputs/zero_shot_forecasts_*.parquet` | Chronos forecast artifacts |
+| `models/chronos2/outputs/zero_shot_forecasts_*.parquet` | Chronos zero-shot forecasts written by `zero_shot.py`; not what the website publishes |
+| `evaluation/outputs/chronos2_zeroshot_preds.parquet` | Chronos zero-shot test-window predictions written by `models/baselines/benchmarks.py` and scored on the leaderboard; the export reads them for `website/data/forecasts.json` |
 | `models/baselines/outputs/arima/arima_forecasts.parquet` | SARIMA forecast artifact |
 | `models/baselines/outputs/prophet/prophet_forecasts.parquet` | Prophet forecast artifact |
 | `website/data/*.json` | static frontend data generated from model and feature artifacts |
@@ -238,7 +243,7 @@ Two Dockerfiles are provided:
 
 **`Dockerfile.api`** (inference service — used in production):
 - Base: `python:3.11-slim`
-- Copies pre-computed parquet forecasts from `models/chronos2/outputs/` into the image (fast path, no inference at startup)
+- Copies the API source, `configs/model.yaml` and the feature-store parquets into the image. It does **not** copy `models/chronos2/outputs/` (gitignored, absent from a fresh checkout) and does not install `chronos-forecasting`, so the image ships with no forecast cache and no live-inference path: `/forecast` returns `503` for known stations until a cache is provided. This is a known gap.
 - Exposes FastAPI on port `$PORT` (Cloud Run injects this env var)
 - Build: `docker build -f Dockerfile.api -t transit-api .`
 
@@ -267,10 +272,10 @@ gcloud run deploy transit-api \
 
 | Data | Location | Notes |
 | --- | --- | --- |
-| Feature store parquet | `data/processed/feature_store_enriched.parquet` | Station-month ridership + covariates |
+| Feature store parquet | `data/processed/feature_store.parquet` + `data/processed/feature_store_enriched.parquet` | `Dockerfile.api` bakes in both, but the live API (`api.py`'s `get_feature_store()`, `zero_shot.py`'s `load_feature_store()`) reads only the pre-enrichment `feature_store.parquet` at serve time — the enriched file feeds offline training splits (`finetune.py`) instead |
 | Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API |
 | Website assets | App Engine Standard | HTML/CSS/JSX/JSON, served via static file handlers |
-| Pre-computed forecasts | Baked into Docker image | `models/chronos2/outputs/*.parquet` copied at build time |
+| Pre-computed forecasts | Not in the image (known gap) | `models/chronos2/outputs/*.parquet` is gitignored and `Dockerfile.api` does not copy it; `api.py` reads it from the working directory when present |
 
 ### System Design and Scalability
 
@@ -278,7 +283,7 @@ gcloud run deploy transit-api \
 flowchart LR
     subgraph Pipeline["Batch Pipeline (local / CI)"]
         RAW[Raw Data\nBART · Weather · Events]
-        FS[feature_store_enriched\n.parquet]
+        FS[feature_store.parquet\n+ feature_store_enriched.parquet]
         FC[Forecast\n*.parquet]
         JSON[website/data\n*.json]
         RAW --> FS --> FC --> JSON
@@ -288,20 +293,21 @@ flowchart LR
         AR[Artifact Registry\nDocker image]
         CR[Cloud Run\ntransit-api]
         GAE[App Engine\nwebsite]
-        FC -->|baked into image| AR --> CR
+        FC -.->|not copied into image| AR
+        AR --> CR
         JSON -->|static files| GAE
     end
 
     USER([Browser]) -->|HTTPS| GAE
     GAE -->|POST /forecast| CR
-    CR -->|parquet lookup| FC
+    CR -.->|parquet lookup if cache present| FC
 ```
 
 **Scalability:**
 - **App Engine Standard** — auto-scales instances, zero when idle, no server management
 - **Cloud Run** — scales 0→N replicas per concurrency, each replica stateless
-- **Pre-computed parquet cache** — >99% of API requests are sub-100ms parquet lookups, no model load
-- **Upgrade path** — live inference (cache miss) currently runs Chronos-T5-Small on CPU; swap to GPU Cloud Run or Vertex AI for higher throughput
+- **Pre-computed parquet cache** — when `models/chronos2/outputs/` holds a cache, `api.py` answers from a parquet lookup with no model load. `Dockerfile.api` ships no cache today, so the production image does not use this path (known gap)
+- **Upgrade path** — `Dockerfile.api` (the production image) doesn't bundle `chronos-forecasting`, so a cache miss returns `503` today rather than running live inference; a local dev server started from `machine_learning_files/requirements.txt` (which does pin it) runs Chronos-T5-Small on CPU on cache miss — bundling it into `Dockerfile.api` and moving to GPU Cloud Run or Vertex AI is the upgrade path for live inference in production
 
 Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
@@ -346,22 +352,22 @@ Endpoints:
 
 **Input** (`POST /forecast`):
 ```json
-{ "station_id": "EMBR", "horizon_hours": 6 }
+{ "station_id": "EM", "horizon_hours": 6 }
 ```
 
 **Output** (`POST /forecast`):
 ```json
 {
-  "station_id": "EMBR",
+  "station_id": "EM",
   "horizon_hours": 6,
-  "generated_at": "2025-06-01T12:00:00",
+  "generated_at": "2025-06-01T12:00:00.000000Z",
   "forecasts": [
     { "timestamp": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
   ]
 }
 ```
 
-The API serves from cached parquet in `models/chronos2/outputs/` when present; that directory is not committed, so in a fresh checkout every request takes the live-inference path (`amazon/chronos-t5-small`, i.e. Chronos-1).
+The API serves from cached parquet in `models/chronos2/outputs/` when present. That directory is not committed and `Dockerfile.api` does not copy it, so a fresh checkout and an image built from `Dockerfile.api` have no cache: every request takes the live-inference path (`amazon/chronos-t5-small`, i.e. Chronos-1). That path needs `chronos-forecasting`, which `Dockerfile.api` does not install, so `/forecast` returns `503` from that image; only a server installed from `machine_learning_files/requirements.txt` can run it.
 
 ## Documentation
 
@@ -385,7 +391,7 @@ Additional project documentation:
 | --- | --- |
 | `Feature store not found` | Run `python machine_learning_files/merge_pipeline.py`. |
 | `feature_store_enriched.parquet` missing | Run `python Processing/feature_engineering.py`. |
-| `No BART OD files found` | Run `python machine_learning_files/fetch_bart_od.py` or place BART parquet files in `data/raw/transit/bart/`. |
+| `No BART OD files found` | bart.gov answers automated requests with HTTP 403, so `fetch_bart_od.py` cannot fill `data/raw/transit/bart/`. Download the Ridership workbooks by hand and run `python machine_learning_files/bart_od_from_xlsx.py --zips <zips>` (see `data/MANIFEST.md`). Do not use `bart_od_from_csv.py` for the pipeline: `merge_pipeline.py` rejects the months it builds. |
 | AutoGluon import/install failures | Recreate the environment with Python 3.11. |
 | Chronos device errors | Change `chronos2.device` in `configs/model.yaml`. |
 | Website shows stale data | Re-run `scripts/export_website_data.py` before deploying. |

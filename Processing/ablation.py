@@ -1,5 +1,5 @@
 """
-evaluation/ablation.py
+Processing/ablation.py
 ───────────────────────
 Ablation study — measures the accuracy impact of each covariate group
 by systematically zeroing out feature groups and re-evaluating.
@@ -20,8 +20,8 @@ For each group we measure WAPE and MAE overall AND specifically on:
 This tells you exactly which data sources are earning their keep.
 
 Usage:
-    python evaluation/ablation.py
-    python evaluation/ablation.py --model-dir models/chronos2/weights
+    python Processing/ablation.py
+    python Processing/ablation.py --model-dir models/chronos2/weights
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ COVARIATE_GROUPS = {
         "is_game_day", "is_sharks_game_window", "game_start_hour",
         "is_pre_event_window", "is_post_event_window", "is_playoff",
         "is_any_event_day", "nearest_event_attendance_tier",
-        "hours_to_next_event", "hours_since_last_event",
+        "hours_to_next_event", "hours_to_event", "hours_since_last_event",
         "event_proximity_score",
     ],
     "station": [
@@ -123,12 +123,31 @@ def zero_out_groups(
         for col in COVARIATE_GROUPS[group]:
             if col not in df.columns:
                 continue
-            if df[col].dtype == bool or str(df[col].dtype) == "bool":
+            if pd.api.types.is_bool_dtype(df[col]):
                 df[col] = False
-            elif df[col].dtype == object:
-                pass  # leave string/categorical columns as-is
-            else:
+            elif pd.api.types.is_numeric_dtype(df[col]):
                 df[col] = 0.0
+            else:
+                # String/categorical columns (e.g. "station" group's
+                # transit_mode) -- leave as-is. `df[col].dtype == object`
+                # used to gate this branch, but pandas 3.x infers a plain
+                # string dtype ("str", not "object") for columns like this
+                # by default -- the installed pandas here is 3.0.5, and
+                # requirements.txt's floor (pandas>=2.1.0) sets no upper
+                # bound, so this is the real dtype on a fresh install today,
+                # not a future hypothetical. That comparison silently missed
+                # every such column and fell through to the numeric branch
+                # instead, overwriting transit_mode with the float 0.0 for
+                # every ablation config that excludes "station" (baseline,
+                # +calendar, +weather, +events -- 4 of 6 configs) -- a
+                # dtype-corrupting mismatch against the string values the
+                # predictor was fine-tuned on, not the "no station info"
+                # neutral state this function's docstring promises. Checking
+                # via pd.api.types.is_bool_dtype/is_numeric_dtype instead of
+                # raw dtype-string comparisons is correct under both the
+                # object-dtype (pandas < 3) and str-dtype (pandas >= 3)
+                # backends.
+                pass
 
     return df
 
@@ -193,20 +212,38 @@ def run_inference_with_config(
     )
 
     predictor = TimeSeriesPredictor.load(str(model_dir))
-    prediction_length = cfg["data"].get("forecast_horizon_steps") \
-        or cfg["chronos2"].get("prediction_length_steps")
-    if prediction_length is None:
-        freq = cfg["data"]["resample_freq"]
-        horizon_hours = cfg["data"]["forecast_horizon_hours"]
-        try:
-            steps_per_hour = pd.tseries.frequencies.to_offset(freq).nanos / (3600 * 1e9)
-            prediction_length = int(horizon_hours * steps_per_hour)
-        except ValueError:
-            # Non-fixed frequencies (e.g. "MS" for month-start) have no fixed
-            # nanosecond duration — approximate using a 30-day month.
-            prediction_length = max(1, round(horizon_hours / (30 * 24)))
 
-    preds = predictor.predict(ts_df, prediction_length=prediction_length)
+    # build_predictor() (finetune.py) always fits with a non-empty
+    # known_covariates_names (calendar columns are always present), so
+    # predict() unconditionally requires known_covariates for the forecast
+    # horizon -- omitting it raised "ValueError: known_covariates ... should
+    # be provided at prediction time" on every call, same root cause class as
+    # models/chronos2/predict.py's _finetuned_forecast(). Mirror that
+    # function's pattern: slice the horizon rows from feature_store, apply
+    # the SAME ablation zeroing used for context (so a config's zeroed
+    # covariates stay zeroed for the forecast window too, not just history),
+    # and feed only the columns the predictor was actually fit to expect
+    # ahead of time (KNOWN_FUTURE_COLS).
+    from models.chronos2.finetune import KNOWN_FUTURE_COLS
+
+    horizon_steps = cfg["data"].get("forecast_horizon_steps") \
+        or cfg["chronos2"].get("prediction_length_steps")
+
+    future_raw = feature_store[feature_store["timestamp"] > as_of]
+    future_ablated = zero_out_groups(future_raw, include_groups)
+    future_ablated = future_ablated.rename(columns={"station_id": "item_id"})
+
+    known_covariates = None
+    known_cols = [c for c in KNOWN_FUTURE_COLS if c in future_ablated.columns]
+    if known_cols and not future_ablated.empty:
+        fut = future_ablated.sort_values(["item_id", "timestamp"]).groupby("item_id").head(horizon_steps)
+        known_covariates = TimeSeriesDataFrame.from_data_frame(
+            fut[["item_id", "timestamp"] + known_cols],
+            id_column="item_id",
+            timestamp_column="timestamp",
+        )
+
+    preds = predictor.predict(ts_df, known_covariates=known_covariates)
 
     # Convert AutoGluon output to flat DataFrame
     preds_df = preds.reset_index()
@@ -336,6 +373,43 @@ def run_ablation(
     """
     if configs is None:
         configs = ABLATION_CONFIGS
+
+    # test_df (--test, defaults to data/processed/splits/test.parquet) is
+    # written by merge_pipeline.py's make_splits() from the RAW feature
+    # store -- it never goes through feature_engineering.py's build_features(),
+    # so it carries none of is_sharks_game_window/is_game_day/is_raining/
+    # precip_intensity/is_am_peak/is_pm_peak/in_event_catchment. Every one of
+    # eval_on_slices()'s `if <col> in merged.columns` guards then silently
+    # skips that slice on every config, every day -- only "overall" ever
+    # printed, even though feature_store (--feature-store, the enriched
+    # store used for inference above) has these columns for the exact same
+    # (timestamp, station_id) rows. Backfill them from feature_store so the
+    # diagnostic slices this module exists for actually run.
+    diagnostic_cols = [
+        "is_sharks_game_window", "is_game_day", "is_raining",
+        "precip_intensity", "is_am_peak", "is_pm_peak", "in_event_catchment",
+    ]
+    # is_raining is NOT actually missing from the raw test_df -- merge_pipeline.py's
+    # build_feature_store() already writes it there as a per-station-month MEAN
+    # FRACTION (agg_kwargs' is_raining=("is_raining", "mean")), not the enriched
+    # boolean feature_engineering.py recomputes. A plain "missing" filter would
+    # skip it here, leaving eval_on_slices()'s `merged["is_raining"] == True`
+    # comparing a fraction against True (i.e. == 1.0), which only matches a
+    # month that rained every single hour -- silently zeroing out rainy_day on
+    # every run. Always overwrite it from feature_store; only backfill the rest
+    # when genuinely absent.
+    always_overwrite = {"is_raining"}
+    cols_to_pull = [
+        c for c in diagnostic_cols
+        if c in feature_store.columns and (c not in test_df.columns or c in always_overwrite)
+    ]
+    if cols_to_pull:
+        test_df = test_df.drop(columns=[c for c in cols_to_pull if c in test_df.columns])
+        test_df = test_df.merge(
+            feature_store[["timestamp", "station_id"] + cols_to_pull],
+            on=["timestamp", "station_id"],
+            how="left",
+        )
 
     # as_of = val_end: forecast prediction_length steps starting right after
     # this, landing on the test window (ts > val_end) that test_df covers.
@@ -485,7 +559,21 @@ def offline_covariate_correlation(
     High correlation → likely important feature.
     Near-zero correlation → feature may not be helping.
     """
-    numeric_cols = feature_store.select_dtypes(include=[np.number]).columns.tolist()
+    # Include bool alongside np.number: pandas does not treat bool as a
+    # numeric dtype, so a plain `select_dtypes(include=[np.number])` silently
+    # dropped every boolean covariate (is_game_day, is_sharks_game_window,
+    # is_raining, is_weekend, is_holiday, is_am_peak, is_pm_peak, is_playoff,
+    # is_hub_station, ...) from this diagnostic -- exactly the event/weather
+    # flag columns this project's ablation study is built around, and the
+    # single largest category of columns in COVARIATE_GROUPS. `.corr()` on a
+    # bool column is well-defined (point-biserial correlation, the standard
+    # way to correlate a binary flag with a continuous target), so there's no
+    # reason to exclude it. Confirmed with a repro: a boolean column with a
+    # real 500-unit ridership lift reported a 0.91 Pearson correlation once
+    # included, versus being silently omitted from the report entirely
+    # before this fix (with no error/warning -- the printed "top features"
+    # table just looked complete while missing this whole class of columns).
+    numeric_cols = feature_store.select_dtypes(include=[np.number, "bool"]).columns.tolist()
     if target_col not in numeric_cols:
         return pd.DataFrame()
 

@@ -1,6 +1,6 @@
 """
-processing/merge_pipeline.py
-─────────────────────────────
+machine_learning_files/merge_pipeline.py
+───────────────────────────────────────────
 Joins all raw data sources into a single tidy feature store parquet file,
 keyed on (timestamp, station_id).
 
@@ -16,19 +16,28 @@ otherwise.
 
 Output: data/processed/feature_store.parquet
 Schema:
-    timestamp       datetime64[ns, America/Los_Angeles]
+    timestamp       datetime64      (tz-naive, wall-clock America/Los_Angeles)
     station_id      str
     agency_id       str
     transit_mode    str      (rail / bus / ferry / road)
-    ridership       float64  ← TARGET
+    ridership       float64  ← TARGET (monthly Total-Trips boardings; see load_transit())
     temp_f          float64
     precip_mm       float64
-    is_raining      bool
+    precip_in       float64
+    is_raining      float64  (per-station-month mean fraction 0.0-1.0, NOT
+                              bool -- feature_engineering.py recomputes this
+                              column as an actual bool from precip_mm)
     weather_code    int
     windspeed_mph   float64
+    cloud_cover_pct float64
+    humidity_pct    float64
     is_game_day     bool
-    game_start_hour int      (NaN if no game)
-    hours_to_event  float64  (hours until next event at a nearby venue)
+    game_start_hour float64  (NaN if no game -- compute_event_features()
+                              always emits a Python float here, so this
+                              column can never actually be int dtype)
+    hours_to_event  float64  (despite the name, this is a monthly home-game/
+                              event COUNT for that station-month, not an
+                              hours-scale value -- see compute_event_features())
     is_sharks_game  bool
     is_playoff      bool
     is_holiday      bool
@@ -36,12 +45,19 @@ Schema:
     hour_of_day     int
     day_of_week     int      (0=Mon, 6=Sun)
     month           int
+    week_of_year    int
     is_am_peak      bool     (only present when timestamps carry sub-daily resolution)
     is_pm_peak      bool     (only present when timestamps carry sub-daily resolution)
+    period          datetime64[ns]  (carried through from load_transit(); same
+                                      month-start value as timestamp)
+    station_name    str      (BART station name for station_id, from
+                              machine_learning_files/bart_stations.py)
+    ridership_daily_est float64  (ridership ÷ 22 weekdays; read by
+                                   scripts/export_website_data.py)
 
 Usage:
-    python processing/merge_pipeline.py
-    python processing/merge_pipeline.py --freq 15min --start 2020-01-01
+    python machine_learning_files/merge_pipeline.py
+    python machine_learning_files/merge_pipeline.py --freq 15min --start 2020-01-01
 """
 
 import argparse
@@ -51,6 +67,11 @@ from pathlib import Path
 import pandas as pd
 import yaml
 from pandas.tseries.holiday import USFederalHolidayCalendar
+
+try:
+    from machine_learning_files.bart_stations import CODE_TO_NAME, CODE_TO_WEATHER_STATION
+except ImportError:  # run as a script from machine_learning_files/
+    from bart_stations import CODE_TO_NAME, CODE_TO_WEATHER_STATION
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,19 +84,12 @@ PROCESSED_DIR = Path("data/processed")
 CONFIG_PATH = Path("configs/sources.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
-# Direct name correspondence between the 7 weather-monitoring locations in
-# configs/sources.yaml (weather.station_coords) and real BART station codes
-# (cross-checked against fetch_bart_od.py's STATION_NAMES). "diridon" has no
-# BART equivalent -- it's a Caltrain/VTA hub -- so it's intentionally left
-# unmapped here; it still contributes to the regional fallback average below.
-STATION_TO_WEATHER_STATION = {
-    "EMBR": "embarcadero",
-    "MLBR": "millbrae",
-    "FRMT": "fremont_bart",
-    "BERY": "berryessa",
-    "SFIA": "sfo",
-    "19TH": "oakland_19th",
-}
+# The six weather-monitoring locations in configs/sources.yaml
+# (weather.station_coords) that name-match a BART station, keyed by the
+# store's two-letter station_id, from the station table. "diridon" has no
+# BART station -- it's a Caltrain/VTA hub -- so it stays unmapped and only
+# contributes to the regional fallback average below.
+STATION_TO_WEATHER_STATION = CODE_TO_WEATHER_STATION
 
 
 def load_configs() -> tuple[dict, dict]:
@@ -87,6 +101,25 @@ def load_configs() -> tuple[dict, dict]:
 
 
 # ── Loaders ────────────────────────────────────────────────────────────────────
+
+def _read_parquet_safe(path) -> pd.DataFrame | None:
+    """
+    Read one COVARIATE parquet file (weather/events), isolating a truncated or
+    corrupt file so it cannot abort the whole load. Writes here are non-atomic,
+    so a killed process can leave a corrupt file at its final path.
+
+    Returns None on a corrupt file and leaves it in place: raw inputs are not
+    always re-fetchable, so this never deletes. Only corrupt-file errors are
+    caught (pyarrow raises ArrowInvalid, a ValueError, or an OSError); a
+    missing parquet engine (ImportError) or MemoryError still propagates.
+    Not used for the BART target: load_transit() must fail loudly.
+    """
+    try:
+        return pd.read_parquet(path)
+    except (OSError, ValueError) as e:
+        log.warning(f"  Unreadable parquet file {path.name} ({e}) — skipping (file left in place)")
+        return None
+
 
 def load_transit(freq: str) -> pd.DataFrame:
     """
@@ -184,6 +217,17 @@ def load_transit(freq: str) -> pd.DataFrame:
     # Drop system-wide aggregate rows (e.g. "Exits") — not real station codes
     station_monthly = station_monthly[station_monthly["station_id"].str.len() <= 4]
 
+    # Names come from the station table, whatever the raw parquets carry:
+    # parquets built before it hold the code as origin_name. A station_id
+    # missing from the table keeps its parquet name.
+    unknown = sorted(set(station_monthly["station_id"]) - set(CODE_TO_NAME))
+    if unknown:
+        log.warning(f"  {len(unknown)} station_id(s) not in bart_stations.py, "
+                    f"keeping the parquet's name: {unknown}")
+    station_monthly["station_name"] = (
+        station_monthly["station_id"].map(CODE_TO_NAME).fillna(station_monthly["station_name"])
+    )
+
     # Convert monthly → daily approximation (÷ 22 weekdays) and set to timestamp
     station_monthly["timestamp"] = pd.to_datetime(station_monthly["period"])
     station_monthly["ridership_daily_est"] = station_monthly["ridership"] / 22
@@ -197,7 +241,20 @@ def load_transit(freq: str) -> pd.DataFrame:
 def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
     """Load all weather parquet files and return combined hourly DataFrame."""
     log.info("Loading weather data …")
-    hist_files = sorted((RAW_DIR / "weather").glob("weather_all_stations_*.parquet"))
+    # fetch_historical_all_stations() names its output
+    # weather_all_stations_{start}_{end}.parquet, embedding the CLI --start/--end
+    # args -- so a later backfill run with a narrower or differently-dated range
+    # can sort lexicographically *before* an earlier, fuller run (same failure
+    # mode documented on load_events() below). Load and concatenate every
+    # historical file instead of just the lexicographically-last one, sorted by
+    # actual file mtime (not filename -- a filename sort has no reliable
+    # relationship to write recency once ranges overlap) so the dedup below
+    # keeps the most-recently-written value for overlapping (timestamp, station)
+    # rows.
+    hist_files = sorted(
+        (RAW_DIR / "weather").glob("weather_all_stations_*.parquet"),
+        key=lambda p: p.stat().st_mtime,
+    )
     # fetch_forecast_all_stations() writes the nightly 7-day-ahead forecast under a
     # separate "weather_forecast_*" prefix — it must be loaded too, or the pipeline's
     # only source of future-known weather covariates is silently dropped.
@@ -206,12 +263,53 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
         log.warning("No weather files found")
         return pd.DataFrame()
 
+    # Tag each ROW with its own source FILE's mtime and sort by that before
+    # dedup -- historical rows are concatenated ahead of forecast rows below
+    # purely for readability, but that fixed order must not decide which
+    # value keep="last" keeps. Without the mtime-based sort, a forecast row
+    # always wins over a historical row for the same (timestamp, station)
+    # even when the historical file was fetched *after* the forecast file
+    # (e.g. a backfill re-run once Open-Meteo's archive catches up on a day
+    # only a stale forecast file covered), silently overwriting an observed
+    # value with a predicted one.
+    #
+    # hist_files can (and in production does) contain more than one file --
+    # e.g. an original wide backfill plus one or more later, narrower
+    # corrective re-fetches, none of which get cleaned up -- each written at
+    # a different time. Tagging every row with a single group-wide
+    # max(mtime across ALL hist_files) (as an earlier version of this fix
+    # did) lets a row from an OLDER hist file silently borrow a completely
+    # unrelated, newer hist file's mtime, so it can incorrectly "win" the
+    # dedup over a genuinely fresher forecast row for the same key even
+    # though the hist file that row actually came from predates that
+    # forecast. Read and tag each hist file individually before
+    # concatenating so every row carries its own source file's real mtime.
     frames = []
     if hist_files:
-        frames.append(pd.read_parquet(hist_files[-1]))  # most recent combined historical file
+        hist_frames = []
+        for f in hist_files:
+            hdf = _read_parquet_safe(f)
+            if hdf is None:
+                continue
+            hdf["_source_mtime"] = f.stat().st_mtime
+            hist_frames.append(hdf)
+        if hist_frames:
+            hist_df = pd.concat(hist_frames, ignore_index=True)
+            frames.append(hist_df)
     if forecast_files:
-        frames.append(pd.read_parquet(forecast_files[-1]))  # most recent forecast file
+        forecast_file = forecast_files[-1]  # most recent forecast file
+        forecast_df = _read_parquet_safe(forecast_file)
+        if forecast_df is not None:
+            forecast_df["_source_mtime"] = forecast_file.stat().st_mtime
+            frames.append(forecast_df)
+    if not frames:
+        log.warning("No readable weather files found")
+        return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    dedup_keys = [c for c in ("timestamp", "station") if c in df.columns]
+    if dedup_keys:
+        df = df.sort_values("_source_mtime").drop_duplicates(subset=dedup_keys, keep="last")
+    df = df.drop(columns=["_source_mtime"])
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     if df["timestamp"].dt.tz is not None:
         # tz_convert(None) would shift to UTC before stripping the tz label; use
@@ -228,15 +326,42 @@ def load_weather(freq: str, station_coords: dict) -> pd.DataFrame:
 
 
 def load_events() -> pd.DataFrame:
-    """Load the most recent events parquet file."""
+    """
+    Load and merge all events parquet files.
+
+    fetch_events.py's fetch_all() names its output events_{start}_{end}.parquet
+    for BOTH the one-time historical backfill (start=2019-01-01) and the nightly
+    incremental fetch (start=today), so loading only the single most-recent file
+    (by filename sort) permanently loses the historical file the moment a nightly
+    run's filename first sorts after it -- every historical (year, month) then
+    silently gets is_game_day=False/is_sharks_game=False/hours_to_event=0.0 in
+    compute_event_features() below, zeroing out the Sharks-game signal across
+    all of history. Load and concatenate every events_*.parquet file instead,
+    sorted by actual file mtime (not filename -- a corrective re-fetch of an
+    earlier date range writes a filename that sorts before a wider existing
+    file regardless of which was actually written more recently), deduping
+    on (timestamp_start, venue, event_name) so keep="last" below keeps the
+    most-recently-written row, since NHL/Ticketmaster use different id
+    columns (game_id vs event_id) that don't unify into one key.
+    """
     log.info("Loading events data …")
-    files = sorted((RAW_DIR / "events").glob("events_*.parquet"))
+    files = sorted(
+        (RAW_DIR / "events").glob("events_*.parquet"),
+        key=lambda p: p.stat().st_mtime,
+    )
     if not files:
         log.warning("No events files found")
         return pd.DataFrame()
 
-    df = pd.read_parquet(files[-1])
+    frames = [df for df in (_read_parquet_safe(f) for f in files) if df is not None]
+    if not frames:
+        log.warning("No readable events files found")
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
     df["timestamp_start"] = pd.to_datetime(df["timestamp_start"])
+    dedup_keys = [c for c in ("timestamp_start", "venue", "event_name") if c in df.columns]
+    if dedup_keys:
+        df = df.drop_duplicates(subset=dedup_keys, keep="last")
     if df["timestamp_start"].dt.tz is None:
         df["timestamp_start"] = df["timestamp_start"].dt.tz_localize("America/Los_Angeles")
     else:
@@ -255,8 +380,12 @@ def compute_event_features(
 ) -> pd.DataFrame:
     """
     Monthly aggregation: for each timestamp (month-start), count events in that month.
-    - is_game_day    : True if ≥1 home game in that month
-    - hours_to_event : number of home games in that month (repurposed as game count)
+    - is_game_day    : True if >=1 event of ANY kind (Sharks game, concert, etc.)
+                       from `events` fell in that month -- despite the name, this
+                       is not scoped to home games specifically; use is_sharks_game
+                       for that. hours_to_event/COVARIATE_GROUPS callers treat this
+                       as a generic "any event this month" signal.
+    - hours_to_event : number of events of any kind in that month (repurposed as event count)
     - is_sharks_game : True if any Sharks game in that month
     - game_start_hour: modal game start hour in that month
     - is_playoff     : True if any playoff game in that month
@@ -364,7 +493,7 @@ def build_feature_store(
     # reset_index: load_transit() filters rows (dropping "Exits"-style aggregate
     # station codes), leaving a non-contiguous index. Section 3 below assigns
     # `.merge(...)` results (always a fresh 0..n-1 RangeIndex) back onto `base`
-    # via `.where(...)`, which label-aligns on the index rather than position —
+    # via `fillna()`, which label-aligns on the index rather than position —
     # a gappy index there silently scrambles/NaNs the per-row weather match.
     base = transit_df.copy().reset_index(drop=True)
 
@@ -383,12 +512,14 @@ def build_feature_store(
         agg_kwargs = dict(
             temp_f=("temp_f", "mean"),
             precip_mm=("precip_mm", "mean"),
+            precip_in=("precip_in", "mean"),
             windspeed_mph=("windspeed_mph", "mean"),
             is_raining=("is_raining", "mean"),
             # weather_code is a categorical WMO code — averaging it produces a
             # meaningless fractional value, so take the most common code instead.
             weather_code=("weather_code", lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0]),
             cloud_cover_pct=("cloud_cover_pct", "mean"),
+            humidity_pct=("humidity_pct", "mean"),
         )
         weather_cols = list(agg_kwargs.keys())
 

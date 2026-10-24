@@ -1,7 +1,7 @@
 """
 machine_learning_files/api.py
 ───────────────
-FastAPI service exposing the Chronos-2 forecast as a REST API.
+FastAPI service exposing the Chronos (chronos-t5-small) forecast as a REST API.
 
 Endpoints:
     POST /forecast   — returns P10/P50/P90 ridership for a station
@@ -14,7 +14,7 @@ Run locally:
 Example request:
     curl -X POST http://localhost:8000/forecast \\
          -H "Content-Type: application/json" \\
-         -d '{"station_id": "EMBR", "horizon_hours": 24}'
+         -d '{"station_id": "EM", "horizon_hours": 24}'
 """
 
 from __future__ import annotations
@@ -45,6 +45,14 @@ PROCESSED_DIR = Path("data/processed")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
 
+class InvalidRequestError(Exception):
+    """Malformed request input (as opposed to a well-formed request for a
+    resource that doesn't exist -- see the `ValueError` "Unknown station"
+    case below, which correctly maps to 404). Kept distinct from
+    `ValueError` so `/forecast`'s handler can map this to 400 instead of
+    the 404 the "Unknown station" ValueError intentionally gets."""
+
+
 def load_model_config() -> dict:
     with open(MODEL_CONFIG_PATH) as f:
         return yaml.safe_load(f)
@@ -55,15 +63,15 @@ def load_model_config() -> dict:
 if _FASTAPI_AVAILABLE:
 
     class ForecastRequest(BaseModel):
-        station_id:    str           = Field(..., example="EMBR", description="BART/transit station code")
+        station_id:    str           = Field(..., example="EM", description="BART/transit station code")
         horizon_hours: int           = Field(24, ge=1, le=168, description="Hours to forecast (1–168)")
         as_of:         Optional[str] = Field(None, example="2025-06-01T08:00:00", description="Forecast anchor time (ISO). Default: now.")
 
     class QuantileForecast(BaseModel):
         timestamp: str
-        p10:       float
-        p50:       float
-        p90:       float
+        p10:       Optional[float] = None
+        p50:       Optional[float] = None
+        p90:       Optional[float] = None
 
     class ForecastResponse(BaseModel):
         station_id:    str
@@ -93,21 +101,21 @@ def get_pipeline():
         try:
             from chronos import ChronosPipeline
         except ImportError as e:
-            # Dockerfile.api deliberately omits chronos-forecasting ("uses cached
-            # parquet files only") — a request that falls through to live inference
-            # (e.g. an explicit `as_of` with no matching cache) can't be served here.
+            # Dockerfile.api does not install chronos-forecasting, so a request that
+            # falls through to live inference (no cache present, or an explicit
+            # `as_of`) can't be served in that image.
             raise RuntimeError(
-                "Live Chronos-2 inference is unavailable in this deployment "
+                "Live Chronos inference is unavailable in this deployment "
                 "(chronos-forecasting not installed) — retry without `as_of`, "
                 "or use a deployment image that includes it."
             ) from e
         cfg = _get_config()
-        log.info("Loading Chronos-2 pipeline …")
+        log.info("Loading Chronos pipeline …")
         _pipeline = ChronosPipeline.from_pretrained(
             cfg["chronos2"]["model_id"],
             device_map=cfg["chronos2"]["device"],
         )
-        log.info("Chronos-2 ready")
+        log.info("Chronos ready")
     return _pipeline
 
 
@@ -124,6 +132,22 @@ def get_feature_store() -> pd.DataFrame:
 
 
 # ── Forecast logic ─────────────────────────────────────────────────────────────
+
+def _clean_quantile(value) -> float | None:
+    """Coerce a raw quantile cell to a JSON-safe value.
+
+    `max(0.0, x)` silently returns 0.0 when `x` is NaN (NaN always loses
+    float comparisons, so `nan > 0.0` is False and `max` picks the first
+    arg) -- turning a station-month the model genuinely couldn't forecast
+    into a fake "0 riders" prediction. Returning None instead lets the
+    response emit JSON `null` (which the frontends already render as "—"),
+    matching how export_website_data.py already handles the same NaN case
+    for this exact cached parquet.
+    """
+    if value is None or pd.isna(value):
+        return None
+    return max(0.0, float(value))
+
 
 def _run_forecast(
     station_id: str,
@@ -151,9 +175,9 @@ def _run_forecast(
                 ts = row.get("timestamp", "")
                 results.append({
                     "timestamp": str(ts),
-                    "p10": max(0.0, float(row[q10_col])) if q10_col else 0.0,
-                    "p50": max(0.0, float(row[q50_col])) if q50_col else 0.0,
-                    "p90": max(0.0, float(row[q90_col])) if q90_col else 0.0,
+                    "p10": _clean_quantile(row[q10_col]) if q10_col else None,
+                    "p50": _clean_quantile(row[q50_col]) if q50_col else None,
+                    "p90": _clean_quantile(row[q90_col]) if q90_col else None,
                 })
             if results:
                 return results
@@ -162,7 +186,6 @@ def _run_forecast(
     from machine_learning_files.zero_shot import prepare_context, run_zero_shot_forecast
 
     df = get_feature_store()
-    pipeline = get_pipeline()
 
     station_df = df[df["station_id"] == station_id]
     if station_df.empty:
@@ -173,7 +196,25 @@ def _run_forecast(
     else:
         # feature_store timestamps are tz-naive — keep as_of naive too, or the
         # context-window comparisons in prepare_context() raise TypeError.
-        as_of = pd.Timestamp(as_of)
+        try:
+            as_of = pd.Timestamp(as_of)
+            if pd.isna(as_of):
+                # pd.Timestamp("") / "NaT" / "nan" parse successfully to NaT
+                # instead of raising -- left unchecked, comparisons against a
+                # NaT anchor in prepare_context() (`<= as_of` / `> as_of`) are
+                # all-False, silently producing an empty context/future window
+                # instead of a clean error.
+                raise ValueError(f"as_of parsed to NaT: {as_of!r}")
+        except ValueError as e:
+            # pandas raises a ValueError subclass (DateParseError) for an
+            # unparseable as_of string. Left uncaught, that ValueError falls
+            # through to the same `except ValueError` branch below that
+            # `/forecast` uses for "Unknown station" and gets mapped to 404
+            # Not Found -- wrong for a malformed *request*, which callers
+            # (and anything alerting on status codes) should see as 400 Bad
+            # Request instead. Re-raise as a distinct type so the endpoint
+            # can tell the two apart.
+            raise InvalidRequestError(f"Invalid as_of value {as_of!r}: {e}") from e
         if station_df["timestamp"].dt.tz is not None:
             as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None else as_of.tz_convert("America/Los_Angeles")
         elif as_of.tzinfo is not None:
@@ -191,6 +232,11 @@ def _run_forecast(
         df, station_id, cfg["data"].get("context_length_hours"), as_of,
         context_steps=context_steps,
     )
+
+    # Load the model only after the station and as_of are validated: an unknown
+    # station / malformed as_of would otherwise pay the full model load, or get a
+    # 503 when chronos is absent (e.g. Dockerfile.api), instead of the 404 / 400.
+    pipeline = get_pipeline()
 
     pred_df = run_zero_shot_forecast(
         pipeline, context_df, future_df,
@@ -217,9 +263,9 @@ def _run_forecast(
         ts = row.get("timestamp", "")
         results.append({
             "timestamp": str(ts),
-            "p10": max(0.0, float(row[q_cols["p10"]])) if q_cols["p10"] else float("nan"),
-            "p50": max(0.0, float(row[q_cols["p50"]])) if q_cols["p50"] else float("nan"),
-            "p90": max(0.0, float(row[q_cols["p90"]])) if q_cols["p90"] else float("nan"),
+            "p10": _clean_quantile(row[q_cols["p10"]]) if q_cols["p10"] else None,
+            "p50": _clean_quantile(row[q_cols["p50"]]) if q_cols["p50"] else None,
+            "p90": _clean_quantile(row[q_cols["p90"]]) if q_cols["p90"] else None,
         })
 
     return results
@@ -229,8 +275,8 @@ def _run_forecast(
 
 if _FASTAPI_AVAILABLE:
     app = FastAPI(
-        title="Bay Area Traffic Forecast API",
-        description="Chronos-2 powered ridership forecasting for Bay Area transit stations",
+        title="Bay Area Transit Forecast API",
+        description="Chronos (chronos-t5-small) powered ridership forecasting for Bay Area transit stations",
         version="1.0.0",
     )
 
@@ -254,7 +300,7 @@ if _FASTAPI_AVAILABLE:
     def health():
         return {
             "status":       "ok",
-            "timestamp":    datetime.utcnow().isoformat(),
+            "timestamp":    datetime.utcnow().isoformat() + "Z",
             "model":        _get_config()["chronos2"]["model_id"],
             "store_loaded": _feature_store is not None,
             "model_loaded": _pipeline is not None,
@@ -262,7 +308,15 @@ if _FASTAPI_AVAILABLE:
 
     @app.get("/stations", response_model=StationsResponse)
     def list_stations():
-        df = get_feature_store()
+        # get_feature_store() raises RuntimeError when the parquet is missing
+        # (e.g. a fresh checkout before the pipeline has run). /forecast maps
+        # that to a 503 with a helpful detail message; this endpoint used to
+        # leave it uncaught, so FastAPI's default handler turned it into a
+        # bare, non-JSON 500 instead of the same structured error.
+        try:
+            df = get_feature_store()
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=str(e))
         stations = sorted(df["station_id"].unique().tolist())
         return {"stations": stations, "count": len(stations)}
 
@@ -270,25 +324,33 @@ if _FASTAPI_AVAILABLE:
     def forecast(req: ForecastRequest):
         try:
             forecasts = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
+        except InvalidRequestError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except RuntimeError as e:
             raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
             log.exception("Forecast failed")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail="Internal forecast error")
 
         return {
             "station_id":    req.station_id,
             "horizon_hours": req.horizon_hours,
-            "generated_at":  datetime.utcnow().isoformat(),
+            # A bare isoformat() string with no "Z"/offset is parsed by the
+            # browser's `new Date(...)` as LOCAL time (ECMA-262 Date Time
+            # String Format), not UTC -- api-demo.html's `new
+            # Date(data.generated_at).toLocaleTimeString()` showed a time off
+            # by exactly the visitor's UTC offset. Append "Z" so it's parsed
+            # as UTC and correctly converted to the visitor's local time.
+            "generated_at":  datetime.utcnow().isoformat() + "Z",
             "forecasts":     forecasts,
         }
 
     @app.get("/")
     def root():
         return {
-            "service":  "Bay Area Traffic Forecast API",
+            "service":  "Bay Area Transit Forecast API",
             "docs":     "/docs",
             "health":   "/health",
             "stations": "/stations",

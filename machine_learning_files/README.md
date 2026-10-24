@@ -41,14 +41,17 @@ machine_learning_files/merge_pipeline.py
 data/processed/feature_store.parquet
 data/processed/splits/{train,val,test}.parquet
         |
-        v
-Processing/feature_engineering.py
-        |
-        v
+        +----------------------------------------+
+        |                                        |
+        v                                        v
+Processing/feature_engineering.py       zero_shot.py / api.py (live path)
+        |                                reads feature_store.parquet
+        v                                directly — bypasses enrichment
 data/processed/feature_store_enriched.parquet
         |
         v
-models, evaluation, API, website export
+finetune.py, arima.py, prophet_baseline.py,
+evaluation, website export
 ```
 
 The current production-like target is monthly BART station ridership. `merge_pipeline.py` aggregates BART OD data to station-month records, joins month-level weather summaries, computes monthly event indicators, adds calendar fields, and writes chronological train/validation/test splits from `configs/model.yaml`.
@@ -76,7 +79,7 @@ python machine_learning_files/zero_shot.py
 Run Chronos zero-shot for one station:
 
 ```bash
-python machine_learning_files/zero_shot.py --station EMBR --as-of 2023-06-01
+python machine_learning_files/zero_shot.py --station EM --as-of 2023-06-01
 ```
 
 Start the forecast API:
@@ -90,14 +93,14 @@ Example request:
 ```bash
 curl -X POST http://localhost:8000/forecast \
   -H "Content-Type: application/json" \
-  -d '{"station_id": "EMBR", "horizon_hours": 6}'
+  -d '{"station_id": "EM", "horizon_hours": 6}'
 ```
 
 ## Configuration Notes
 
 - `configs/model.yaml` controls the modeled frequency, context length, forecast horizon, chronological split dates, quantile levels, and AutoGluon training settings.
 - `configs/sources.yaml` controls source endpoints, API-key placeholders, venue IDs, agency IDs, and weather station coordinates.
-- The API serves cached forecasts first from `models/chronos2/outputs/` and falls back to live Chronos inference when needed.
+- The API serves cached forecasts first from `models/chronos2/outputs/`. The production `Dockerfile.api` image doesn't install `chronos-forecasting`, so a cache miss there returns `503`; live Chronos inference fallback only works on a local dev server installed from `requirements.txt`.
 - `scripts/run_pipeline.sh` expects `.venv311/bin/python` to exist.
 
 ## Troubleshooting

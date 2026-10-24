@@ -12,7 +12,7 @@ if Chronos-2 cannot beat it, the extra complexity is not earning its place.
 
 Usage:
     python models/baselines/prophet_baseline.py
-    python models/baselines/prophet_baseline.py --station EMBR --horizon 24
+    python models/baselines/prophet_baseline.py --station EM --horizon 24
 """
 
 from __future__ import annotations
@@ -171,7 +171,7 @@ def run_prophet_all_stations(
 ) -> pd.DataFrame:
     """
     Fit Prophet for every station and generate forecasts.
-    Used by evaluation/benchmarks.py for head-to-head comparison.
+    Used by models/baselines/benchmarks.py for head-to-head comparison.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -255,7 +255,7 @@ def main():
     if not path.exists():
         path = PROCESSED_DIR / "feature_store.parquet"
     if not path.exists():
-        log.error("Feature store not found. Run: python processing/merge_pipeline.py")
+        log.error("Feature store not found. Run: python machine_learning_files/merge_pipeline.py")
         return
 
     df = pd.read_parquet(path)

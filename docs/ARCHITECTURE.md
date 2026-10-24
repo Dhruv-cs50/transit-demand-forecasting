@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TD
     subgraph SRC["Data Sources"]
-        S1[BART OD Reports\nbartlink.com]
+        S1[BART OD Reports\nbart.gov]
         S2[Open-Meteo\nWeather API]
         S3[NHL / Ticketmaster\nEvents API]
         S4[511 SF Bay\nTransit Feed]
@@ -25,7 +25,7 @@ flowchart TD
     end
 
     subgraph TRAIN["Model Training"]
-        M1[zero_shot.py\nChronos-2 zero-shot]
+        M1["zero_shot.py\nChronos (chronos-t5-small) zero-shot"]
         M2[models/chronos2/finetune.py\nAutoGluon ensemble]
         M3[models/baselines/arima.py\nSARIMA]
         M4[models/baselines/prophet_baseline.py\nProphet]
@@ -61,19 +61,20 @@ flowchart TD
     I1 & I2 & I3 & I4 --> P1
     P1 --> P2
     P2 --> P3
-    P2 --> M1 & M2 & M3 & M4
+    P1 --> M1
+    P2 --> M2 & M3 & M4
     M1 & M2 & M3 & M4 --> O1
     O1 --> O2
 
     O2 -->|static JSON| WEB
-    O1 -->|COPY into image| CB
+    O1 -.->|not copied into image| CB
     CB --> AR1
     AR1 --> CR
     CR --> API
 
     USER -->|HTTPS| WEB
     WEB -->|POST /forecast\nGET /stations| API
-    API -->|parquet lookup| O1
+    API -.->|parquet lookup if cache present| O1
 ```
 
 ## Component Responsibilities
@@ -88,39 +89,39 @@ flowchart TD
 | Validation | `evaluation/validators.py` | Schema checks, missing windows, coverage, anomaly detection |
 | Forecasting | `machine_learning_files/zero_shot.py`, `models/chronos2/`, `models/baselines/` | Produce forecast parquet files |
 | Website export | `scripts/export_website_data.py` | Convert model artifacts into `website/data/*.json` |
-| API service | `machine_learning_files/api.py` | FastAPI: cached parquet lookup → live Chronos inference fallback |
+| API service | `machine_learning_files/api.py` | FastAPI: cached parquet lookup → `503` in production (`Dockerfile.api` has no Chronos install); live Chronos inference fallback only on a local dev server |
 | Website | `website/` | React/Babel static frontend deployed on App Engine Standard |
 | Docker (pipeline) | `Dockerfile` | Reproducible full pipeline container |
-| Docker (serving) | `Dockerfile.api` | Lightweight API image baked with pre-computed forecasts |
+| Docker (serving) | `Dockerfile.api` | Lightweight API image: app source, config and feature-store parquets. No forecast cache and no `chronos-forecasting` (known gap) |
 | Cloud build | `cloudbuild.yaml` | Build `Dockerfile.api` for `linux/amd64`, push to Artifact Registry |
 
 ## Data Flow
 
 ```
-BART OD reports ──► fetch_bart_od.py ──► data/raw/transit/bart/
-Open-Meteo API  ──► fetch_weather.py ──► data/raw/weather/
-Events APIs     ──► fetch_events.py  ──► data/raw/events/
+BART OD reports ──► fetch_bart_od.py           ──► data/raw/transit/bart/
+Open-Meteo API  ──► fetch_weather_openmeteo.py ──► data/raw/weather/
+Events APIs     ──► fetch_events.py            ──► data/raw/events/
                            │
                            ▼
                   merge_pipeline.py
                            │
                   feature_store.parquet (station × month × covariates)
-                           │
-                  feature_engineering.py
-                           │
-                  feature_store_enriched.parquet
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-         zero_shot     finetune.py   arima.py / prophet.py
-              │            │            │
-              └────────────┴────────────┘
-                           │
+                     │                 │
+                     │ zero_shot.py    ▼
+                     │ reads this      feature_engineering.py
+                     │ file directly            │
+                     │ (bypasses          feature_store_enriched.parquet
+                     │  enrichment)             │
+                     ▼                          ▼
+                zero_shot            finetune.py / arima.py / prophet_baseline.py
+                     │                          │
+                     └────────────┬─────────────┘
+                                  │
                   models/*/outputs/*.parquet
                            │
                   ┌────────┴────────┐
                   ▼                 ▼
-         Dockerfile.api      export_website_data.py
+         Dockerfile.api*     export_website_data.py
                   │                 │
           Cloud Run API      website/data/*.json
                   │                 │
@@ -131,6 +132,8 @@ Events APIs     ──► fetch_events.py  ──► data/raw/events/
                         Browser
 ```
 
+\* `Dockerfile.api` does not copy `models/*/outputs/`; the serving image ships no forecast cache (known gap).
+
 ## Artifact Contracts
 
 ### Feature Store Schema (minimum required columns)
@@ -138,7 +141,7 @@ Events APIs     ──► fetch_events.py  ──► data/raw/events/
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `timestamp` | datetime | Month start (`MS` cadence) |
-| `station_id` | string | BART OD origin station code |
+| `station_id` | string | BART's two-letter workbook code for the OD origin station (`EM`, `12`); names, website ids and weather locations come from `machine_learning_files/bart_stations.py` |
 | `station_name` | string | Human-readable station name |
 | `ridership` | int | Monthly boardings (target variable) |
 | `agency_id` | string | `BA` for BART |
@@ -156,9 +159,9 @@ Events APIs     ──► fetch_events.py  ──► data/raw/events/
 
 | Split | Period |
 | --- | --- |
-| Train | Jan 2021 – Dec 2022 |
-| Validation | Jan 2023 – Jun 2023 |
-| Test | Jul 2023 onward |
+| Train | Jan 2022 – Dec 2024 |
+| Validation | Jan 2025 – Jun 2025 |
+| Test | Jul 2025 – Dec 2025 |
 
 ## Scalability
 
@@ -166,5 +169,5 @@ Events APIs     ──► fetch_events.py  ──► data/raw/events/
 | --- | --- |
 | App Engine Standard | Auto-scales instances; scales to zero when idle |
 | Cloud Run | Scales 0→N replicas per request concurrency; stateless |
-| Pre-computed cache | Parquet lookup in Cloud Run — sub-100 ms, no model load |
-| Live inference fallback | Chronos-T5-Small on CPU; upgrade path: GPU Cloud Run or Vertex AI |
+| Pre-computed cache | Parquet lookup with no model load when `models/chronos2/outputs/` holds a cache. `Dockerfile.api` ships none today (known gap), so the production image does not use this path |
+| Live inference fallback | Not present in production (`Dockerfile.api` has no `chronos-forecasting` install → `503` on cache miss); dev-only today, running Chronos-T5-Small on CPU. Upgrade path: bundle it into `Dockerfile.api` and move to GPU Cloud Run or Vertex AI |
