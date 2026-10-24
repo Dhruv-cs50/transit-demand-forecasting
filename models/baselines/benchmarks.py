@@ -41,7 +41,10 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from evaluation.metrics import wape, mae, rmse, mape, smape, coverage, mase, _infer_seasonal_period
-from evaluation.calibration import add_horizon, apply_conformal, describe, fit_conformal, no_calibration
+from evaluation.calibration import (
+    add_horizon, apply_conformal, describe, fit_conformal, interval_plan, no_calibration,
+    save_calibrator,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,6 +59,9 @@ CONFIG_PATH   = Path("configs/model.yaml")
 # train_end) go here, so they never overwrite the test forecasts each model
 # saves under its default path.
 CAL_DIR       = EVAL_DIR / "calibration"
+# Fitted calibrators, one JSON per model key, read back by
+# scripts/export_website_data.py through evaluation.calibration.serve_band.
+CALIBRATOR_DIR = CAL_DIR / "calibrators"
 
 
 def load_config() -> dict:
@@ -303,6 +309,7 @@ def calibrate_intervals(
     val_df: pd.DataFrame,
     cfg: dict,
     checkpoint: str = None,
+    calibrator_path: Path = None,
 ) -> tuple[pd.DataFrame, str]:
     """Split-conformal P10/P90 for one model's test forecasts.
 
@@ -324,6 +331,11 @@ def calibrate_intervals(
     make_val_preds: zero-argument callable returning the model's validation-
         window forecasts. It is called after the test forecasts exist, so the
         test run is unchanged.
+    calibrator_path: where to save the fitted calibrator, so the website
+        export and the API serve the band this leaderboard row scores (see
+        evaluation.calibration.serve_band). Any file already there is removed
+        first: a model left raw, or a failed calibration, leaves no calibrator
+        behind for a later step to apply.
 
     P50 is returned untouched, so every point metric is identical to the
     uncalibrated run. Returns (preds, interval_method): preds with p10/p90
@@ -334,19 +346,17 @@ def calibrate_intervals(
     missing calibrated coverage rather than quietly publishing the raw band
     under the calibrated column.
     """
-    ccfg = cfg.get("calibration") or {}
-    mcfg = (ccfg.get("models") or {}).get(model_key) or {}
-    method = mcfg.get("method", "none")
-    if method in (None, "none"):
-        return no_calibration(test_preds), f"raw: {mcfg.get('reason', 'not validated')}"
-    validated_for = mcfg.get("validated_for")
-    if validated_for and checkpoint and checkpoint != validated_for:
-        log.warning(f"  {model_name}: calibration method was validated for {validated_for}, "
-                    f"not {checkpoint}; keeping the model's own band")
-        return no_calibration(test_preds), f"raw: method validated for {validated_for} only"
+    if calibrator_path is not None:
+        Path(calibrator_path).unlink(missing_ok=True)
 
-    group = mcfg.get("group", "pooled")
-    label = f"split-conformal {method}/{group}, fit on validation"
+    plan = interval_plan(model_key, cfg, checkpoint)
+    if not plan["calibrated"]:
+        if plan["reason"].startswith("method validated for"):
+            log.warning(f"  {model_name}: calibration {plan['reason']}, not {checkpoint}; "
+                        f"keeping the model's own band")
+        return no_calibration(test_preds), plan["label"]
+
+    method, group, label = plan["method"], plan["group"], plan["label"]
     try:
         val_preds = make_val_preds()
         if val_preds is None or val_preds.empty:
@@ -355,13 +365,22 @@ def calibrate_intervals(
             val_preds[["timestamp", "station_id", "p10", "p50", "p90"]],
             on=["timestamp", "station_id"], how="left",
         )
-        calibrator = fit_conformal(
-            add_horizon(cal), method=method, group=group,
-            level=float(ccfg.get("level", 0.8)),
-        )
+        calibrator = fit_conformal(add_horizon(cal), method=method, group=group, level=plan["level"])
         log.info(f"  interval calibration: {describe(calibrator)}")
-        return apply_conformal(add_horizon(test_preds), calibrator), label
+        calibrated = apply_conformal(add_horizon(test_preds), calibrator)
+        if calibrator_path is not None:
+            months = pd.to_datetime(val_df["timestamp"])
+            save_calibrator(
+                calibrator, calibrator_path,
+                model_key=model_key, model=model_name, checkpoint=checkpoint, label=label,
+                fit_end=str((cfg.get("data") or {}).get("train_end")),
+                window=[months.min().strftime("%Y-%m-%d"), months.max().strftime("%Y-%m-%d")],
+            )
+            log.info(f"  calibrator saved → {calibrator_path}")
+        return calibrated, label
     except Exception as e:
+        if calibrator_path is not None:
+            Path(calibrator_path).unlink(missing_ok=True)
         log.error(
             f"  {model_name}: interval calibration FAILED ({e}); calibrated "
             f"P10/P90 set to NaN, so Coverage_% is NaN for this model. "
@@ -588,7 +607,7 @@ def run_benchmarks(
         naive_preds, naive_interval = calibrate_intervals(
             "SeasonalNaive", "SeasonalNaive", naive_preds,
             lambda: seasonal_naive_forecast(train_df[train_df["timestamp"] <= train_end], val_df, freq),
-            val_df, cfg,
+            val_df, cfg, calibrator_path=CALIBRATOR_DIR / "SeasonalNaive.json",
         )
         model_preds["SeasonalNaive"] = naive_preds
         rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df,
@@ -611,7 +630,7 @@ def run_benchmarks(
                     lambda: run_arima_all_stations(
                         df, cfg, output_dir=CAL_DIR / "arima", train_cutoff=train_end,
                         horizon_steps=horizon_steps, freq=freq),
-                    val_df, cfg,
+                    val_df, cfg, calibrator_path=CALIBRATOR_DIR / "SARIMA.json",
                 )
                 model_preds["SARIMA"] = arima_preds
                 rows = compute_metrics(test_df, arima_preds, "SARIMA", train_df=train_df,
@@ -635,7 +654,7 @@ def run_benchmarks(
                     lambda: run_prophet_all_stations(
                         df, cfg, output_dir=CAL_DIR / "prophet", train_cutoff=train_end,
                         horizon_steps=horizon_steps, freq=freq),
-                    val_df, cfg,
+                    val_df, cfg, calibrator_path=CALIBRATOR_DIR / "Prophet.json",
                 )
                 model_preds["Prophet"] = prophet_preds
                 rows = compute_metrics(test_df, prophet_preds, "Prophet", train_df=train_df,
@@ -689,6 +708,7 @@ def run_benchmarks(
                 lambda: _forecast_checked(predictor, train_end, val_end,
                                           CAL_DIR / "chronos2_zeroshot_val_preds.parquet", "zeroshot"),
                 val_df, cfg, checkpoint=checkpoint,
+                calibrator_path=CALIBRATOR_DIR / "Chronos.json",
             )
             model_preds[chronos_label] = zs_preds
             rows = compute_metrics(test_df, zs_preds, chronos_label, train_df=train_df,
@@ -716,7 +736,7 @@ def run_benchmarks(
                     "AutoGluon_Ensemble", "AutoGluon_Ensemble", ft_preds,
                     lambda: _forecast_checked(predictor, train_end, val_end,
                                               CAL_DIR / "chronos2_finetuned_val_preds.parquet", "finetuned"),
-                    val_df, cfg,
+                    val_df, cfg, calibrator_path=CALIBRATOR_DIR / "AutoGluon_Ensemble.json",
                 )
                 model_preds["AutoGluon_Ensemble"] = ft_preds
                 rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble", train_df=train_df,
