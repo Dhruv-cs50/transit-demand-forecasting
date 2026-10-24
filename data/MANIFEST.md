@@ -17,12 +17,21 @@ without it neither the image nor the API can be built from a clean clone.
 
 | File | Rows | Months | SHA-256 |
 |---|---|---|---|
-| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `d9135f03f1bd77093353ff39e11185e59dfed50e296fcddedf9dfabf3763c238` |
+| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `9a7771080c592a1206c4d7553d78012157df958d3a6bda279895a2151a323cea` |
 
-Its `ridership` column is identical, row for row, to the stores behind the
+Built from the 60 workbooks plus the weather and events archives listed under
+[Covariate archives](#covariate-archives), with the code at the commit that last
+changed this file. A rebuild from the same inputs gives the same bytes. Its
+`ridership` column is identical, row for row, to the stores behind the
 published leaderboard; SARIMA trained on it through `val_end` scores the
 published 3.21% WAPE (`tests/test_api.py` checks this). Rebuilding with the steps
 below overwrites it — commit the result only when the change is intended.
+
+Weather and events cover 2019–2023 only. In 2024 and 2025, every weather column
+is NaN and `is_game_day`/`is_sharks_game` are false. So the training year 2024
+and the Jul–Dec 2025 test window carry neither. No ranked model reads these
+columns: SARIMA, Prophet and SeasonalNaive are univariate, and the Chronos-1
+zero-shot path falls back to univariate.
 
 ## Source archives
 
@@ -91,10 +100,24 @@ destinations, keyed on the entry station** — i.e. monthly boardings. See
 `load_bart()` in
 [`machine_learning_files/merge_pipeline.py`](../machine_learning_files/merge_pipeline.py).
 
+## Covariate archives
+
+The store's weather and event columns come from two raw archives, also not in
+git. Put them under `data/raw/weather/` and `data/raw/events/` before
+rebuilding. `merge_pipeline.py` reads every `weather_all_stations_*.parquet`
+and `events_*.parquet` there. Without them the rebuild still runs, but the
+weather columns come out NaN and the event columns false, and the bytes differ
+from the committed store.
+
+| File | Contents | SHA-256 |
+|---|---|---|
+| `weather_all_stations_2019-01-01_2023-12-31.parquet` | Open-Meteo hourly weather, 2019–2023, 306,768 rows (`fetch_weather_openmeteo.py`) | `3ae3ce7280077bc6b05ef6f2d9b65310d2c44574f6f9a957d6f8474a9f83a4a9` |
+| `events_2019-01-01_2023-12-31.parquet` | 174 San Jose Sharks home games at SAP Center, Sep 2019 → Dec 2023, from the NHL API (`fetch_events.py`) | `23748ca287ec18900a44b0cc6b1ad5dcc392a15afe140f5bd7b1bb3637c8ca27` |
+
 ## Rebuilding
 
 ```bash
-python machine_learning_files/bart_od_from_xlsx.py --zips /path/to/*.zip
+python machine_learning_files/bart_od_from_xlsx.py --zips /path/to/*.zip   # or --dir /path/to/workbooks
 python machine_learning_files/merge_pipeline.py
 python Processing/feature_engineering.py
 ```
@@ -111,5 +134,6 @@ the three `Avg` sheets, so it **cannot** define the `Total Trips` target;
 | Source | Key needed | Notes |
 |---|---|---|
 | Open-Meteo weather | none | `fetch_weather_openmeteo.py`; 7 station locations, hourly |
-| Ticketmaster / NHL events | free Ticketmaster key | absent here, so `is_game_day`, `is_sharks_game`, `is_sharks_game_window` are constant zero |
+| NHL events | none | Sharks home games, archived for 2019–2023 (above); no event data for 2024–2025, so `is_game_day` and `is_sharks_game` are false there |
+| Ticketmaster events | free Ticketmaster key | absent here; no concerts or other venues in the store |
 | 511 SF Bay transit | free 511 key | **not currently used** — `merge_pipeline.py:95` is a placeholder |

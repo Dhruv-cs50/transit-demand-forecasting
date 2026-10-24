@@ -1,5 +1,56 @@
 # Sprint board
 
+## Sprint 4d — Reconcile what #137, #138 and #139 publish together (opened 2026-10-24)
+
+(Named 4d, ids S4d.x. S4, S4b, S4c and Sprint 5, the adaptive-calibration branch, are taken.)
+
+**Goal.** One tracked feature store that carries #139's station names, per-station
+weather and the event features #137's store lacked. One published P10/P90 band
+whose coverage is the one `model_comparison.json` reports. `website/data/`
+regenerated from that state, with gate evidence.
+
+**Branch.** `sprint4d/store-rebuild`, stacked on `feat/serve-interval-bands`
+(Sprint 4c). The PR targets that branch.
+
+**User's decisions, 2026-10-24.**
+- #137, #138 and #139 were still open on GitHub, so they are merged locally rather
+  than waiting for the GitHub merges.
+- The published band was already decided in Sprint 4c: `forecasts.json` carries
+  the calibrated band, with the raw bounds alongside. This sprint does not build
+  a second export. It stacks on Sprint 4c instead.
+
+**Gates** (Sprint 4b method: scratch copy of the commit, workbooks via
+`bart_od_from_xlsx.py --dir`, raw weather/events 2019–2023 archive, then
+`merge_pipeline`, `feature_engineering`, `benchmarks`, export):
+- Leaderboard: WAPE 3.21/5.75/9.70/10.75; `Coverage_%` 96.67/74.67/72.67/94.33;
+  `Coverage_raw_%` 96.67/46.0/51.0/94.33; n=300.
+- Export: 50/50/3,000/300.
+- `forecasts.json`: P50 identical to 087adcb; the exported band's coverage equals
+  the Chronos row's `Coverage_%` (72.67).
+- Two runs byte-identical.
+- Tracked store equals the rebuild.
+- Site renders.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4d.0 | Merge #137, #138 and #139 locally | orchestrator | — | Tree matches Sprint 4c's merged base | done — `reconcile/store-intervals` 8ce9c97 (conflicts resolved as Sprint 4c did: both board sections kept, #137's `api.py`). Its tree differs from `feat/serve-interval-bands` @ f1af3c7 only in Sprint 4c's own files. The branch was then re-cut onto Sprint 4c at the user's choice |
+| S4d.1 | Rebuild `data/processed/feature_store.parquet` with the merged code from the full raw inputs; commit it; update `data/MANIFEST.md` | orchestrator | S4d.0 | Target identical to #137's store; every other delta named; `tests/` pass | done (this commit) — see run A below |
+| S4d.2 | Rebase onto Sprint 4c's final tip | orchestrator | Sprint 4c S4c.5–S4c.6 | Clean rebase; `tests/` pass | blocked (on Sprint 4c finishing) |
+| S4d.3 | Two full gate runs on the stacked tip; regenerate `website/data/` | orchestrator | S4d.2 | Gates above | todo |
+| S4d.4 | Serve the site locally; check the forecast table, calibration chart, map and model comparison render | orchestrator | S4d.3 | Screens recorded | todo |
+| S4d.5 | Review the diff; open PR against `feat/serve-interval-bands` (not merged) | code-reviewer, orchestrator | S4d.4 | No BLOCKER; PR open | todo |
+
+**Run A (2026-10-24, pinned env rebuilt from the 66 pins, code at 8ce9c97).**
+
+| Check | Result |
+|---|---|
+| Rebuilt store vs #139's gate2 store (f606498) | Byte-identical, SHA-256 `9a777108…` |
+| Rebuilt store vs #137's committed store (`d9135f03…`) | Same 3,000 keys, `ridership` identical, same 27 columns in order. Deltas: `station_name` (all rows); EM, MB, FM, BE, SO and 19 now get their own location's weather (every weather column on their 216 station-months with weather, `weather_code` on 30); the other 44 stations' regional weather drifts slightly (`temp_f` 1,584 rows, max 0.0034 °F; `is_raining` 176 rows, max 0.0047; `precip_*` 44 rows of float noise, 1.7e-18), all 2019/2022/2023 only (the same drift #139 recorded); events: `is_game_day`/`is_sharks_game` true on 1,000 rows (was 0), `game_start_hour` set on 1,000, `hours_to_event` set on all 3,000 (was all NaN) |
+| Leaderboard | WAPE 3.21/5.75/9.70/10.75, `Coverage_%` 96.67/74.67/72.67/94.33, `Coverage_raw_%` 96.67/46.0/51.0/94.33, n = n_expected = 300 |
+| Export | All five JSONs byte-identical to the merged branch's committed `website/data/`: 50/50/3,000/300 |
+| The inconsistency this sprint closes | That `forecasts.json` holds Chronos-1's raw band (51.0% coverage), while `model_comparison.json`'s `Coverage_pct` is 72.67 (the calibrated band) |
+| Tests | 87 pass on `feat/serve-interval-bands` @ f1af3c7 with the rebuilt store |
+
 ## Sprint 4c — Label the bands the serving path publishes (opened 2026-10-24)
 
 (Named 4c, ids S4c.x: Sprint 4 (#138) and Sprint 4b (#139) ids are taken. PR #141, branch `fix/site-model-claims`, also calls its sprint "Sprint 4c" with ids S4c.1–S4c.5. Both branches were pushed before this was noticed, so commit messages keep the ids: S4c.x on `feat/serve-interval-bands` means this section.)
