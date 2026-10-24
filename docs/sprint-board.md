@@ -1,5 +1,49 @@
 # Sprint board
 
+## Sprint 4c — Every site claim traces to a run (opened 2026-10-24)
+
+(Named 4c, ids S4c.x, because #138 adds a "Sprint 4" and #139 a "Sprint 4b".)
+
+**Goal.** Close #139's follow-up "Published model claims that no run supports": every model or
+data claim in `website/sections.jsx`, `website/index.html` and `README.md` either traces to code
+or a run output, or is corrected or removed. No model or leaderboard change.
+
+**Branch.** `fix/site-model-claims`, cut from `origin/sprint3/pr-backlog` @ `32a75df` (#136
+open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR targets it.
+
+**Evidence.** Claim-by-claim table with evidence: `docs/site-claims-audit.md`. Run evidence is
+#139's gate2 run on `f606498` (leaderboard identical to the published one).
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4c.1 | Audit every model/data claim against code and run outputs | orchestrator | — | Table with evidence per claim | done — 28 claims (+3 found while editing), `docs/site-claims-audit.md` |
+| S4c.2 | User decisions: covariates, EDA, report links, bio | orchestrator | S4c.1 | Answers recorded | done — 2026-10-24, recorded in the audit doc header |
+| S4c.3 | Apply the approved text fixes | orchestrator | S4c.2 | JSX/HTML parse; local render shows the changes, no console errors | done (commit on this branch) — TypeScript 5.9.3 parse OK; served locally: EDA and `shap` gone, Dataset grid one full-width card, 0 console errors |
+| S4c.4 | Review the diff against the audit table | code-reviewer | S4c.3 | No BLOCKER open | todo |
+| S4c.5 | Trial-merge with #137, #138, #139; push; open PR (no merge) | orchestrator | S4c.4 | PR open, conflicts listed | todo |
+
+### Rulings (Sprint 4c)
+
+- **Covariates, 2026-10-24, the user:** correct the copy now; making the covariate path real
+  is a separate proposal. Evidence: Chronos-1 (`ChronosPipeline`) cannot take `future_df`
+  (50 fallback lines per run); SARIMA, Prophet and seasonal naive read no covariates; and the
+  weather and Sharks archives end 2023-12, so the test window has neither.
+- **EDA section removed** until its plots are regenerated from the current store. The seven
+  PNGs stay in `website/data/eda_plots/`, unreferenced, so the regeneration can diff against them.
+- **Report/slides links and the report citation removed** (no report or slides in the repo).
+  **About bio kept**: the user confirmed it.
+- Replacements trace to code or are removals: no number computed in scratch is published
+  (e.g. 12th St's own WAPE, 3.52%, is not on the page; the hero card is relabelled instead).
+
+### Follow-ups (Sprint 4c, found here, not fixed here)
+
+- Make the covariate path real: a covariate-capable checkpoint (Chronos-2) plus 2024–25
+  weather and an event source beyond 2023. Changes the leaderboard; the user's call.
+- Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
+  and hour (`hour_of_day` is constant 0), so several plots need rewriting, not just rerunning.
+- `/tmp/tdf-venv` is broken (macOS tmp cleanup deleted `numpy/__init__.py` and `pyvenv.cfg`);
+  any rerun of the gates needs a fresh pinned env.
+
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
 **Goal.** Every still-valid fix in the 104 open PRs reaches `main` through one
