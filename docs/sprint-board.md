@@ -10,7 +10,7 @@ whose coverage is the one `model_comparison.json` reports. `website/data/`
 regenerated from that state, with gate evidence.
 
 **Branch.** `sprint4d/store-rebuild`, stacked on `feat/serve-interval-bands`
-(Sprint 4c). The PR targets that branch.
+(Sprint 4c, PR #144) @ 9674f2d. The PR targets that branch.
 
 **User's decisions, 2026-10-24.**
 - #137, #138 and #139 were still open on GitHub, so they are merged locally rather
@@ -18,9 +18,15 @@ regenerated from that state, with gate evidence.
 - The published band was already decided in Sprint 4c: `forecasts.json` carries
   the calibrated band, with the raw bounds alongside. This sprint does not build
   a second export. It stacks on Sprint 4c instead.
+- The store is built from everything in the canonical raw folder
+  (`~/Desktop/transit-demand-forecasting/data/raw`). At 04:07 that folder gained
+  2024–2025 weather and Sharks-game files, fetched by the covariate-experiment
+  session. Asked after the final gate run showed the rebuild no longer matched
+  the 2019–2023 store committed in S4d.1. The alternative was to keep that store
+  and tell rebuilders to leave the new files out; it was turned down.
 
 **Gates** (Sprint 4b method: scratch copy of the commit, workbooks via
-`bart_od_from_xlsx.py --dir`, raw weather/events 2019–2023 archive, then
+`bart_od_from_xlsx.py --dir`, the raw weather/events folder, then
 `merge_pipeline`, `feature_engineering`, `benchmarks`, export):
 - Leaderboard: WAPE 3.21/5.75/9.70/10.75; `Coverage_%` 96.67/74.67/72.67/94.33;
   `Coverage_raw_%` 96.67/46.0/51.0/94.33; n=300.
@@ -34,36 +40,45 @@ regenerated from that state, with gate evidence.
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
 | S4d.0 | Merge #137, #138 and #139 locally | orchestrator | — | Tree matches Sprint 4c's merged base | done — `reconcile/store-intervals` 8ce9c97 (conflicts resolved as Sprint 4c did: both board sections kept, #137's `api.py`). Its tree differs from `feat/serve-interval-bands` @ f1af3c7 only in Sprint 4c's own files. The branch was then re-cut onto Sprint 4c at the user's choice |
-| S4d.1 | Rebuild `data/processed/feature_store.parquet` with the merged code from the full raw inputs; commit it; update `data/MANIFEST.md` | orchestrator | S4d.0 | Target identical to #137's store; every other delta named; `tests/` pass | done (this commit) — see run A below |
-| S4d.2 | Rebase onto Sprint 4c's final tip | orchestrator | Sprint 4c S4c.5–S4c.6 | Clean rebase; `tests/` pass | blocked (on Sprint 4c finishing) |
-| S4d.3 | Two full gate runs on the stacked tip; regenerate `website/data/` | orchestrator | S4d.2 | Gates above | todo |
-| S4d.4 | Serve the site locally; check the forecast table, calibration chart, map and model comparison render | orchestrator | S4d.3 | Screens recorded | todo |
-| S4d.5 | Review the diff; open PR against `feat/serve-interval-bands` (not merged) | code-reviewer, orchestrator | S4d.4 | No BLOCKER; PR open | todo |
+| S4d.1 | Rebuild `data/processed/feature_store.parquet` with the merged code from the full raw inputs; commit it; update `data/MANIFEST.md` | orchestrator | S4d.0 | Target identical to #137's store; every other delta named; `tests/` pass | done — first from the 2019–2023 archives (5dbd586, run A), then from the full 2019–2025 folder (this commit, runs D and E) |
+| S4d.2 | Rebase onto Sprint 4c's final tip | orchestrator | Sprint 4c S4c.5–S4c.6 | Clean rebase; `tests/` pass | done — 9674f2d, no conflicts; 116 tests pass |
+| S4d.3 | Two full gate runs on the stacked tip; regenerate `website/data/` | orchestrator | S4d.2 | Gates above | done — runs D and E on e847db3: every gate passes except "tracked store equals the rebuild", which is what led to the input decision above. The export is byte-identical to the committed `website/data/`, so no data file changes. Rerun on this commit: see the PR |
+| S4d.4 | Serve the site locally; check the forecast table, calibration chart, map and model comparison render | orchestrator | S4d.3 | Screens recorded | done — see "Site check" below |
+| S4d.5 | Review the diff; open PR against `feat/serve-interval-bands` (not merged) | code-reviewer, orchestrator | S4d.4 | No BLOCKER; PR open | in progress |
 
-**Run A (2026-10-24, pinned env rebuilt from the 66 pins, code at 8ce9c97).**
+**Final store (this commit), SHA-256 `aa02436d…`, vs #137's committed store (`d9135f03…`).**
+- Same 3,000 keys; `ridership` identical; same 27 columns in order.
+- `station_name`: set on every row.
+- Weather:
+  - every column is filled on all 3,000 station-months (#137: NaN on all 1,200 in 2024–2025);
+  - EM, MB, FM, BE, SO and 19 get their own location's weather;
+  - the other 44 stations' 2019–2023 regional weather drifts by float noise (`temp_f` at most 0.0034 °F), as #139 recorded.
+- Events:
+  - `is_game_day` and `is_sharks_game` are true on 1,800 rows (#137: 0): 200 in 2019, 400 in each later year;
+  - `game_start_hour` is set on those 1,800;
+  - `hours_to_event` is set on all 3,000 (#137: all NaN).
+- The earlier 2019–2023 build (`9a777108…`, byte-identical to #139's gate2 store) differs from this one only in 2024–2025: the weather columns and the 800 new game-day rows.
 
-| Check | Result |
-|---|---|
-| Rebuilt store vs #139's gate2 store (f606498) | Byte-identical, SHA-256 `9a777108…` |
-| Rebuilt store vs #137's committed store (`d9135f03…`) | Same 3,000 keys, `ridership` identical, same 27 columns in order. Deltas: `station_name` (all rows); EM, MB, FM, BE, SO and 19 now get their own location's weather (every weather column on their 216 station-months with weather, `weather_code` on 30); the other 44 stations' regional weather drifts slightly (`temp_f` 1,584 rows, max 0.0034 °F; `is_raining` 176 rows, max 0.0047; `precip_*` 44 rows of float noise, 1.7e-18), all 2019/2022/2023 only (the same drift #139 recorded); events: `is_game_day`/`is_sharks_game` true on 1,000 rows (was 0), `game_start_hour` set on 1,000, `hours_to_event` set on all 3,000 (was all NaN) |
-| Leaderboard | WAPE 3.21/5.75/9.70/10.75, `Coverage_%` 96.67/74.67/72.67/94.33, `Coverage_raw_%` 96.67/46.0/51.0/94.33, n = n_expected = 300 |
-| Export | All five JSONs byte-identical to the merged branch's committed `website/data/`: 50/50/3,000/300 |
-| The inconsistency this sprint closes | That `forecasts.json` holds Chronos-1's raw band (51.0% coverage), while `model_comparison.json`'s `Coverage_pct` is 72.67 (the calibrated band) |
-| Tests | 87 pass on `feat/serve-interval-bands` @ f1af3c7 with the rebuilt store |
+**Gate runs (2026-10-24; pinned env rebuilt from the 66 pins, plus pytest, fastapi 0.162 and httpx for tests).**
 
-**Runs B and C (2026-10-24, early check on 12a440a = Sprint 4c's f1af3c7 + the rebuilt store; the final gates rerun after S4d.2).**
-All gates pass:
-- Leaderboard as above.
-- Leaderboard, results, LaTeX, both stores, both calibrator files, Chronos preds
-  (ignoring `generated_at`) and all five exported JSONs are byte-identical across
-  the two runs.
-- Export: 50/50/3,000/300.
-- `forecasts.json` P50 identical to 087adcb; `p10_raw`/`p90_raw` equal 087adcb's
-  raw band. Coverage computed from the published file: 72.67 for the band (=
-  `Coverage_%`) and 51.0 for the raw band (= `Coverage_raw_%`).
-- The tracked store equals the rebuild.
-- All five exported JSONs are byte-identical to Sprint 4c's committed
-  `website/data/` at 4ead3f0. The rebuilt store changes no published file.
+| Run | Code | Raw weather/events | Result |
+|---|---|---|---|
+| A | 8ce9c97 (merge only, no Sprint 4c) | 2019–2023 | Leaderboard as the gates; export byte-identical to the merged branch's `website/data/`, where `forecasts.json` still held Chronos-1's raw band (51.0% coverage) beside `Coverage_pct` 72.67. That mismatch is what Sprint 4c fixes |
+| B, C | 12a440a (Sprint 4c f1af3c7 + store) | 2019–2023 | All gates pass. Export byte-identical to Sprint 4c's `website/data/` at 4ead3f0 |
+| D, E | e847db3 (Sprint 4c 9674f2d + store) | 2019–2025 | All gates pass except "tracked store equals the rebuild" (`aa02436d…` vs the committed `9a777108…`). Leaderboard, results, LaTeX, both stores, both calibrators, Chronos preds (ignoring `generated_at`) and all five exports are byte-identical across the two runs. Export: 50/50/3,000/300, byte-identical to the committed `website/data/`. `forecasts.json`: P50 and `p10_raw`/`p90_raw` equal 087adcb's P50 and raw band; coverage computed from the published file is 72.67 for the band (= `Coverage_%`) and 51.0 for the raw band (= `Coverage_raw_%`) |
+
+**Site check (S4d.4, served from `website/` at e847db3, built-in browser).**
+- The forecast table shows the calibrated band: EM Jul 2025 is 367k / 434k / 501k, matching `forecasts.json` (raw 382k–462k kept as `p10_raw`/`p90_raw`).
+- The section copy says the band held 72.7% of station-months, matching `model_comparison.json`.
+- The Results "Intervals" chart draws the same band, labelled "not a validated 80% interval".
+- The Model comparison and Benchmarks tables render the 4 scored models, and the comparison shows n=300.
+- The station picker lists 50 stations.
+- The map page reads `stations_ridership.json` and lists 41 BART stations. Its Google base map fails with `BillingNotEnabledMapError`, as already recorded in Sprint 4b.
+- No console errors on the index page.
+
+**Follow-ups (not this sprint's files).**
+- The store now has 2024–2025 weather and events, so these go stale: #141's "available for 2019–2023 only" copy, the site's "event covariates are currently constant zero" text, and #143's EDA notes (built on `9a777108…`). The covariate-experiment session plans the #141 copy update.
+- #142 changes `Processing/feature_engineering.py`, which writes the untracked enriched store. The tracked store is unaffected.
 
 ## Sprint 4c — Label the bands the serving path publishes (opened 2026-10-24)
 

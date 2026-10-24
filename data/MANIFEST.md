@@ -17,7 +17,7 @@ without it neither the image nor the API can be built from a clean clone.
 
 | File | Rows | Months | SHA-256 |
 |---|---|---|---|
-| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `9a7771080c592a1206c4d7553d78012157df958d3a6bda279895a2151a323cea` |
+| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `aa02436d44b5de83d77fab87036c046d0ca02983b9d8cbe807c37f9ad714f241` |
 
 Built from the 60 workbooks plus the weather and events archives listed under
 [Covariate archives](#covariate-archives), with the code at the commit that last
@@ -27,11 +27,13 @@ published leaderboard; SARIMA trained on it through `val_end` scores the
 published 3.21% WAPE (`tests/test_api.py` checks this). Rebuilding with the steps
 below overwrites it — commit the result only when the change is intended.
 
-Weather and events cover 2019–2023 only. In 2024 and 2025, every weather column
-is NaN and `is_game_day`/`is_sharks_game` are false. So the training year 2024
-and the Jul–Dec 2025 test window carry neither. No ranked model reads these
-columns: SARIMA, Prophet and SeasonalNaive are univariate, and the Chronos-1
-zero-shot path falls back to univariate.
+Weather and events cover every store month, 2019 and 2022–2025, with no
+weather gaps. Weather is observed weather, so for the Jul–Dec 2025 test window
+it is hindsight, not a forecast. Sharks game days mark 4 store months in 2019
+(the archive starts in September) and 8 in each later year: 1,800 of the
+3,000 station-months have `is_game_day` true. No ranked model reads
+these columns: SARIMA, Prophet and SeasonalNaive are univariate, and the
+Chronos-1 zero-shot path falls back to univariate.
 
 ## Source archives
 
@@ -102,17 +104,20 @@ destinations, keyed on the entry station** — i.e. monthly boardings. See
 
 ## Covariate archives
 
-The store's weather and event columns come from two raw archives, also not in
+The store's weather and event columns come from four raw files, also not in
 git. Put them under `data/raw/weather/` and `data/raw/events/` before
 rebuilding. `merge_pipeline.py` reads every `weather_all_stations_*.parquet`
-and `events_*.parquet` there. Without them the rebuild still runs, but the
-weather columns come out NaN and the event columns false, and the bytes differ
-from the committed store.
+and `events_*.parquet` there. With any of them missing, the rebuild still runs,
+but the weather columns come out NaN and the event columns false for the
+missing years, and the bytes differ from the committed store. Both sources are
+free and need no key. The 2024–2025 files were fetched on 2026-10-24.
 
 | File | Contents | SHA-256 |
 |---|---|---|
 | `weather_all_stations_2019-01-01_2023-12-31.parquet` | Open-Meteo hourly weather, 2019–2023, 306,768 rows (`fetch_weather_openmeteo.py`) | `3ae3ce7280077bc6b05ef6f2d9b65310d2c44574f6f9a957d6f8474a9f83a4a9` |
+| `weather_all_stations_2024-01-01_2025-12-31.parquet` | Open-Meteo hourly weather (archive API), 2024–2025, 122,808 rows | `c60b28184932a21d734b7f03536c5f0cb7afd957ac5d177c77d0c157f80ce72e` |
 | `events_2019-01-01_2023-12-31.parquet` | 174 San Jose Sharks home games at SAP Center, Sep 2019 → Dec 2023, from the NHL API (`fetch_events.py`) | `23748ca287ec18900a44b0cc6b1ad5dcc392a15afe140f5bd7b1bb3637c8ca27` |
+| `events_2024-01-01_2025-12-31.parquet` | 93 Sharks home games, Jan 2024 → Dec 2025, from the NHL API | `4c8203738470dc1dcf417a368726530f06338241a336f08619c6c057c0e87c08` |
 
 ## Rebuilding
 
@@ -134,6 +139,6 @@ the three `Avg` sheets, so it **cannot** define the `Total Trips` target;
 | Source | Key needed | Notes |
 |---|---|---|
 | Open-Meteo weather | none | `fetch_weather_openmeteo.py`; 7 station locations, hourly |
-| NHL events | none | Sharks home games, archived for 2019–2023 (above); no event data for 2024–2025, so `is_game_day` and `is_sharks_game` are false there |
+| NHL events | none | Sharks home games, archived for Sep 2019 → Dec 2025 (above) |
 | Ticketmaster events | free Ticketmaster key | absent here; no concerts or other venues in the store |
 | 511 SF Bay transit | free 511 key | **not currently used** — `merge_pipeline.py:95` is a placeholder |
