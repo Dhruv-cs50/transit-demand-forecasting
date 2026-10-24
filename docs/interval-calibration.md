@@ -98,6 +98,19 @@ No candidate qualified for every model, so the choice is per model. Interval
 score is the Winkler score at α = 0.2, summed and divided by total actual
 ridership, as in Sprint 4. Lower is better.
 
+**Three implementation choices the rule text does not specify.** They were
+added in the review fix round, after results were seen. None changes the
+outcome: no eligible score is infinite, no qualifiers tie, and the decision is
+identical.
+- A window only passes if its interval score is finite, so an infinite band
+  never qualifies.
+- Ranking uses the unrounded mean score.
+- Ties break by candidate name.
+
+`interval_study.py` stops if `configs/model.yaml` carries anything other than
+the validated choice, or the incumbent where nothing qualified. It also stops
+if the config moves windows B and V.
+
 **Eligible candidates, 10 per model, settings fixed with the rule:**
 - `incumbent`: Sprint 4's entry, fit on the previous half-year (SARIMA and
   SeasonalNaive: their own band).
@@ -133,13 +146,13 @@ ridership, as in Sprint 4. Lower is better.
 - **What the study reads.** `interval_study.py` cuts the store at `val_end`
   when it reads it, and asserts that every scored and pool timestamp is on or
   before `val_end`.
-- **Store-cut check.** Forecasts cut at T must equal the uncut forecast from
-  the same origin wherever both exist, and must exist for every target on or
-  before T; otherwise the study stops. Rows compared per model:
-  - SARIMA, Prophet and Chronos-1: 1,800 for B and 3,600 for V, including
-    targets after T.
-  - SeasonalNaive: 1,050 and 2,850. A cut store has no rows after T for it to
-    forecast.
+- **Store-cut check.** In each window, 5 origins have a forecast window that
+  runs past T, so their store is actually cut. A forecast cut at T must equal
+  the uncut forecast from the same origin wherever both exist, and must exist
+  for every target on or before T; otherwise the study stops. Rows compared
+  per model and window:
+  - SARIMA, Prophet and Chronos-1: 1,500 (750 with target ≤ T).
+  - SeasonalNaive: 750. A cut store has no rows after T for it to forecast.
   - The largest difference was 0.0 everywhere.
 - **Horizon.** Each pool row carries `horizon` = months from its origin to
   its target. The fit raises an error if the column is missing or
@@ -159,8 +172,8 @@ ridership, as in Sprint 4. Lower is better.
 
 Coverage, misses and interval score are in %. Each model's rows are sorted by
 mean score. All three tables are written by `interval_study.py`
-(`evaluation/outputs/interval_study/adaptive_tables.md`, from
-`adaptive_rule_all.csv`).
+(`evaluation/outputs/interval_study/adaptive_tables.md`). The same values are
+in `adaptive_rule_all.csv`.
 
 | Model | Candidate | B coverage % | B below / above % | B score | V coverage % | V below / above % | V score | Mean score | Qualifies |
 |---|---|---:|---|---:|---:|---|---:|---:|---|

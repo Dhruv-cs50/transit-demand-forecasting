@@ -94,6 +94,7 @@ SCORES = ("scaled", "relative", "asym_relative")
 ELIGIBLE = ("incumbent", "rolling_hl6", "aci_origin")
 # The incumbent is the configs/model.yaml entry when the Sprint 5 rule was fixed
 # (Sprint 4's choice), pinned here so the study reproduces after the config moves on.
+SPRINT5_WINDOWS = {"B": pd.Timestamp("2024-06-30"), "V": pd.Timestamp("2024-12-31")}   # scored origins T
 INCUMBENT = {
     "SeasonalNaive": {"method": "none"},
     "SARIMA": {"method": "none"},
@@ -389,6 +390,12 @@ def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
         "B": (train_end - pd.DateOffset(months=horizon) + pd.offsets.MonthEnd(0), "cal", "cal2"),
         "V": (train_end, "eval", "cal"),
     }
+    # The frames come from config-derived origins; the rule fixed these dates.
+    moved = {w: f"{t:%Y-%m-%d}" for w, (t, _, _) in windows.items() if t != SPRINT5_WINDOWS[w]}
+    if moved:
+        raise ValueError(f"configs/model.yaml moves the Sprint 5 windows ({moved}); they were fixed "
+                         f"on the board at {({w: f'{t:%Y-%m-%d}' for w, t in SPRINT5_WINDOWS.items()})} "
+                         f"and a change needs a new rule")
     rows, checks = [], []
     for model in models:
         mcfg = INCUMBENT[model_keys[model]]
@@ -405,7 +412,7 @@ def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
             checks.append({"model": model, "window": wname, "T": f"{T:%Y-%m-%d}", "origins": len(origins),
                            "pool_rows_resolved": int(((pool["timestamp"] <= T)
                                                       & pool["ridership"].notna()).sum()),
-                           **store_cut_check(pool, pool_full, T)})
+                           **store_cut_check(pool, pool_full, T, horizon)})
 
             def add(candidate, scheme, method, group, out, calib_text):
                 eligible = candidate == "incumbent" or scheme in ELIGIBLE
@@ -447,10 +454,33 @@ def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
             "checks": pd.DataFrame(checks), "decision": decision}
 
 
-def store_cut_check(pool: pd.DataFrame, pool_full: pd.DataFrame, T: pd.Timestamp) -> dict:
+def check_config_matches_decision(model: str, mcfg: dict, decision: dict, incumbent: dict) -> None:
+    """configs/model.yaml must carry what the study validated: the chosen
+    candidate, or the incumbent when nothing qualified. Anything else would
+    deploy a calibrator nobody scored, so stop."""
+    def entry(c):
+        return (c.get("method", "none"), c.get("group", "pooled") if c.get("method", "none") != "none" else "-",
+                c.get("scheme", "split"), c.get("half_life"), c.get("first_origin"))
+    choice = decision["choice"]
+    if choice == "keep current entry":
+        expected = entry(incumbent)
+    else:
+        scheme, rest = choice.split(" ")
+        method, group = rest.split("/")
+        if scheme != "rolling_hl6":
+            raise ValueError(f"{model}: deploying {choice!r} is not implemented")
+        expected = (method, group, "rolling", HALF_LIFE, f"{ROLLING_START:%Y-%m-%d}")
+    if entry(mcfg) != expected:
+        raise ValueError(f"{model}: configs/model.yaml has {entry(mcfg)}, but the study validated "
+                         f"{expected} ({choice})")
+
+
+def store_cut_check(pool: pd.DataFrame, pool_full: pd.DataFrame, T: pd.Timestamp, horizon: int) -> dict:
     """A forecast whose store was cut at T must equal the uncut forecast from
     the same origin wherever both exist, and both must exist for every target
-    on or before T (the rows the pool uses). Raises otherwise."""
+    on or before T (the rows the pool uses). Raises otherwise. Counts only
+    origins whose window runs past T: for the others the cut changes nothing
+    and both sides are the same cached file."""
     band = ["p10", "p50", "p90"]
     both = pool.merge(pool_full, on=["timestamp", "station_id", "origin"], suffixes=("_cut", "_full"))
     cut = both[[f"{c}_cut" for c in band]].to_numpy(float)
@@ -466,8 +496,11 @@ def store_cut_check(pool: pd.DataFrame, pool_full: pd.DataFrame, T: pd.Timestamp
     diff = float(np.max(np.abs(cut[pairs] - full[pairs]))) if pairs.any() else float("nan")
     if not diff == 0.0:
         raise AssertionError(f"store-cut check: cut and uncut forecasts differ by up to {diff}")
-    return {"cut_vs_uncut_max_abs_diff": diff, "rows_compared": int(pairs.sum()),
-            "rows_compared_target_le_T": int((pairs & resolved).sum())}
+    distinct = (pd.to_datetime(both["origin"]) + pd.DateOffset(months=horizon) > T).to_numpy()
+    return {"cut_vs_uncut_max_abs_diff": diff,
+            "origins_cut": int(both.loc[distinct, "origin"].nunique()),
+            "rows_compared": int((pairs & distinct).sum()),
+            "rows_compared_target_le_T": int((pairs & distinct & resolved).sum())}
 
 
 def rule_table(cand: pd.DataFrame) -> pd.DataFrame:
@@ -649,21 +682,28 @@ def main():
     qualifiers = per_method[per_method["all_models_qualify"]]
     winner = qualifiers.iloc[0] if not qualifiers.empty else None
 
+    model_keys = {"SeasonalNaive": "SeasonalNaive", "SARIMA": "SARIMA",
+                  "Prophet": "Prophet", chronos_label(cfg): "Chronos"}
+
+    # ── Sprint 5: calibrations that track recent errors ────────────────────────
+    adaptive = adaptive_study(df, cfg, models, frames, model_keys, horizon, args.refresh, val_end)
+
     # ── Deployed calibrators: fit as benchmarks.py will ────────────────────────
     # scheme split: benchmarks.py fits on the validation-window forecasts (fit
     # ending train_end) — the "eval" frames here. scheme rolling: on the pool
     # of origins up to val_end - 1 month. Either way only data up to val_end,
     # and these are the quantiles the test band will use.
-    model_keys = {"SeasonalNaive": "SeasonalNaive", "SARIMA": "SARIMA",
-                  "Prophet": "Prophet", chronos_label(cfg): "Chronos"}
     chosen = (cfg.get("calibration") or {}).get("models") or {}
     deployed = []
     for model in models:
         mcfg = chosen.get(model_keys[model]) or {}
+        check_config_matches_decision(model, mcfg, adaptive["decision"][model], INCUMBENT[model_keys[model]])
         if mcfg.get("method", "none") == "none":
             deployed.append({"model": model, "calibrator": f"none ({mcfg.get('reason', 'not listed')})"})
             continue
         if mcfg.get("scheme", "split") == "rolling":
+            if "half_life" not in mcfg:
+                raise ValueError(f"{model}: scheme rolling needs half_life (null for equal weights)")
             # The test-time pool: origins first_origin .. val_end - 1 month,
             # targets on or before val_end — all inside this study's data.
             vend = val_end + pd.offsets.MonthEnd(0)
@@ -676,9 +716,6 @@ def main():
         deployed.append({"model": model, "calibrator": describe(calib),
                          "q": {k: [round(x, 4) for x in v] if isinstance(v, tuple) else round(v, 4)
                                for k, v in calib["q"].items()}})
-
-    # ── Sprint 5: calibrations that track recent errors ────────────────────────
-    adaptive = adaptive_study(df, cfg, models, frames, model_keys, horizon, args.refresh, val_end)
 
     # ── Write ──────────────────────────────────────────────────────────────────
     adaptive["candidates"].to_csv(OUT_DIR / "adaptive_candidates.csv", index=False)

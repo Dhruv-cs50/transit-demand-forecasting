@@ -99,7 +99,7 @@ identical to PR #138's leaderboard; `Coverage_raw_%` = 96.67 / 46.0 / 51.0 /
 | S5.4 | `evaluation/interval_study.py`: rolling origins, windows B and V, eligible and diagnostic candidates, selection by the S5.2 rule | implementer (orchestrator) | S5.3 | Store cut at `val_end` and asserted; CSVs written | done — code committed (122fc9c) before its first run; store-cut check 0.0 (made strict in the S5.7 fix round); PR #138's four CSVs still byte-identical. One diagnostic bug found in the results and fixed (2589ed8: `aci_window` clipped α to the row count, not the total weight); every eligible result and the decision byte-identical before and after |
 | S5.5 | Apply the rule; write-up; commit the choice before any test run | orchestrator | S5.4 | Commit precedes S5.6's run | done (7cdfd11, committed 03:40:53; first test run started 03:41) — no candidate qualified for every model; per model: SeasonalNaive `rolling_hl6 asym_relative/horizon`, Prophet `rolling_hl6 relative/pooled`; SARIMA and Chronos-1 no qualifier, Sprint 4 entries kept. Deployed quantiles computed from data to `val_end` in the study: SeasonalNaive q_lo −0.0129…−0.0150, q_hi 0.1686…0.1700 by horizon; Prophet q = 0.0789 (n = 4,650 each) |
 | S5.6 | If a method changes: wire into `benchmarks.py`, gates, score test once | implementer (orchestrator) | S5.5 | All gates green | done — `scheme: rolling` wired for SeasonalNaive and Prophet with 5 tests written first (7cdfd11); test scored once at 7cdfd11: SeasonalNaive 94.33% → 83.67%, Prophet 74.67% → 74.00%, SARIMA 96.67% and Chronos-1 72.67% unchanged. Gates below. Write-up, README and `model_comparison.json` follow the result; website wording stays "not calibrated" by Sprint 4's rule |
-| S5.7 | Review the sprint diff | code-reviewer | S5.6 | No BLOCKER open | done — review of 292f0aa..8e269c2: spec PASS, 0 BLOCKER, 3 MAJOR, 10 MINOR; no published number wrong. Fix round below |
+| S5.7 | Review the sprint diff | code-reviewer | S5.6 | No BLOCKER open | done — review of 292f0aa..8e269c2: spec PASS, 0 BLOCKER, 3 MAJOR, 10 MINOR; no published number wrong. Fix round 3eb7b2c; scoped re-review of it: spec PASS, quality PASS, 3 MINOR, closed in fix round 2 (below) |
 | S5.8 | Audit board against git; push; open PR against `feat/interval-calibration` (not merged) | delivery-auditor, orchestrator | S5.7 | Audit clean; PR open | todo |
 
 **Gate results (S5.6, 2026-10-24, rebuilt pinned env, code at 7cdfd11).**
@@ -113,7 +113,8 @@ identical to PR #138's leaderboard; `Coverage_raw_%` = 96.67 / 46.0 / 51.0 /
 | Calibrated test coverage (scored once) | SeasonalNaive 83.67% (3.3% / 13.0%), Prophet 74.00% (13.0% / 13.0%); SARIMA 96.67%, Chronos-1 72.67% unchanged. `scripts/interval_test_breakdown.py` reproduces both new coverages and PR #138's previous ones exactly |
 | Website rule | Not every model in 75–85%: "not calibrated" stays; range 73–97% unchanged |
 | Tests / compile | 53 calibration tests pass; `py_compile` passes on every touched .py |
-| After the review fix round | Same configuration re-run: leaderboard and results CSV byte-identical to the scored run; LaTeX differs only by the corrected caption; the breakdown script reproduces every test figure; 62 unit tests pass |
+| Test-split access | Three `benchmarks.py` runs, all at the chosen configuration: run 1 scored (7cdfd11), run 2 its determinism check, run 3 a confirmation after the review fix round. `scripts/interval_test_breakdown.py` reads the test split to describe that result and chooses nothing. No other code in this sprint reads it |
+| After the review fix round | Same configuration re-run: leaderboard and results CSV byte-identical to the scored run; LaTeX differs only by the corrected caption; the breakdown script reproduces every test figure; 62 unit tests pass (65 after fix round 2) |
 
 **Review fix round (S5.7).** None of these changes the decision or a published
 test number; the study re-run after them gives identical values for every
@@ -126,7 +127,8 @@ existing candidate row and an identical `adaptive_decision.yaml`.
     shared);
   - the store-cut check used `nanmax` and could not fail. It now stops on a
     missing forecast at or before T and on any difference, and reports rows
-    actually compared (SeasonalNaive 1,050 / 2,850, the others 1,800 / 3,600).
+    actually compared (fix round 2: only origins whose window runs past T,
+    5 per window; 1,500 rows, or 750 for SeasonalNaive).
 - MINOR, fixed:
   - the selection rule moved into `rule_table` / `apply_rule` with 8 tests:
     an infinite band (NaN score) never qualifies, ties break by name, sorting
@@ -144,7 +146,20 @@ existing candidate row and an identical `adaptive_decision.yaml`.
   - deployed calibrators written to `deployed_calibrators.yaml`;
   - the doc's tables are written by `interval_study.py` (`adaptive_tables.md`);
   - this table moved below the story table.
+- Fix round 2, after the scoped re-review (3 MINOR):
+  - the study pins windows B and V (`SPRINT5_WINDOWS`) and stops if the
+    config moves them;
+  - `check_config_matches_decision` stops the study if a `configs/model.yaml`
+    entry is not the validated choice (or the incumbent where nothing
+    qualified): method, group, scheme, half_life and first_origin. 3 tests;
+  - the study's deployed block requires `half_life`, as `benchmarks.py` does;
+  - the store-cut counts exclude origins whose cut changes nothing;
+  - the doc's Rule section names the three implementation choices added after
+    results (finite score, unrounded mean, ties by name).
+  - Study re-run: all six output files byte-identical.
 - Disclosed, not changed:
+  - `benchmarks.py` does not itself check the config against the study; the
+    study does;
   - tests and implementation landed in the same commits (a244698, 7cdfd11),
     so "tests written first" rests on the session record: each new test file
     was run and failed before the implementation existed;
@@ -213,6 +228,7 @@ byte-identical; unit tests pass; `py_compile` and JSX parse pass.
 | Calibrated test coverage (scored once) | Prophet 74.67%, Chronos-1 72.67% (calibrated); SARIMA 96.67%, SeasonalNaive 94.33% (own band). Validation predicted 82.0% / 84.3% for the two calibrated models |
 | Website rule | Not every model is in 75–85%, so "not calibrated" stays; only the range figure changes (46–97% → 73–97%) |
 | Tests / compile / JSX | 17 unit tests pass; `py_compile` passes on every touched .py; `sections.jsx` and `charts.jsx` parse (TypeScript 5.9.3) |
+| Test-split access | Three `benchmarks.py` runs, all at the chosen configuration: run 1 scored (7cdfd11), run 2 its determinism check, run 3 a confirmation after the review fix round. `scripts/interval_test_breakdown.py` reads the test split to describe that result and chooses nothing. No other code in this sprint reads it |
 | After the review fix round | Same configuration re-run: leaderboard and results CSVs byte-identical to the scored run; Chronos validation forecasts identical with the store cut at `val_end`; 28 unit tests pass |
 
 **Review fix round (S4.7).**
