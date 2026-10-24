@@ -19,8 +19,8 @@ the enriched store differs only in the lag/rolling columns, on rows whose window
 
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
-| S4f.1 | Calendar-month lags and rolling windows (monthly branch only; sub-monthly path unchanged) + unit test + catalog copy + cache-buster | implementer | — | Gates above | in progress |
-| S4f.2 | Review the diff | code-reviewer | S4f.1 | No BLOCKER open | todo |
+| S4f.1 | Calendar-month lags and rolling windows (monthly branch only; sub-monthly path unchanged) + unit test + catalog copy + cache-buster | implementer | — | Gates above | done (535039d, f702310, ca7915e) — 14 tests pass (8 fail on the old code); before/after on canonical 2019–23 inputs: leaderboard CSV, `benchmark_results.csv` and base store byte-identical (3.21 / 5.75 / 9.70 / 10.75, n = 300); enriched store: only the 8 lag/rolling columns change, 2,100 cells, all 2022 (1,700 become empty), plus 2,028 `rolling_std_3mo` cells 2022-04..2025-12 that differ by ≤ 1.0e-11 relative (pandas' running-variance rounding restarts across the empty months); TypeScript 5.9.3 parses `sections.jsx` with 0 diagnostics |
+| S4f.2 | Review the diff | code-reviewer | S4f.1 | No BLOCKER open | in progress |
 
 ## Sprint 4c — Every site claim traces to a run (opened 2026-10-24)
 
