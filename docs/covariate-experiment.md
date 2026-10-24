@@ -1,12 +1,14 @@
 # Do weather and event covariates improve the monthly BART forecast?
 
 **No.** Adding weather, Sharks home games, or both to the leaderboard's SARIMA did not improve the
-forecast on either window. Observed weather made it measurably worse.
+forecast on either window. On the test window, observed weather made it measurably worse.
 
 The plan, with the decision rule, is in `docs/covariate-experiment-plan.md`. The rule was committed
 in `81b2089` (2026-10-24T11:01:10Z); the code that scored the arms is `d39e2fb`
-(2026-10-24T11:29:19Z); the first scored run started at 2026-10-24T11:29:42Z. No arm was scored
-before the rule existed, and nothing was tuned after.
+(2026-10-24T11:29:19Z); the first run on the 2024–25 data started at 2026-10-24T11:29:42Z. One
+smoke run preceded it (11:24:35Z, after the rule), on a store whose 2024–25 weather was missing and
+whose event counts were zero-filled; its numbers were not interpreted. No arm was scored before the
+rule existed, and nothing was tuned after.
 
 ## Result
 
@@ -23,7 +25,7 @@ differs. n = 300 station-months in every row (50 stations × 6 months).
 | SARIMAX + Sharks games | `hours_to_event` | 3.19 | 3,063 | 96.7 | +23, 0.54 | 28 / 22 | 0.55 | no measurable improvement |
 | SARIMAX + weather (observed) + Sharks games | all three | 4.12 | 3,957 | 92.0 | −871, **0.00001** | 9 / 41 | 0.0000 | no measurable improvement |
 
-**Validation** (fit Jan 2022 – Dec 2024, scored Jan – Jun 2025, the wet season):
+**Validation** (fit Jan 2022 – Dec 2024, scored Jan – Jun 2025):
 
 | Model | WAPE % | MAE | Raw 80 % band coverage % | Paired test vs SARIMA: mean d, p | Stations better / worse | Row-level DM p |
 |---|---:|---:|---:|---|---|---:|
@@ -36,13 +38,20 @@ differs. n = 300 station-months in every row (50 stations × 6 months).
 months of (|SARIMA error| − |arm error|), in riders. Then a one-sample t-test runs on the 50
 stations. Positive d means the arm is better. *Row-level DM* is `benchmarks.py`'s Diebold–Mariano
 test on the 300 rows. It treats rows that share months and stations as independent, so its p-value
-is optimistic; it is reported, not used to decide. Coverage is each model's own SARIMAX band,
-uncalibrated.
+is optimistic; it is reported, not used to decide. "0.0000" is `benchmarks.py`'s 4-decimal rounding:
+read it as < 0.0001. Coverage is each model's own SARIMAX band, uncalibrated.
 
 ## Against the rule
 
 An arm "improves" only if (1) its test WAPE is below SARIMA's, (2) the paired test gives p < 0.05
 with d > 0, and (3) its validation WAPE is below SARIMA's.
+
+Two notes on how the code applies it. The plan as committed in `81b2089` says only "p < 0.05" for
+(2); the code also requires d > 0, i.e. that the arm is the better one, which is the only reading
+under which a significant difference counts as an improvement. Under the literal text the weather
+arms, significantly *worse*, would meet (2), and they still fail (1) and (3). And (1) and (3) compare
+WAPE rounded to 2 decimals, as `compute_metrics` reports it, so a tie at 2 decimals is not "below";
+the closest pair here is Sharks on test (3.19 against 3.21), which fails (2) regardless.
 
 - **Weather (observed):** fails all three. It is worse on test at 42 of 50 stations (p = 0.0005), and
   worse on validation.
@@ -54,10 +63,12 @@ with d > 0, and (3) its validation WAPE is below SARIMA's.
 
 - **The weather rows are a best case and still lose.** They use the weather later observed in each
   forecast month, which no forecast made on 30 June 2025 could have known. A real weather forecast
-  would do no better.
+  would not be expected to do better.
 - **Shown:** for this target (monthly station totals) and this model (per-station SARIMA with 36–42
-  training months), these covariates in this form do not help. That holds both in a dry window
-  (Jul–Dec) and in a wet one (Jan–Jun).
+  training months), these covariates in this form do not help, on two 6-month windows. The plan
+  expected Jul–Dec to be the dry one; it was not. Mean hourly `precip_mm` summed over the six months
+  is 0.39 for Jan–Jun 2025 and 0.35 for Jul–Dec 2025, with Nov–Dec (0.135, 0.154) as wet as
+  Feb–Mar (0.213, 0.127).
 - **Not shown:**
   - whether weather or events matter at a daily or hourly grain;
   - whether a model that pools one effect across stations would gain;
@@ -65,6 +76,10 @@ with d > 0, and (3) its validation WAPE is below SARIMA's.
     needs a key this project does not have.
 - **Why the weather arms are worse was not measured.** One candidate is that 2–3 extra coefficients
   per station, estimated from so few months, mostly fit noise.
+- **A zero-filled event count looks like data.** `merge_pipeline.py` writes 0 games for a month with
+  no event archive, so a store rebuilt without the 2024–25 Sharks file would still produce a Sharks
+  row. This run's store has non-zero counts in every game month (2024-09..2025-04, 2025-09..12) and
+  0 in May–Aug. A coverage guard is a follow-up.
 - **Weather locations.** 6 stations (EM, MB, FM, BE, SO, 19) take weather from their own location;
   the other 44 take the 7-location regional mean (PR #139's station table).
 
