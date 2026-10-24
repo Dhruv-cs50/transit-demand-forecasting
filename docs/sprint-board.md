@@ -1,5 +1,53 @@
 # Sprint board
 
+## Sprint 4c — Label the bands the serving path publishes (opened 2026-10-24)
+
+(Named 4c, ids S4c.x: Sprint 4 (#138) and Sprint 4b (#139) ids are taken.)
+
+**Goal.** The API and `website/data/forecasts.json` each say which P10/P90 band
+they return, and neither calls a raw band an 80% interval. Branch
+`feat/serve-interval-bands`: `feat/interval-calibration` (#138) with
+`fix/api-serve-forecasts` (#137) and `fix/bart-station-table` (#139) merged in.
+Conflicts resolved as the hand-over notes say: both board sections kept, #137's
+`api.py` taken.
+
+**User's decisions, 2026-10-24** (on the plan, before any code):
+- The API keeps serving SARIMA. SARIMA's `calibration.models` method is `none`,
+  so the API returns SARIMA's own band, labelled as not calibrated.
+- `forecasts.json` (Chronos-1 zero-shot, Jul–Dec 2025) publishes the calibrated
+  band. That is the band `model_comparison.json`'s `Coverage_pct` scores. The
+  model's own bounds stay alongside as `p10_raw`/`p90_raw`.
+- The branch stacks on all three open PRs.
+
+**Rules.**
+- P50 is never changed.
+- Calibrators are fitted only where `benchmarks.py` fits them: on the
+  validation split, from a fit ending at `train_end`.
+- The test split is read for one thing only, a consistency check: the exported
+  band's coverage must equal the leaderboard's. Nothing is tuned on it.
+
+**Gates.**
+- Leaderboard unchanged: WAPE 3.21/5.75/9.70/10.75, `Coverage_%`
+  96.67/74.67/72.67/94.33, n=300.
+- `forecasts.json` P50 byte-identical to #139's (087adcb).
+- Exported coverage equals the leaderboard's.
+- Unit tests pass; `py_compile` and JSX parse pass.
+
+**Environment.** `/tmp/tdf-venv` was damaged by the macOS /tmp cleanup:
+`pyvenv.cfg` and package files are gone. This sprint uses a private rebuild
+with the same 66 pins, plus pytest, fastapi 0.162 and httpx for the tests. The
+pins come from the adaptive-calibration session's freeze list.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4c.0 | Integration base: merge #137 and #139 into #138 | orchestrator | — | 40 tests pass on the merged base | done (ef43cca, 9f3c132) — 40 passed |
+| S4c.1 | `evaluation/calibration.py`: save/load a calibrator losslessly, plus `serve_band` (config → band + label). `benchmarks.py` persists each fitted calibrator | systems-architect (orchestrator) | S4c.0 | fit → save → load → apply is bit-identical for scaled/horizon, relative/pooled and asym_relative/station. P50 unchanged. Method `none` → raw + label. Method configured but no file → refused | done (4044162) — `tests/test_serve_band.py` 23 tests; 49 calibration tests pass |
+| S4c.2 | `export_forecasts`: apply the saved Chronos calibrator; records carry `p10_raw`/`p90_raw`/`interval_method`; refuse on a label, checkpoint or coverage mismatch with the leaderboard | implementer | S4c.1 | New export tests pass; records stay a list | in progress (dispatched in parallel; file sets disjoint) |
+| S4c.3 | API: `model` and `interval` fields in `/forecast`, band from `serve_band`; 503 when a configured calibrator is missing; `Dockerfile.api` copies `evaluation/calibration.py` | implementer | S4c.1 | `tests/test_api.py` passes, including the existing P50 checks and new interval checks | in progress (dispatched in parallel; file sets disjoint) |
+| S4c.4 | Wording: `api-demo.html` shows the API's label; README, `machine_learning_files/README.md`, `sections.jsx`/`charts.jsx` copy, and a serving section in `docs/interval-calibration.md` | implementer | S4c.1 (field names) | No raw band called an 80% interval; JSX parses | in progress (dispatched in parallel; file sets disjoint) |
+| S4c.5 | Regenerate `forecasts.json` from a full benchmark run + export | orchestrator | S4c.2 | Gates above | todo |
+| S4c.6 | Review, audit, PR (not merged) | code-reviewer, delivery-auditor, orchestrator | S4c.5 | No BLOCKER open; audit clean; PR open | todo |
+
 ## Sprint 4 — Calibrate the P10/P90 intervals (opened 2026-10-22)
 
 **Goal.** Bring every leaderboard model's P10–P90 coverage to ~80% on the
