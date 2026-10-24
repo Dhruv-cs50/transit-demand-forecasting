@@ -40,13 +40,13 @@ regenerated from that state, with gate evidence.
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
 | S4d.0 | Merge #137, #138 and #139 locally | orchestrator | — | Tree matches Sprint 4c's merged base | done — `reconcile/store-intervals` 8ce9c97 (conflicts resolved as Sprint 4c did: both board sections kept, #137's `api.py`). Its tree differs from `feat/serve-interval-bands` @ f1af3c7 only in Sprint 4c's own files. The branch was then re-cut onto Sprint 4c at the user's choice |
-| S4d.1 | Rebuild `data/processed/feature_store.parquet` with the merged code from the full raw inputs; commit it; update `data/MANIFEST.md` | orchestrator | S4d.0 | Target identical to #137's store; every other delta named; `tests/` pass | done — first from the 2019–2023 archives (5dbd586, run A), then from the full 2019–2025 folder (this commit, runs D and E) |
+| S4d.1 | Rebuild `data/processed/feature_store.parquet` with the merged code from the full raw inputs; commit it; update `data/MANIFEST.md` | orchestrator | S4d.0 | Target identical to #137's store; every other delta named; `tests/` pass | done — first from the 2019–2023 archives (5dbd586, run A), then from the full 2019–2025 folder (3fa3d80; runs D–G) |
 | S4d.2 | Rebase onto Sprint 4c's final tip | orchestrator | Sprint 4c S4c.5–S4c.6 | Clean rebase; `tests/` pass | done — 9674f2d, no conflicts; 116 tests pass |
 | S4d.3 | Two full gate runs on the stacked tip; regenerate `website/data/` | orchestrator | S4d.2 | Gates above | done — runs D and E on e847db3: every gate passes except "tracked store equals the rebuild", which is what led to the input decision above. Runs F and G on 3fa3d80 (the store commit): ALL PASS, including the tracked store. The export is byte-identical to the committed `website/data/`, so no data file changes |
 | S4d.4 | Serve the site locally; check the forecast table, calibration chart, map and model comparison render | orchestrator | S4d.3 | Screens recorded | done — see "Site check" below |
-| S4d.5 | Review the diff; open PR against `feat/serve-interval-bands` (not merged) | code-reviewer, orchestrator | S4d.4 | No BLOCKER; PR open | in progress — review of 9674f2d..3fa3d80: spec FAIL on two MANIFEST statements, quality PASS; 0 BLOCKER, 3 MAJOR, 6 MINOR. Fixed in this commit: the MANIFEST claimed events covered every store month (Jan–Apr 2019 is a gap) and same bytes in any environment (now pinned to the build environment); its inputs now include `weather_forecast_*`; this board's drift and float-noise wording; F/G recorded. Not fixed here (other PRs' files, listed under follow-ups): the stale site copy (MAJOR) and the hindsight-weather wording (MINOR) in `sections.jsx`, and the zip name in the MANIFEST's verify command (MINOR, pre-existing) |
+| S4d.5 | Review the diff; open PR against `feat/serve-interval-bands` (not merged) | code-reviewer, orchestrator | S4d.4 | No BLOCKER; PR open | done (PR to follow this commit) — scoped re-review of 07b6c3e: spec PASS, quality PASS; findings 1, 2 and 5–7 closed, 3, 4 and 9 correctly deferred. Two new MINOR fixed in the commit that marks this done: the 2019 gap runs to May (playoffs), and two "this commit" references now name 3fa3d80. 116 tests pass on 07b6c3e (pytest, pinned env). R1: review of 9674f2d..3fa3d80: spec FAIL on two MANIFEST statements, quality PASS; 0 BLOCKER, 3 MAJOR, 6 MINOR. Fixed in 07b6c3e: the MANIFEST claimed events covered every store month (Jan–May 2019 is a gap) and same bytes in any environment (now pinned to the build environment); its inputs now include `weather_forecast_*`; this board's drift and float-noise wording; F/G recorded. Not fixed here (other PRs' files, listed under follow-ups): the stale site copy (MAJOR) and the hindsight-weather wording (MINOR) in `sections.jsx`, and the zip name in the MANIFEST's verify command (MINOR, pre-existing) |
 
-**Final store (this commit), SHA-256 `aa02436d…`, vs #137's committed store (`d9135f03…`).**
+**Final store (3fa3d80), SHA-256 `aa02436d…`, vs #137's committed store (`d9135f03…`).**
 - Same 3,000 keys; `ridership` identical; same 27 columns in order.
 - `station_name`: set on every row.
 - Weather:
@@ -54,7 +54,7 @@ regenerated from that state, with gate evidence.
   - EM, MB, FM, BE, SO and 19 get their own location's weather;
   - the other 44 stations' 2019–2023 regional weather differs slightly (`temp_f` on 1,584 rows, at most 0.0034 °F; `is_raining` on 176 rows, at most 0.0047; `precip_*` float noise), as #139 recorded.
 - Events:
-  - `is_game_day` and `is_sharks_game` are true on 1,800 rows (#137: 0): 200 in 2019, 400 in each later year. The events archive starts 2019-09-17, so the Jan–Apr 2019 home games (2018–19 season) are missing and read as no game;
+  - `is_game_day` and `is_sharks_game` are true on 1,800 rows (#137: 0): 200 in 2019, 400 in each later year. The events archive starts 2019-09-17, so the 2018–19 season's home games (Jan–Apr 2019, plus playoff games in May 2019) are missing and read as no game;
   - `game_start_hour` is set on those 1,800;
   - `hours_to_event` is set on all 3,000 (#137: all NaN).
 - The earlier 2019–2023 build (`9a777108…`) is byte-identical to #139's gate2 store. That was checked by SHA-256 against `gate2/data/processed/feature_store.parquet` in the #139 session's scratchpad (`…/d23f3905-…/scratchpad/gate2`, may be cleaned); runs A and B reproduce it. It differs from this one in 2024–2025 (the weather columns and the 800 new game-day rows) and in float noise in 2019–2023: `precip_mm` on 3 rows and `precip_in` on 47, at most 2.8e-17.
@@ -82,7 +82,7 @@ regenerated from that state, with gate evidence.
   - #141's "available for 2019–2023 only";
   - #143's EDA hand-over (built on `9a777108…`).
 - `website/sections.jsx:233` ("covariates rely only on data observable at prediction time") and `:160` ("known-future inputs"): the store's weather in the test window is observed, i.e. hindsight. No ranked model reads it, so no published number leaks.
-- Refetch the Sharks 2018–19 season so Jan–Apr 2019 game days stop reading as "no game". This changes the raw inputs and the store again.
+- Refetch the Sharks 2018–19 season (regular season and playoffs) so Jan–May 2019 game days stop reading as "no game". This changes the raw inputs and the store again.
 - The gate environment's 66 pins live outside git (`~/.venvs/tdf-py314-req.txt`, the side-session notes); the MANIFEST names the four versions that decide the bytes.
 - `data/MANIFEST.md` verify command names "Ridership Report 2025 (1).zip", while its table names "Ridership 2025 (1).zip" (pre-existing, bcd3b76; the store here was built with `--dir`).
 - #142 changes `Processing/feature_engineering.py`, which writes the untracked enriched store. The tracked store is unaffected.
