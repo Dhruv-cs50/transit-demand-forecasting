@@ -79,7 +79,7 @@ python machine_learning_files/zero_shot.py
 Run Chronos zero-shot for one station:
 
 ```bash
-python machine_learning_files/zero_shot.py --station EMBR --as-of 2023-06-01
+python machine_learning_files/zero_shot.py --station EM --as-of 2023-06-01
 ```
 
 Start the forecast API:

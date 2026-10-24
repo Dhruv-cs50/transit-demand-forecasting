@@ -12,7 +12,7 @@ if Chronos-2 cannot beat it, the extra complexity is not earning its place.
 
 Usage:
     python models/baselines/prophet_baseline.py
-    python models/baselines/prophet_baseline.py --station EMBR --horizon 24
+    python models/baselines/prophet_baseline.py --station EM --horizon 24
 """
 
 from __future__ import annotations

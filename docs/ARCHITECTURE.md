@@ -141,7 +141,7 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `timestamp` | datetime | Month start (`MS` cadence) |
-| `station_id` | string | BART OD origin station code |
+| `station_id` | string | BART's two-letter workbook code for the OD origin station (`EM`, `12`); names, website ids and weather locations come from `machine_learning_files/bart_stations.py` |
 | `station_name` | string | Human-readable station name |
 | `ridership` | int | Monthly boardings (target variable) |
 | `agency_id` | string | `BA` for BART |
