@@ -386,12 +386,15 @@ def fit_rolling_conformal(
         n_by[_plain(key)] = int(m.sum())
     return {"method": method, "group": group, "level": level, "n": int(len(df)), "q": q,
             "scheme": "rolling", "half_life": half_life, "as_of": str(pd.Timestamp(as_of).date()),
-            "n_by_group": n_by}
+            "n_by_group": n_by, "weight_sum": float(w.sum())}
 
 
-def clip_alpha(a: float, n: int) -> float:
-    """Keep the quantile finite (alpha >= 1/(n+1)) and at least the median (<= 0.5)."""
-    return float(min(max(a, 1.0 / (n + 1)), 0.5))
+def clip_alpha(a: float, n: float) -> float:
+    """Keep the quantile finite (alpha >= 1/(n+1)) and at least the median
+    (<= 0.5). For a weighted quantile pass the total weight as n: the scored
+    point's weight 1 then fits under level * (n + 1) <= n. A relative margin of
+    1e-9 keeps float rounding in the weighted sum from tipping it to +inf."""
+    return float(min(max(a, (1.0 + 1e-9) / (n + 1)), 0.5))
 
 
 def fit_aci_conformal(pool: pd.DataFrame, method: str, level: float, as_of,

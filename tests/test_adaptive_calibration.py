@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from evaluation.calibration import (  # noqa: E402
     apply_conformal,
+    clip_alpha,
     conformal_quantile,
     fit_aci_conformal,
     fit_conformal,
@@ -77,6 +78,16 @@ class WeightedQuantileTest(unittest.TestCase):
     def test_too_little_weight_is_infinite(self):
         # threshold 0.8 * (2 + 1) = 2.4 > total weight 2.
         self.assertEqual(weighted_conformal_quantile(np.array([1.0, 2.0]), np.ones(2), 0.8), np.inf)
+
+    def test_alpha_clipped_to_total_weight_keeps_a_weighted_quantile_finite(self):
+        rng = np.random.default_rng(7)
+        for n in (5, 50, 2850):
+            s = rng.normal(size=n)
+            w = 0.5 ** (rng.integers(0, 12, size=n) / 6)
+            a = clip_alpha(1e-6, w.sum())
+            self.assertTrue(np.isfinite(weighted_conformal_quantile(s, w, 1 - a)), n)
+            # Clipped to the row count instead, the quantile is infinite.
+            self.assertEqual(weighted_conformal_quantile(s, w, n / (n + 1)), np.inf)
 
     def test_order_of_input_does_not_matter(self):
         s = np.array([4.0, 1.0, 3.0, 2.0])

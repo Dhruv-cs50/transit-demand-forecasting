@@ -321,7 +321,9 @@ def aci_within_window(pool: pd.DataFrame, scored: pd.DataFrame, method: str,
     target = default_alphas(method, LEVEL)
     alpha, parts = target, []
     for _, rows in scored.groupby("timestamp", sort=True):
-        n = fit_rolling_conformal(pool, method, "pooled", LEVEL, as_of, half_life=HALF_LIFE)["n"]
+        # Total weight, not the row count: the weighted quantile is finite only
+        # while alpha >= 1 / (total weight + 1).
+        n = fit_rolling_conformal(pool, method, "pooled", LEVEL, as_of, half_life=HALF_LIFE)["weight_sum"]
         if method == "asym_relative":
             alpha = (clip_alpha(alpha[0], n), clip_alpha(alpha[1], n))
         else:
