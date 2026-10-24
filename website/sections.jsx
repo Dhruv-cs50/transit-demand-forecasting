@@ -470,20 +470,20 @@ const Benchmarks = () => {
 };
 
 /* ── EDA Visualizations ────────────────────────────────────────── */
-// PNGs and captions come from transit_eda/notebooks/eda_complete.ipynb. Its last
-// cell fails unless every caption below matches the notebook's text exactly, so
-// edit captions there and rerun, not here.
+// PNGs and captions come from transit_eda/notebooks/eda_complete.ipynb. When the
+// notebook is rerun, its last cell fails unless each caption below (and EDA_NOTE)
+// matches its own output exactly, under the same file. Edit captions there, not here.
 const EDA_PLOTS = [
   { file:'01_ridership_levels.png', tab:'Network level', title:'Network Total Trips per month, 2019 and 2022–2025',
-    desc:'Total Trips per month, summed over all 50 stations. Yearly totals as a share of 2019: 2022 35.0%, 2023 40.5%, 2024 43.1%, 2025 47.3%, rising every year. The store has no rows for 2020 or 2021, so the line breaks there: the fall between 2019 and 2022 is not observed month by month.' },
+    desc:'Total Trips per month, summed over all 50 stations. Yearly totals as a share of 2019: 2022 35.0%, 2023 40.5%, 2024 43.1%, 2025 47.3%, rising every year. Berryessa/North San José and Milpitas record 0 trips in 2019; over the other 48 stations 2025 is 46.5% of 2019. The store has no rows for 2020 or 2021, so the line breaks there: the fall between 2019 and 2022 is not observed month by month.' },
   { file:'02_monthly_seasonality.png', tab:'Seasonality', title:'Seasonal index by month and year',
-    desc:'Each cell is one month of network Total Trips divided by the mean monthly total of the same year. In all 5 years December, January and February are below 1 (0.64 to 0.97) and August, September and October are above 1 (1.01 to 1.19). Dividing by the days in each month first gives the same split. The 2022 row climbs from 0.64 in January to 1.19 in September.' },
+    desc:'Each cell is one month of network Total Trips divided by the mean monthly total of the same year. In all 5 years December, January and February are below 1 and August, September and October are above 1, also after dividing by the days in each month. Leaving out 2022, the winter cells run from 0.84 to 0.97 and the late-summer cells from 1.01 to 1.15. The 2022 row spans 0.64 (January) to 1.19 (September), the widest of the five years, partly from growth during 2022: 2023 Total Trips were 51.4% above January 2022 but 9.8% above December 2022.' },
   { file:'03_station_ranking.png', tab:'Station ranking', title:'Station ranking, 2022–2025 vs 2019',
     desc:'Median monthly Total Trips per station over 2022 to 2025 (bars, top 20 of 50) and in 2019 (circles). Embarcadero (349k), Powell St. (327k) and Montgomery St. (287k) lead. Montgomery St. had the highest 2019 median (974k). The four busiest stations carry 29.2% of all 2022 to 2025 trips.' },
   { file:'04_data_coverage.png', tab:'Data coverage', title:'Data coverage by month',
     desc:'Each column is one month from January 2019 to December 2025. All 50 stations have a row in each of the 60 months in the store; the 24 months of 2020 and 2021 are not in it. Berryessa/North San José (BE) and Milpitas (ML) record 0 trips in every 2019 month. Weather is filled for 2019, 2022, 2023 and empty for 2024, 2025. The Sharks schedule file runs from 2019-09-17 to 2023-12-28, so game flags outside that window are False for lack of data, not observed zeros.' },
 ];
-const EDA_NOTE = 'No weather or Sharks-game plot: 2022 and 2023 are the only consecutive years with both. The three months of 2023 with the most extra rain over 2022 (January, February, March) are also the three that grew most, while growth fell from +51.4% in January to +9.8% in December, so twelve months cannot separate rain from that trend (notebook section 5). Extra home games show no relationship (r = -0.05). Hourly, day-of-week and game-night views need daily rows, which the store does not have (section 6).';
+const EDA_NOTE = 'No weather or Sharks-game plot: 2022 and 2023 are the only consecutive years with both. The three months of 2023 with the most extra rain over 2022 (January, February, March) are also the three that grew most, and growth was +51.4% in January but +9.8% in December. Twelve monthly comparisons cannot separate rain, or home games (r = -0.05), from that shift in growth (notebook section 5). Hourly, day-of-week and game-night views need hourly or daily rows; the store has one row per station per month (section 6).';
 
 const EDAViz = () => {
   const [active, setActive] = React.useState(0);
@@ -495,7 +495,7 @@ const EDAViz = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Exploratory Analysis</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>Patterns in the data.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>Four views of the feature store at its own grain, one row per station per month: the 2019 and 2022–2025 levels, seasonality, the station ranking and the gaps. Each caption is written by the EDA notebook (transit_eda/notebooks/eda_complete.ipynb) from numbers it prints.</p>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Four views of the feature store at its own grain, one row per station per month: the 2019 and 2022–2025 levels, seasonality, the station ranking and the gaps. Each caption is written by the EDA notebook (<code style={{ overflowWrap:'anywhere' }}>transit_eda/notebooks/eda_complete.ipynb</code>) from numbers it prints.</p>
           </div></Reveal>
         </div>
         <div className="chip-grp" role="tablist" aria-label="EDA plots" style={{ marginTop:32, flexWrap:'wrap' }}>

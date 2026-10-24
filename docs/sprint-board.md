@@ -21,8 +21,8 @@ byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, m
 | S4e.1 | Rebuild the store | orchestrator | — | sha256 equals #139's gate2 store | done — `9a777108…` |
 | S4e.2 | Rewrite the notebook; regenerate PNGs | orchestrator | S4e.1 | Executes with 0 errors; every caption claim asserted; image outputs byte-identical to the PNGs; rerun gives identical PNGs | done (13f265f) |
 | S4e.3 | Restore `EDAViz`, nav link, mount; `?v=12` | orchestrator | S4e.2 | Notebook's site check passes; local render: 4 tabs, every image loads, 0 console errors | done (3cb7a1d) |
-| S4e.4 | Review the diff | code-reviewer | S4e.3 | No BLOCKER open | todo |
-| S4e.5 | Push; open PR (no merge) | orchestrator | S4e.4 | PR open with claim → evidence table | todo |
+| S4e.4 | Review the diff | code-reviewer | S4e.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 3 MAJOR (games claim overreached; seasonality range driven by 2022; this board lost the Sprint 4c heading), 7 MINOR. All fixed in the fix round (see rulings) |
+| S4e.5 | Push; open PR (no merge) | orchestrator | S4e.4 | PR open with claim → evidence table | in progress — branch pushed |
 
 ### Rulings (Sprint 4e)
 
@@ -31,13 +31,22 @@ byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, m
   scatter, hourly decomposition, event proximity, correlation heatmap: they need daily or hourly
   rows (notebook section 6).
 - **Weather and games vs 2022→23 YoY not plotted.** r(YoY, extra rain) = 0.82 over 12 months, but
-  the wettest 2023 months (Jan–Mar) are also the months that grew most while growth fell from
-  +51.4% to +9.8% through the year; games r = −0.05. Printed in notebook section 5, not published
-  as a plot.
+  the wettest 2023 months (Jan–Mar) are also the months that grew most, and YoY growth was
+  +51.4% in January but +9.8% in December; games (r = −0.05) cannot be separated either. Printed
+  in notebook section 5, not published as a plot.
 - **Sharks schedule window comes from the raw file** (2019-09-17 to 2023-12-28), because the
   store's game flags are `False` both for no game and for no data.
+- **The seven old PNGs are deleted** (Sprint 4c kept them only so this regeneration could diff
+  against them; they stay in git history at `0938526`). New filenames, so no cached old image
+  is served at a reused URL.
+- **Review R1 fixes (S4e.4):** the games result is reported as "cannot be separated", not "no
+  relationship"; the seasonality range is quoted without 2022, whose wider row is attributed in
+  part to growth within 2022 (Jan vs Dec YoY, asserted "widest"); a like-for-like 48-station share
+  is added to plot 01; unasserted trend words ("climbs", "fell") replaced by endpoint values; the
+  site check pairs each caption with its file instead of a substring search; legend "No source
+  data"; the lede's notebook path wraps at 375 px.
 
-
+## Sprint 4c — Every site claim traces to a run (opened 2026-10-24)
 
 (Named 4c, ids S4c.x, because #138 adds a "Sprint 4" and #139 a "Sprint 4b".)
 
@@ -79,7 +88,7 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
 
 - Make the covariate path real: a covariate-capable checkpoint (Chronos-2) plus 2024–25
   weather and an event source beyond 2023. Changes the leaderboard; the user's call.
-- Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
+- (Addressed by Sprint 4e.) Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
   and hour (`hour_of_day` is constant 0), so several plots need rewriting, not just rerunning.
 - Lag and rolling features are row shifts per station (`feature_engineering.py:497-500`), so
   early-2022 rows lag into 2019 across the 2020–21 gap. No ranked model reads them today;
