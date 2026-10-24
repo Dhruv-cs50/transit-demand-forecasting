@@ -3,7 +3,8 @@
 **User decisions (2026-10-24):** correct the copy; covariate work is a separate proposal (leaderboard untouched);
 remove the `shap` and station-mix cards; remove the EDA section until its plots are regenerated; remove the
 report/slides links and the report citation; keep the About bio (confirmed accurate). Items marked
-"**Your call**" below were settled by these answers.
+"**Your call**" below were settled by these answers. The changes made after that approval (review R1 fixes, rows 8/12/14/16 notes, 22a–22f, 28a, the
+`styles.css` cleanup) were shown to the user, who kept all of them (2026-10-24).
 
 Branch `fix/site-model-claims`, cut from `origin/sprint3/pr-backlog` @ `32a75df` (main @ `cb7da6d` is its
 ancestor; #136 is still open, so the backlog branch is current). Line numbers are on that base.
@@ -12,7 +13,8 @@ ancestor; #136 is still open, so the backlog branch is current). Line numbers ar
 chronos-forecasting 2.3.2): `bart_od_from_xlsx.py` → `merge_pipeline.py` → `feature_engineering.py` →
 `models/baselines/benchmarks.py`. Its leaderboard equals the published one on every metric
 (SARIMA 3.21 / Prophet 5.75 / Chronos-1 9.70 / SeasonalNaive 10.75 WAPE %, n = 300). Re-derive any row below by
-rebuilding the store and running the benchmark as in `docs/sprint-board.md` S4b.5.
+rebuilding the store and running the benchmark as in PR #139's board, story S4b.5
+(`bart_od_from_xlsx.py` → `merge_pipeline.py` → `Processing/feature_engineering.py` → `models/baselines/benchmarks.py`).
 
 ## The covariate question
 
@@ -22,6 +24,32 @@ rebuilding the store and running the benchmark as in `docs/sprint-board.md` S4b.
 | No other ranked model reads one | `arima.py:146` `SARIMAX(series, order, seasonal_order)`, no `exog`. `prophet_baseline.py:46-50,120` builds a US federal holiday calendar in code; no regressors. `benchmarks.py:63-105` seasonal naive copies last year's value. |
 | The covariates are empty where it matters | Feature store (3,000 rows): every weather column is 100% NaN for 2024 and 2025 (raw archive `weather_*_2019-01-01_2023-12-31.parquet`). The event archive is 174 Sharks home games at SAP Center, 2019–2023; `is_game_day` is true on 200/400/400 rows in 2019/2022/2023 and on 0 rows in 2024–25. So the whole test window (Jul–Dec 2025) and the 2024 training year carry no weather and no events. |
 | Several "covariates" are artifacts of monthly rows | `hour_of_day` is 0 on every row; `day_of_week`, `is_weekend`, `is_holiday` describe the 1st of the month (the row timestamp). |
+
+### Re-deriving the covariate facts
+
+Run from the repo root after rebuilding the store (any pandas ≥ 2):
+
+```python
+import pandas as pd
+fs = pd.read_parquet("data/processed/feature_store.parquet")
+fs["year"] = pd.to_datetime(fs["timestamp"]).dt.year
+weather = ["temp_f", "precip_mm", "windspeed_mph", "is_raining", "humidity_pct", "cloud_cover_pct"]
+print(fs.groupby("year")[weather].apply(lambda g: g.notna().mean()).round(3))   # share non-null
+print(fs.groupby("year")[["is_game_day", "is_sharks_game"]].sum())            # rows flagged
+print(fs["hour_of_day"].unique())                                               # constant
+```
+
+Output on the gate2 store (3,000 rows, 50 stations × 60 months):
+
+| year | weather non-null | `is_game_day` rows | `hour_of_day` |
+|---|---|---|---|
+| 2019 | 1.000 | 200 | 0 |
+| 2022 | 1.000 | 400 | 0 |
+| 2023 | 1.000 | 400 | 0 |
+| 2024 | 0.000 | 0 | 0 |
+| 2025 | 0.000 | 0 | 0 |
+
+The fallback count: `grep -c "Falling back to univariate" <benchmark log>` → 50.
 
 ## Claims, evidence, proposed change
 
@@ -71,7 +99,10 @@ Leaderboard figures everywhere (3.2 / 5.8 / 9.7 / 10.8 %, MAE 3,086 / 5,526, n =
 3,000 station-months (2019 + 2022–2025), splits 1,800 / 300 / 300 with train Jan 2022–Dec 2024, 6-month horizon
 (all models fit through `val_end` 2025-06), Embarcadero highest volume, SARIMA (0,1,1)(0,1,1,12), Rec 02's
 "runs univariate", README's Chronos caveat (:60-67), "All OD pairs" (the target sums every OD pair by origin,
-`merge_pipeline.py:213`). `index.html`: no model claims; it changes only the `?v=` cache-buster (to v=11: #139 ships v=9 and #140 v=10) and drops `<EDAViz />`. Dead code from the removals (`I.download`, `.shap*` CSS) is deleted.
+`merge_pipeline.py:213`), README's unseeded-run figures (Chronos 8.06–9.70% WAPE, Prophet coverage 44–46%:
+recorded in commit `83b9f3b` and in `configs/model.yaml:42`, `prophet_baseline.py:126`; unseeded runs cannot be
+re-run to the same number by nature), README's validation list (`evaluation/validators.py`:
+`check_required_columns`, `check_missing_windows`, `check_station_coverage`, `check_ridership_anomalies`). `index.html`: no model claims; it changes only the `?v=` cache-buster (to v=11: #139 ships v=9 and #140 v=10) and drops `<EDAViz />`. Dead code from the removals (`I.download`, `.shap*` CSS) is deleted.
 
 ## Not covered here
 

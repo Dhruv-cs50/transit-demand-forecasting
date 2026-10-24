@@ -32,6 +32,9 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
   PNGs stay in `website/data/eda_plots/`, unreferenced, so the regeneration can diff against them.
 - **Report/slides links and the report citation removed** (no report or slides in the repo).
   **About bio kept**: the user confirmed it.
+- **Post-review changes, 2026-10-24, the user:** keep all (Method lede and README reproduce
+  text, Rec 01 title and Recs lede, lag pills in rows, tag/notebook card, ↓ tile marker, nav "Demo",
+  `.shap*` CSS removal).
 - Replacements trace to code or are removals: no number computed in scratch is published
   (e.g. 12th St's own WAPE, 3.52%, is not on the page; the hero card is relabelled instead).
 
