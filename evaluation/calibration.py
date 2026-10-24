@@ -335,7 +335,7 @@ def default_alphas(method: str, level: float):
 
 
 def _pool_scores(df: pd.DataFrame, method: str) -> np.ndarray:
-    df = df[df["ridership"].notna()]
+    """Scores of pool rows; the caller has already dropped rows without an actual."""
     incomplete = df[_BAND_COLS].isna().any(axis=1)
     if incomplete.any():
         missing = sorted(df.loc[incomplete, "station_id"].unique().tolist(), key=str)

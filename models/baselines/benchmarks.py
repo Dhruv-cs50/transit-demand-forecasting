@@ -310,15 +310,16 @@ def calibrate_intervals(
     history_df: pd.DataFrame = None,
     as_of: pd.Timestamp = None,
 ) -> tuple[pd.DataFrame, str]:
-    """Split-conformal P10/P90 for one model's test forecasts.
+    """Conformal P10/P90 for one model's test forecasts.
 
-    The models' own bands are not 80% intervals (test coverage before this:
-    Prophet 46.0%, Chronos-1 51.0%, SARIMA 96.7%, SeasonalNaive 94.3%). For a
-    model with a calibration method in configs/model.yaml, the model also
-    forecasts the validation split from a fit that ends at train_end, and the
-    conformal quantile of those validation errors sets the test band. Methods
-    were chosen per model on validation data only, and a model for which no
-    method passed validation keeps its own band — see
+    The models' own bands are not 80% intervals (test coverage of the own
+    bands: Prophet 46.0%, Chronos-1 51.0%, SARIMA 96.7%, SeasonalNaive 94.3%).
+    A model with a calibration method in configs/model.yaml gets its test band
+    from the conformal quantile of errors on data up to val_end: by default
+    (`scheme: split`) its forecasts of the validation split from a fit that
+    ends at train_end; with `scheme: rolling`, a pool over monthly origins
+    (below). Methods were chosen per model on data up to val_end only, and a
+    model for which no method passed keeps its own band — see
     docs/interval-calibration.md and evaluation/interval_study.py.
 
     model_key: stable config key (calibration.models.<key>), independent of
@@ -362,6 +363,13 @@ def calibrate_intervals(
     group = mcfg.get("group", "pooled")
     scheme = mcfg.get("scheme", "split")
     level = float(ccfg.get("level", 0.8))
+    if scheme == "rolling" and "half_life" not in mcfg:
+        # A missing half_life would silently mean equal weights, a different
+        # method from the one chosen; null must be written out to ask for it.
+        log.error(f"  {model_name}: scheme rolling needs half_life (null for equal weights)")
+        out = no_calibration(test_preds)
+        out["p10"], out["p90"] = np.nan, np.nan
+        return out, f"FAILED: {method}/{group} (no half_life)"
     if scheme == "rolling":
         label = (f"rolling-origin conformal {method}/{group}, half-life {mcfg.get('half_life')} months, "
                  f"fit on data to val_end")
@@ -581,7 +589,7 @@ def leaderboard_latex(leaderboard: pd.DataFrame) -> str:
         # others; without these columns the two read as the same quantity.
         latex_cols += ["Coverage_raw_%"] + (["Interval_method"] if "Interval_method" in leaderboard.columns else [])
         caption = caption.rstrip(".") + (". Coverage_% scores the band named in Interval_method "
-                    "(split-conformal, fit on the validation split, or the model's own); "
+                    "(conformal, fit on data up to the end of the validation split, or the model's own); "
                     "Coverage_raw_% scores the model's own band")
     table = leaderboard[latex_cols].rename(columns={"MASE": MASE_LABEL})
     return table.to_latex(

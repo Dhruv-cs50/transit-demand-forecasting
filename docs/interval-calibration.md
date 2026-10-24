@@ -77,7 +77,7 @@ Sprint 4's single-window calibration (PR #138) follows unchanged under
 
 **Updating the band inside the window did not help.**
 - `aci_window` and `monthly_recal` (measured, not eligible) would have
-  qualified only for Prophet. They score 23.02 and 22.97, about the same as
+  qualified only for Prophet. They score 23.02 and 22.96, about the same as
   the winner's 22.98.
 - Neither would have rescued SARIMA or Chronos-1.
 
@@ -133,17 +133,23 @@ ridership, as in Sprint 4. Lower is better.
 - **What the study reads.** `interval_study.py` cuts the store at `val_end`
   when it reads it, and asserts that every scored and pool timestamp is on or
   before `val_end`.
-- **Store-cut check.** Forecasts cut at T and uncut forecasts were compared
-  on every shared row (1,800 rows for B and 3,600 for V, per model). The
-  largest difference was 0.0 for all four models.
+- **Store-cut check.** Forecasts cut at T must equal the uncut forecast from
+  the same origin wherever both exist, and must exist for every target on or
+  before T; otherwise the study stops. Rows compared per model:
+  - SARIMA, Prophet and Chronos-1: 1,800 for B and 3,600 for V, including
+    targets after T.
+  - SeasonalNaive: 1,050 and 2,850. A cut store has no rows after T for it to
+    forecast.
+  - The largest difference was 0.0 everywhere.
 - **Horizon.** Each pool row carries `horizon` = months from its origin to
   its target. The fit raises an error if the column is missing or
   inconsistent. Dense-ranking timestamps, which is how a single window
   counts horizon, would mis-group a pool of several origins.
 - **Weighted quantile** (Barber et al. 2023). Weight 0.5^(age/6), with age in
   months from the target to T, and the scored point weighted 1. The quantile
-  is the smallest score s with Σ_(s_i ≤ s) w_i ≥ level·(Σ w_i + 1). With equal
-  weights this is exactly Sprint 4's split-conformal quantile (tested).
+  is the smallest score s with Σ_(s_i ≤ s) w_i ≥ level·(Σ w_i + 1). With unit
+  weights (every w_i = 1) this is exactly Sprint 4's split-conformal quantile
+  (tested).
 - **ACI over origins.** Monthly target batches are taken in order. Each band
   uses the conformal quantile of earlier-target rows at level 1 − α, then α
   moves by 0.1·(0.2 − miss rate). α is clipped to [1/(n+1), 0.5] so the
@@ -152,19 +158,21 @@ ridership, as in Sprint 4. Lower is better.
 ### Validation results, eligible candidates
 
 Coverage, misses and interval score are in %. Each model's rows are sorted by
-mean score.
+mean score. All three tables are written by `interval_study.py`
+(`evaluation/outputs/interval_study/adaptive_tables.md`, from
+`adaptive_rule_all.csv`).
 
 | Model | Candidate | B coverage % | B below / above % | B score | V coverage % | V below / above % | V score | Mean score | Qualifies |
 |---|---|---:|---|---:|---:|---|---:|---:|---|
 | SeasonalNaive | rolling_hl6 asym_relative/pooled | 88 | 5.67 / 6.33 | 24.03 | 81 | 4 / 15 | 21.71 | 22.87 | no |
 | SeasonalNaive | rolling_hl6 asym_relative/horizon | 81.33 | 4.67 / 14 | 24.72 | 81 | 4 / 15 | 22.36 | 23.54 | **yes** |
 | SeasonalNaive | aci_origin asym_relative/pooled | 90.67 | 1 / 8.33 | 28.32 | 78.67 | 3.67 / 17.67 | 23.35 | 25.84 | no |
-| SeasonalNaive | aci_origin scaled/pooled | 81 | 1 / 18 | 28.91 | 69.67 | 1.67 / 28.67 | 32.54 | 30.72 | no |
 | SeasonalNaive | aci_origin relative/pooled | 81 | 1 / 18 | 28.91 | 69.67 | 1.67 / 28.67 | 32.54 | 30.72 | no |
-| SeasonalNaive | rolling_hl6 scaled/pooled | 83.67 | 1 / 15.33 | 29.42 | 72.67 | 1.67 / 25.67 | 32.15 | 30.78 | no |
+| SeasonalNaive | aci_origin scaled/pooled | 81 | 1 / 18 | 28.91 | 69.67 | 1.67 / 28.67 | 32.54 | 30.72 | no |
 | SeasonalNaive | rolling_hl6 relative/pooled | 83.67 | 1 / 15.33 | 29.42 | 72.67 | 1.67 / 25.67 | 32.15 | 30.78 | no |
-| SeasonalNaive | rolling_hl6 scaled/horizon | 75.33 | 1 / 23.67 | 30.22 | 72.33 | 1.67 / 26 | 32.63 | 31.42 | no |
+| SeasonalNaive | rolling_hl6 scaled/pooled | 83.67 | 1 / 15.33 | 29.42 | 72.67 | 1.67 / 25.67 | 32.15 | 30.78 | no |
 | SeasonalNaive | rolling_hl6 relative/horizon | 75.33 | 1 / 23.67 | 30.22 | 72.33 | 1.67 / 26 | 32.63 | 31.42 | no |
+| SeasonalNaive | rolling_hl6 scaled/horizon | 75.33 | 1 / 23.67 | 30.22 | 72.33 | 1.67 / 26 | 32.63 | 31.42 | no |
 | SeasonalNaive | incumbent | 97.67 | 0 / 2.33 | 39.47 | 96 | 0 / 4 | 37.6 | 38.53 | no |
 | SARIMA | rolling_hl6 relative/pooled | 85.33 | 0.67 / 14 | 27.71 | 88 | 8.33 / 3.67 | 24.06 | 25.88 | no |
 | SARIMA | aci_origin relative/pooled | 87.67 | 0.33 / 12 | 28.25 | 88 | 8.33 / 3.67 | 24.04 | 26.14 | no |
@@ -205,14 +213,14 @@ mean score.
 | SeasonalNaive | aci_window asym_relative/pooled | 86.33 | 6.67 / 7 | 23.96 | 80.33 | 4.67 / 15 | 21.58 | 22.77 | no |
 | SeasonalNaive | rolling_eq asym_relative/pooled | 87.67 | 6.33 / 6 | 24.03 | 84 | 4 / 12 | 21.58 | 22.8 | no |
 | SeasonalNaive | rolling_eq asym_relative/horizon | 79.67 | 6.33 / 14 | 24.85 | 81.33 | 4 / 14.67 | 22.64 | 23.74 | **yes** |
-| SeasonalNaive | aci_window scaled/pooled | 83 | 1 / 16 | 29.45 | 72.33 | 1.67 / 26 | 32.32 | 30.88 | no |
 | SeasonalNaive | aci_window relative/pooled | 83 | 1 / 16 | 29.45 | 72.33 | 1.67 / 26 | 32.32 | 30.88 | no |
-| SeasonalNaive | monthly_recal scaled/pooled | 81.67 | 1 / 17.33 | 29.48 | 72.33 | 1.67 / 26 | 32.31 | 30.9 | no |
+| SeasonalNaive | aci_window scaled/pooled | 83 | 1 / 16 | 29.45 | 72.33 | 1.67 / 26 | 32.32 | 30.88 | no |
 | SeasonalNaive | monthly_recal relative/pooled | 81.67 | 1 / 17.33 | 29.48 | 72.33 | 1.67 / 26 | 32.31 | 30.9 | no |
-| SeasonalNaive | rolling_eq scaled/pooled | 87.67 | 1 / 11.33 | 30.76 | 74.33 | 1.67 / 24 | 31.88 | 31.32 | no |
+| SeasonalNaive | monthly_recal scaled/pooled | 81.67 | 1 / 17.33 | 29.48 | 72.33 | 1.67 / 26 | 32.31 | 30.9 | no |
 | SeasonalNaive | rolling_eq relative/pooled | 87.67 | 1 / 11.33 | 30.76 | 74.33 | 1.67 / 24 | 31.88 | 31.32 | no |
-| SeasonalNaive | rolling_eq scaled/horizon | 75.33 | 1 / 23.67 | 30.42 | 73 | 1.33 / 25.67 | 33.06 | 31.74 | no |
+| SeasonalNaive | rolling_eq scaled/pooled | 87.67 | 1 / 11.33 | 30.76 | 74.33 | 1.67 / 24 | 31.88 | 31.32 | no |
 | SeasonalNaive | rolling_eq relative/horizon | 75.33 | 1 / 23.67 | 30.42 | 73 | 1.33 / 25.67 | 33.06 | 31.74 | no |
+| SeasonalNaive | rolling_eq scaled/horizon | 75.33 | 1 / 23.67 | 30.42 | 73 | 1.33 / 25.67 | 33.06 | 31.74 | no |
 | SARIMA | monthly_recal relative/pooled | 78.33 | 1 / 20.67 | 26.98 | 88.33 | 8.33 / 3.33 | 24.07 | 25.52 | no |
 | SARIMA | aci_window relative/pooled | 82.33 | 0.67 / 17 | 27.59 | 86 | 10 / 4 | 23.55 | 25.57 | no |
 | SARIMA | rolling_eq relative/pooled | 83.67 | 0.67 / 15.67 | 27.42 | 88.33 | 8.33 / 3.33 | 24.27 | 25.84 | no |
@@ -247,38 +255,51 @@ mean score.
 | Chronos-1 | rolling_eq relative/pooled | 77.67 | 0.33 / 22 | 40.72 | 82 | 0.67 / 17.33 | 37.14 | 38.93 | no |
 | Chronos-1 | aci_window scaled/pooled | 70.33 | 0.67 / 29 | 44.65 | 81 | 1.33 / 17.67 | 33.81 | 39.23 | no |
 | Chronos-1 | aci_window relative/pooled | 76 | 0.33 / 23.67 | 41.47 | 79.33 | 0.67 / 20 | 37.47 | 39.47 | no |
-| Chronos-1 | monthly_recal scaled/pooled | 65.67 | 1 / 33.33 | 45.67 | 83 | 1.33 / 15.67 | 33.67 | 39.67 | no |
 | Chronos-1 | monthly_recal relative/pooled | 71.67 | 0.33 / 28 | 42.09 | 83 | 0.67 / 16.33 | 37.25 | 39.67 | no |
+| Chronos-1 | monthly_recal scaled/pooled | 65.67 | 1 / 33.33 | 45.67 | 83 | 1.33 / 15.67 | 33.67 | 39.67 | no |
 
 Sprint 4's single-window variants, scored on both windows (B calibrated on
-2024-H1, V on 2024-H2):
+2024-H1, V on 2024-H2). A per-station quantile rests on 6 scores, so its
+asymmetric band is infinite and has no interval score (—):
 
 | Model | Candidate | B coverage % | B below / above % | B score | V coverage % | V below / above % | V score | Mean score | Qualifies |
 |---|---|---:|---|---:|---:|---|---:|---:|---|
 | SeasonalNaive | single asym_relative/pooled | 84.33 | 13 / 2.67 | 26.16 | 79.33 | 4 / 16.67 | 21.96 | 24.06 | no |
 | SeasonalNaive | single asym_relative/horizon | 67.33 | 18.33 / 14.33 | 29.78 | 73.33 | 4.33 / 22.33 | 22.16 | 25.97 | no |
-| SeasonalNaive | single scaled/pooled | 90.67 | 1 / 8.33 | 33.34 | 72.67 | 1.67 / 25.67 | 32.15 | 32.75 | no |
 | SeasonalNaive | single relative/pooled | 90.67 | 1 / 8.33 | 33.34 | 72.67 | 1.67 / 25.67 | 32.15 | 32.75 | no |
-| SeasonalNaive | single scaled/horizon | 77.33 | 0.67 / 22 | 34.96 | 69.33 | 2 / 28.67 | 31.35 | 33.16 | no |
+| SeasonalNaive | single scaled/pooled | 90.67 | 1 / 8.33 | 33.34 | 72.67 | 1.67 / 25.67 | 32.15 | 32.75 | no |
 | SeasonalNaive | single relative/horizon | 77.33 | 0.67 / 22 | 34.96 | 69.33 | 2 / 28.67 | 31.35 | 33.16 | no |
+| SeasonalNaive | single scaled/horizon | 77.33 | 0.67 / 22 | 34.96 | 69.33 | 2 / 28.67 | 31.35 | 33.16 | no |
+| SeasonalNaive | single relative/station | 92.67 | 1 / 6.33 | 35.73 | 74.67 | 0 / 25.33 | 33.77 | 34.75 | no |
+| SeasonalNaive | single scaled/station | 92.67 | 1 / 6.33 | 35.73 | 74.67 | 0 / 25.33 | 33.77 | 34.75 | no |
+| SeasonalNaive | single asym_relative/station | 100 | 0 / 0 | — | 100 | 0 / 0 | — | — | no |
 | SARIMA | single relative/horizon | 91.33 | 0.33 / 8.33 | 31.26 | 78.33 | 20 / 1.67 | 26.01 | 28.64 | no |
 | SARIMA | single relative/pooled | 95 | 0.33 / 4.67 | 34.14 | 90.33 | 7 / 2.67 | 25.3 | 29.72 | no |
+| SARIMA | single relative/station | 95.33 | 0.33 / 4.33 | 36.32 | 91.33 | 6.33 / 2.33 | 26.81 | 31.56 | no |
 | SARIMA | single scaled/horizon | 96 | 0 / 4 | 40.09 | 75 | 21.67 / 3.33 | 25.86 | 32.98 | no |
 | SARIMA | single scaled/pooled | 97.33 | 0 / 2.67 | 41.59 | 90.67 | 7.33 / 2 | 25.08 | 33.34 | no |
+| SARIMA | single scaled/station | 91 | 0.67 / 8.33 | 43.53 | 93.33 | 5 / 1.67 | 30.19 | 36.86 | no |
 | SARIMA | single asym_relative/horizon | 14.67 | 0.33 / 85 | 74.28 | 49 | 50 / 1 | 30.87 | 52.58 | no |
 | SARIMA | single asym_relative/pooled | 15 | 0 / 85 | 77.29 | 53.33 | 45.33 / 1.33 | 33.46 | 55.38 | no |
+| SARIMA | single asym_relative/station | 100 | 0 / 0 | — | 100 | 0 / 0 | — | — | no |
 | Prophet | single scaled/pooled | 84 | 11 / 5 | 24.65 | 83.33 | 4.67 / 12 | 20.89 | 22.77 | **yes** |
 | Prophet | single relative/pooled | 86.33 | 9.67 / 4 | 25.12 | 81.33 | 5.67 / 13 | 20.77 | 22.94 | no |
 | Prophet | single scaled/horizon | 70.33 | 22.67 / 7 | 27.46 | 82 | 4 / 14 | 20.31 | 23.88 | no |
 | Prophet | single relative/horizon | 76 | 17.67 / 6.33 | 28.7 | 78.33 | 5.33 / 16.33 | 20.44 | 24.57 | no |
 | Prophet | single asym_relative/pooled | 84.67 | 11.67 / 3.67 | 26.11 | 71.67 | 4.33 / 24 | 23.79 | 24.95 | no |
+| Prophet | single relative/station | 92.33 | 3.67 / 4 | 28.56 | 90.33 | 1.67 / 8 | 24.31 | 26.44 | no |
+| Prophet | single scaled/station | 88 | 7.67 / 4.33 | 28.14 | 94 | 0.67 / 5.33 | 28.8 | 28.47 | no |
 | Prophet | single asym_relative/horizon | 46 | 36 / 18 | 33.5 | 51 | 5.33 / 43.67 | 30.67 | 32.08 | no |
+| Prophet | single asym_relative/station | 100 | 0 / 0 | — | 100 | 0 / 0 | — | — | no |
 | Chronos-1 | single asym_relative/pooled | 68.67 | 22.67 / 8.67 | 32.62 | 91.33 | 3.67 / 5 | 25.76 | 29.19 | no |
 | Chronos-1 | single asym_relative/horizon | 72.67 | 17.33 / 10 | 30.37 | 69 | 4.33 / 26.67 | 33.21 | 31.79 | no |
 | Chronos-1 | single relative/pooled | 84 | 0.33 / 15.67 | 41.45 | 84.33 | 0.67 / 15 | 37.28 | 39.36 | no |
 | Chronos-1 | single scaled/pooled | 66.33 | 1 / 32.67 | 44 | 90.33 | 1 / 8.67 | 35.15 | 39.58 | no |
+| Chronos-1 | single relative/station | 87 | 0.33 / 12.67 | 41.58 | 92.33 | 0.33 / 7.33 | 39.88 | 40.73 | no |
 | Chronos-1 | single relative/horizon | 85 | 0 / 15 | 39.05 | 64.33 | 2 / 33.67 | 44.63 | 41.84 | no |
 | Chronos-1 | single scaled/horizon | 68 | 1 / 31 | 43.39 | 65 | 1.67 / 33.33 | 44.27 | 43.83 | no |
+| Chronos-1 | single scaled/station | 72 | 1.67 / 26.33 | 46.05 | 89.33 | 0.67 / 10 | 46.47 | 46.26 | no |
+| Chronos-1 | single asym_relative/station | 100 | 0 / 0 | — | 100 | 0 / 0 | — | — | no |
 
 ### Test result (scored once)
 
@@ -304,9 +325,13 @@ holdout, n = 300 per model.
 
 **Where the extra columns come from.** `scripts/interval_test_breakdown.py`
 computes the tails, widths, scores and by-month columns for SeasonalNaive and
-Prophet. It rebuilds each band with the leaderboard's code:
-- the new band must reproduce the leaderboard's Coverage_% exactly;
-- the band each model published before must reproduce PR #138's 94.33% and
+Prophet:
+- It rebuilds each band with `evaluation/calibration.py` from the forecasts
+  `interval_study.py` cached. The review checked that this is the same pool
+  `benchmarks.py` builds, row for row.
+- It never fits a model, and it stops on a missing bound.
+- The new band must reproduce the leaderboard's Coverage_% exactly, and the
+  band each model published before must reproduce PR #138's 94.33% and
   74.67%, or the script stops.
 
 SARIMA's and Chronos-1's rows are Sprint 4's.
@@ -324,8 +349,8 @@ SARIMA's and Chronos-1's rows are Sprint 4's.
   22.14 to 23.26.
 - Its misses are now even (13.0% each side, instead of 10.0% / 15.3%), but
   September and October covered 52% and 54%.
-- Validation predicted 84–85%; the drop of about 10 points is as large as in
-  Sprint 4.
+- Validation predicted 84–85%, so test fell about 10–11 points short. That
+  is a larger drop than Sprint 4's for Prophet (82.0% → 74.7%, 7.3 points).
 - The recency weights narrowed the band just before errors grew. The pool
   through June 2025 gave ±7.9%, while 80% of the test errors were within
   ±8.4% of P50. On 2025-H1 the same method used ±8.7%.

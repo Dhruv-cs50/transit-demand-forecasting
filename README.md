@@ -48,17 +48,18 @@ Prophet and Chronos both sample, so `configs/model.yaml` seeds them
 identical runs — a figure nobody can reproduce is not a result. Two consecutive
 runs of the table above are bit-identical.
 
-**Point accuracy is sound; interval calibration is not finished.** Only one
-P10–P90 band here is a dependable 80% interval on the holdout:
+**Point accuracy is sound; interval calibration is not finished.** Only
+seasonal naive's P10–P90 band landed in 75–85% on the holdout, and that is a
+single six-month window:
 - Seasonal naive's band is now fit to recent errors: a weighted conformal
-  quantile over forecasts from every month since December 2023. It covers
-  83.7%, inside 75–85%. Its own ±20% band covered 94.3% at more than twice
-  the width.
+  quantile over forecasts from every month since December 2023, wider above
+  P50 than below. It covers 83.7%. Its own ±20% band covered 94.3% at more
+  than twice the width.
 - Prophet's and Chronos-1's own bands were far too narrow (46% and 51%
   coverage). Calibrated, they reach 74.0% and 72.7%, still short of 80%.
-  Prophet uses the same rolling-origin method as seasonal naive (it scored
-  74.7% under the earlier single-window method). Chronos-1's misses all fall
-  above P90.
+  Prophet's band is now also fit on the rolling pool, as one symmetric
+  quantile for every month ahead; it scored 74.7% under the earlier
+  single-window method. Chronos-1's misses all fall above P90.
 - SARIMA's own band is too wide (96.7%). No calibration method passed
   validation for it, so it is published unchanged.
 - Calibration never touches the point forecast: WAPE and MAE are identical

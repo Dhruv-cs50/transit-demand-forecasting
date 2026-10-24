@@ -7,7 +7,10 @@ the test split, for docs/interval-calibration.md.
 This reads the test split. It describes a result the leaderboard has already
 scored; it chooses nothing. Run it only after models/baselines/benchmarks.py.
 
-Each band is rebuilt with the same code the leaderboard uses, and its overall
+Each band is rebuilt with the leaderboard's calibration code
+(evaluation/calibration.py) from the forecasts interval_study.py cached — the
+same pool benchmarks.py builds, which the Sprint 5 review checked row by row —
+and its overall
 coverage must equal the leaderboard's Coverage_% exactly, or the script stops.
 The band each model published before Sprint 5 is rebuilt too, for comparison,
 and must reproduce PR #138's published coverage (PREVIOUS).
@@ -35,7 +38,8 @@ from evaluation.calibration import (  # noqa: E402
     apply_conformal, fit_conformal, fit_rolling_conformal, no_calibration, with_origin_horizon,
 )
 from evaluation.interval_study import (  # noqa: E402
-    _target_window, cached_forecast, load_validation_store, month_ends, rolling_forecasts, with_actuals,
+    OUT_DIR, _target_window, cache_tag, cached_forecast, load_validation_store, month_ends,
+    rolling_forecasts, with_actuals,
 )
 from models.baselines.benchmarks import seasonal_naive_forecast  # noqa: E402
 
@@ -45,7 +49,19 @@ PROPHET_TEST = Path("models/baselines/outputs/prophet/prophet_forecasts.parquet"
 PREVIOUS = {"SeasonalNaive": ("own band", 94.33), "Prophet": ("split-conformal scaled/horizon", 74.67)}
 
 
+def require_cached(model: str, origins, horizon: int, cut) -> None:
+    """This script describes; it never fits. Stop if a forecast it needs was
+    not left by interval_study.py."""
+    missing = [o for o in origins
+               if not (OUT_DIR / f"forecast_{cache_tag(model, o, horizon, cut)[0]}.parquet").exists()]
+    if missing:
+        raise SystemExit(f"{model}: no cached forecast for {len(missing)} origin(s), e.g. "
+                         f"{missing[0]:%Y-%m-%d}; run evaluation/interval_study.py first")
+
+
 def breakdown(frame: pd.DataFrame) -> dict:
+    if frame[["p10", "p90"]].isna().any().any():
+        raise SystemExit("a test row has no calibrated bound; every column here would be wrong")
     y = frame["ridership"].to_numpy(float)
     lo, hi = frame["p10"].to_numpy(float), frame["p90"].to_numpy(float)
     below, above = y < lo, y > hi
@@ -90,6 +106,7 @@ def main():
         mcfg = models[model]
         assert mcfg.get("scheme") == "rolling", f"{model} is not on the rolling scheme"
         origins = month_ends(pd.Timestamp(mcfg["first_origin"]), val_end - pd.offsets.MonthEnd(1))
+        require_cached(model, origins, horizon, val_end)
         pool = rolling_forecasts(model, val_store, cfg, origins, horizon, refresh=False, cut=val_end)
         calib = fit_rolling_conformal(pool, mcfg["method"], mcfg["group"], 0.8, val_end,
                                       half_life=mcfg["half_life"])
@@ -109,6 +126,7 @@ def main():
             before = no_calibration(test_preds)
         else:
             train_end = pd.Timestamp(cfg["data"]["train_end"])
+            require_cached(model, [train_end], horizon, None)
             val_fc = cached_forecast(model, val_store, cfg, train_end, horizon, refresh=False)
             cal = with_actuals(_target_window(val_store, train_end, horizon), val_fc)
             before = apply_conformal(with_origin_horizon(test_preds, val_end),

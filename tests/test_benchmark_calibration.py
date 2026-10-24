@@ -203,6 +203,13 @@ class RollingSchemeTest(unittest.TestCase):
         self.assertTrue(label.startswith("FAILED"))
         self.assertTrue(out[["p10", "p90"]].isna().all().all())
 
+    def test_missing_half_life_fails_instead_of_equal_weights(self):
+        mcfg = {k: v for k, v in self.CFG.items() if k != "half_life"}
+        out, label = self._run(mcfg=mcfg)
+        self.assertTrue(label.startswith("FAILED"))
+        self.assertTrue(out[["p10", "p90"]].isna().all().all())
+        self.assertEqual(self.calls, [])
+
     def test_unknown_scheme_fails_loudly(self):
         out, label = self._run(mcfg={**self.CFG, "scheme": "telepathy"})
         self.assertTrue(label.startswith("FAILED"))

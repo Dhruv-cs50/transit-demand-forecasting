@@ -232,16 +232,24 @@ def prophet_mcmc_forecast(store: pd.DataFrame, cfg: dict, origin: pd.Timestamp,
     return preds
 
 
-def cached_forecast(model: str, df: pd.DataFrame, cfg: dict, origin: pd.Timestamp,
-                    horizon: int, refresh: bool, cut: pd.Timestamp = None) -> pd.DataFrame:
+_REFRESHED: set[str] = set()   # tags refit in this process under --refresh
+
+
+def cache_tag(model: str, origin: pd.Timestamp, horizon: int, cut: pd.Timestamp = None):
+    """(tag, effective cut) of a cached forecast. A cut at or after the window
+    end changes nothing, so it shares the uncut forecast's tag."""
     tag = f"{model.split(' ')[0]}_{origin:%Y-%m-%d}"
     if cut is not None and cut < origin + pd.DateOffset(months=horizon):
-        tag += f"_cut{cut:%Y-%m-%d}"
-    else:
-        cut = None   # a cut at or after the window end changes nothing
+        return f"{tag}_cut{cut:%Y-%m-%d}", cut
+    return tag, None
+
+
+def cached_forecast(model: str, df: pd.DataFrame, cfg: dict, origin: pd.Timestamp,
+                    horizon: int, refresh: bool, cut: pd.Timestamp = None) -> pd.DataFrame:
+    tag, cut = cache_tag(model, origin, horizon, cut)
     path = OUT_DIR / f"forecast_{tag}.parquet"
     meta = OUT_DIR / f"forecast_{tag}.meta.yaml"
-    if path.exists() and not refresh:
+    if path.exists() and not (refresh and tag not in _REFRESHED):
         preds = pd.read_parquet(path)
         if meta.exists():
             preds.attrs.update(yaml.safe_load(meta.read_text()) or {})
@@ -257,6 +265,7 @@ def cached_forecast(model: str, df: pd.DataFrame, cfg: dict, origin: pd.Timestam
         preds["timestamp"] = preds["timestamp"].dt.tz_localize(None)
     preds.to_parquet(path, index=False)
     meta.write_text(yaml.safe_dump(attrs))
+    _REFRESHED.add(tag)
     return preds
 
 
@@ -328,10 +337,10 @@ def aci_within_window(pool: pd.DataFrame, scored: pd.DataFrame, method: str,
     alpha is updated after each month with that month's miss rate."""
     target = default_alphas(method, LEVEL)
     alpha, parts = target, []
+    # Total weight, not the row count: the weighted quantile is finite only
+    # while alpha >= 1 / (total weight + 1).
+    n = fit_rolling_conformal(pool, method, "pooled", LEVEL, as_of, half_life=HALF_LIFE)["weight_sum"]
     for _, rows in scored.groupby("timestamp", sort=True):
-        # Total weight, not the row count: the weighted quantile is finite only
-        # while alpha >= 1 / (total weight + 1).
-        n = fit_rolling_conformal(pool, method, "pooled", LEVEL, as_of, half_life=HALF_LIFE)["weight_sum"]
         if method == "asym_relative":
             alpha = (clip_alpha(alpha[0], n), clip_alpha(alpha[1], n))
         else:
@@ -393,16 +402,13 @@ def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
             assert pool["timestamp"].max() <= val_end and pool_full["timestamp"].max() <= val_end, \
                 "a pool row falls after val_end"
 
-            # Store-cut check: a forecast cut at T must equal the uncut one on shared rows.
-            key = ["timestamp", "station_id", "origin"]
-            both = pool.merge(pool_full, on=key, suffixes=("_cut", "_full"))
-            diff = max(float(np.nanmax(np.abs(both[f"{c}_cut"] - both[f"{c}_full"]))) for c in ("p10", "p50", "p90"))
             checks.append({"model": model, "window": wname, "T": f"{T:%Y-%m-%d}", "origins": len(origins),
                            "pool_rows_resolved": int(((pool["timestamp"] <= T)
                                                       & pool["ridership"].notna()).sum()),
-                           "cut_vs_uncut_max_abs_diff": diff, "shared_rows": len(both)})
+                           **store_cut_check(pool, pool_full, T)})
 
-            def add(candidate, scheme, method, group, eligible, out, calib_text):
+            def add(candidate, scheme, method, group, out, calib_text):
+                eligible = candidate == "incumbent" or scheme in ELIGIBLE
                 rows.append({"model": model, "window": wname, "candidate": candidate, "scheme": scheme,
                              "method": method, "group": group, "eligible": eligible,
                              "calibrator": calib_text, **score(out, val_end)})
@@ -410,65 +416,143 @@ def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
             # Incumbent: Sprint 4's entry (INCUMBENT), fit on the previous half-year.
             imethod = mcfg.get("method", "none")
             if imethod in (None, "none"):
-                add("incumbent", "own band", "-", "-", True, no_calibration(scored), "own band")
+                add("incumbent", "own band", "-", "-", no_calibration(scored), "own band")
             else:
                 igroup = mcfg.get("group", "pooled")
                 calib = fit_conformal(prev, imethod, igroup, LEVEL)
-                add("incumbent", "single", imethod, igroup, True, apply_conformal(scored, calib), describe(calib))
+                add("incumbent", "single", imethod, igroup, apply_conformal(scored, calib), describe(calib))
 
             for method in SCORES:
                 for group in ("pooled", "horizon"):
-                    for scheme, hl, eligible in (("rolling_hl6", HALF_LIFE, True), ("rolling_eq", None, False)):
+                    for scheme, hl in (("rolling_hl6", HALF_LIFE), ("rolling_eq", None)):
                         calib = fit_rolling_conformal(pool, method, group, LEVEL, T, half_life=hl)
-                        add(f"{scheme} {method}/{group}", scheme, method, group, eligible,
+                        add(f"{scheme} {method}/{group}", scheme, method, group,
                             apply_conformal(scored, calib), describe(calib))
+                for group in GROUPS:     # PR #138's single-window variants, station included
                     calib = fit_conformal(prev, method, group, LEVEL)
-                    add(f"single {method}/{group}", "single", method, group, False,
+                    add(f"single {method}/{group}", "single", method, group,
                         apply_conformal(scored, calib), describe(calib))
                 calib = fit_aci_conformal(pool, method, LEVEL, T, gamma=GAMMA)
-                add(f"aci_origin {method}/pooled", "aci_origin", method, "pooled", True,
+                add(f"aci_origin {method}/pooled", "aci_origin", method, "pooled",
                     apply_conformal(scored, calib), _q_summary(calib))
-                add(f"aci_window {method}/pooled", "aci_window", method, "pooled", False,
+                add(f"aci_window {method}/pooled", "aci_window", method, "pooled",
                     aci_within_window(pool, scored, method, T), "per month")
-                add(f"monthly_recal {method}/pooled", "monthly_recal", method, "pooled", False,
+                add(f"monthly_recal {method}/pooled", "monthly_recal", method, "pooled",
                     monthly_recal(pool_full, scored, method, T), "per month")
 
     cand = pd.DataFrame(rows)
-    checks = pd.DataFrame(checks)
+    rule_all = rule_table(cand)
+    sel, common, decision = apply_rule(rule_all, models)
+    return {"candidates": cand, "rule_all": rule_all, "selection": sel, "common": common,
+            "checks": pd.DataFrame(checks), "decision": decision}
 
-    # ── The rule (docs/sprint-board.md, Sprint 5) ─────────────────────────────
-    elig = cand[cand["eligible"]].copy()
-    elig["passes"] = (elig["Coverage_%"].between(*BAND)
-                      & (elig["Below_P10_%"] <= MAX_TAIL_MISS)
-                      & (elig["Above_P90_%"] <= MAX_TAIL_MISS))
-    wide = elig.pivot_table(index=["model", "candidate"], columns="window",
-                            values=["passes", "Coverage_%", "Below_P10_%", "Above_P90_%", "IntervalScore_%"],
-                            aggfunc="first")
-    wide.columns = [f"{v}_{w}" for v, w in wide.columns]
-    sel = wide.reset_index()
-    # A window with no row (NaN) is a failure, never a pass.
-    sel["qualifies"] = sel["passes_B"].eq(True) & sel["passes_V"].eq(True)
-    sel["mean_IntervalScore_%"] = ((sel["IntervalScore_%_B"] + sel["IntervalScore_%_V"]) / 2).round(2)
-    sel = sel.drop(columns=["passes_B", "passes_V"]).sort_values(["model", "mean_IntervalScore_%"])
 
+def store_cut_check(pool: pd.DataFrame, pool_full: pd.DataFrame, T: pd.Timestamp) -> dict:
+    """A forecast whose store was cut at T must equal the uncut forecast from
+    the same origin wherever both exist, and both must exist for every target
+    on or before T (the rows the pool uses). Raises otherwise."""
+    band = ["p10", "p50", "p90"]
+    both = pool.merge(pool_full, on=["timestamp", "station_id", "origin"], suffixes=("_cut", "_full"))
+    cut = both[[f"{c}_cut" for c in band]].to_numpy(float)
+    full = both[[f"{c}_full" for c in band]].to_numpy(float)
+    fin_cut, fin_full = np.isfinite(cut).all(axis=1), np.isfinite(full).all(axis=1)
+    resolved = (both["timestamp"] <= T).to_numpy()
+    if (resolved & ~(fin_cut & fin_full)).any():
+        raise AssertionError(f"store-cut check: a forecast is missing on {int((resolved & ~(fin_cut & fin_full)).sum())} "
+                             f"row(s) the pool uses (target <= {T:%Y-%m-%d})")
+    if (fin_cut & ~fin_full).any():
+        raise AssertionError("store-cut check: the cut forecast has rows the uncut one lacks")
+    pairs = fin_cut & fin_full
+    diff = float(np.max(np.abs(cut[pairs] - full[pairs]))) if pairs.any() else float("nan")
+    if not diff == 0.0:
+        raise AssertionError(f"store-cut check: cut and uncut forecasts differ by up to {diff}")
+    return {"cut_vs_uncut_max_abs_diff": diff, "rows_compared": int(pairs.sum()),
+            "rows_compared_target_le_T": int((pairs & resolved).sum())}
+
+
+def rule_table(cand: pd.DataFrame) -> pd.DataFrame:
+    """One row per (model, candidate), every candidate eligible or not, with
+    windows B and V side by side and the rule's verdict. A window passes when
+    coverage is in BAND, neither tail exceeds MAX_TAIL_MISS and the interval
+    score is finite (an infinite band never qualifies); a missing window fails."""
+    c = cand.copy()
+    c["passes"] = (c["Coverage_%"].between(*BAND)
+                   & (c["Below_P10_%"] <= MAX_TAIL_MISS)
+                   & (c["Above_P90_%"] <= MAX_TAIL_MISS)
+                   & np.isfinite(c["IntervalScore_%"].astype(float)))
+    keep = ["passes", "Coverage_%", "Below_P10_%", "Above_P90_%", "IntervalScore_%"]
+    parts = []
+    for w in ("B", "V"):
+        part = c[c["window"] == w].set_index(["model", "candidate"])[keep]
+        parts.append(part.add_suffix(f"_{w}"))
+    first = c.drop_duplicates(["model", "candidate"]).set_index(["model", "candidate"])[["eligible", "scheme"]]
+    t = first.join(parts[0], how="left").join(parts[1], how="left").reset_index()
+    t["qualifies"] = t["passes_B"].eq(True) & t["passes_V"].eq(True)
+    t["mean_score_exact"] = (t["IntervalScore_%_B"] + t["IntervalScore_%_V"]) / 2
+    t["mean_IntervalScore_%"] = t["mean_score_exact"].round(2)
+    return t.drop(columns=["passes_B", "passes_V"])
+
+
+def apply_rule(rule_all: pd.DataFrame, models: list[str]):
+    """The Sprint 5 rule on the eligible rows. Ties on the mean score break
+    by candidate name, so the order never depends on input order."""
+    order = ["mean_score_exact", "candidate"]
+    sel = (rule_all[rule_all["eligible"]].drop(columns=["eligible", "scheme"])
+           .sort_values(["model"] + order, kind="stable").reset_index(drop=True))
     q = sel[sel["qualifies"]]
     common = (q[q["candidate"] != "incumbent"].groupby("candidate")
-              .agg(models=("model", "nunique"), mean_score=("mean_IntervalScore_%", "mean")))
-    common = common[common["models"] == len(models)].sort_values("mean_score")
+              .agg(models=("model", "nunique"), mean_score=("mean_score_exact", "mean")).reset_index())
+    common = common[common["models"] == len(models)].sort_values(["mean_score", "candidate"], kind="stable")
     decision = {}
     if not common.empty:
-        winner = common.index[0]
+        winner = common.iloc[0]["candidate"]
         decision = {m: {"choice": winner, "basis": "one method qualifies for every model"} for m in models}
     else:
         for m in models:
-            qm = q[q["model"] == m].sort_values("mean_IntervalScore_%")
+            qm = q[q["model"] == m]
             if qm.empty:
                 decision[m] = {"choice": "keep current entry", "basis": "no eligible candidate qualifies"}
             else:
                 decision[m] = {"choice": qm.iloc[0]["candidate"], "basis": "lowest-scoring qualifier for this model",
                                "mean_IntervalScore_%": float(qm.iloc[0]["mean_IntervalScore_%"])}
-    return {"candidates": cand, "selection": sel, "common": common.reset_index(),
-            "checks": checks, "decision": decision}
+    return sel.drop(columns=["mean_score_exact"]), common, decision
+
+
+def markdown_tables(rule_all: pd.DataFrame) -> str:
+    """The validation tables in docs/interval-calibration.md, from rule_all."""
+    label = {"Chronos1_ZeroShot (chronos-t5-small)": "Chronos-1"}
+    order = ["SeasonalNaive", "SARIMA", "Prophet", "Chronos-1"]
+
+    def fmt(x):
+        if pd.isna(x):
+            return "—"
+        return "∞" if x == float("inf") else f"{x:g}"
+
+    def table(t: pd.DataFrame) -> list[str]:
+        t = t.assign(model=t["model"].replace(label))
+        t = t.assign(_m=t["model"].map(order.index),
+                     _s=t["mean_score_exact"].fillna(np.inf)).sort_values(["_m", "_s", "candidate"], kind="stable")
+        out = ["| Model | Candidate | B coverage % | B below / above % | B score | V coverage % "
+               "| V below / above % | V score | Mean score | Qualifies |",
+               "|---|---|---:|---|---:|---:|---|---:|---:|---|"]
+        for d in t.to_dict("records"):
+            out.append(f"| {d['model']} | {d['candidate']} | {fmt(d['Coverage_%_B'])} | {fmt(d['Below_P10_%_B'])} / "
+                       f"{fmt(d['Above_P90_%_B'])} | {fmt(d['IntervalScore_%_B'])} | {fmt(d['Coverage_%_V'])} | "
+                       f"{fmt(d['Below_P10_%_V'])} / {fmt(d['Above_P90_%_V'])} | {fmt(d['IntervalScore_%_V'])} | "
+                       f"{fmt(d['mean_IntervalScore_%'])} | {'**yes**' if d['qualifies'] else 'no'} |")
+        return out
+
+    r = rule_all
+    sections = [
+        ("Eligible candidates", r[r["eligible"]]),
+        ("Diagnostics: rolling_eq, aci_window, monthly_recal",
+         r[r["scheme"].isin(["rolling_eq", "aci_window", "monthly_recal"])]),
+        ("Diagnostics: single-window variants", r[(r["scheme"] == "single") & ~r["eligible"]]),
+    ]
+    lines = []
+    for title, t in sections:
+        lines += [f"<!-- {title} -->", *table(t), ""]
+    return "\n".join(lines)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -583,8 +667,8 @@ def main():
             # The test-time pool: origins first_origin .. val_end - 1 month,
             # targets on or before val_end — all inside this study's data.
             vend = val_end + pd.offsets.MonthEnd(0)
-            origins = month_ends(pd.Timestamp(mcfg["first_origin"]), vend - pd.offsets.MonthEnd(1))
-            pool = rolling_forecasts(model, df, cfg, origins, horizon, args.refresh, cut=vend)
+            dep_origins = month_ends(pd.Timestamp(mcfg["first_origin"]), vend - pd.offsets.MonthEnd(1))
+            pool = rolling_forecasts(model, df, cfg, dep_origins, horizon, args.refresh, cut=vend)
             calib = fit_rolling_conformal(pool, mcfg["method"], mcfg.get("group", "pooled"), LEVEL, vend,
                                           half_life=mcfg.get("half_life"))
         else:
@@ -599,6 +683,10 @@ def main():
     # ── Write ──────────────────────────────────────────────────────────────────
     adaptive["candidates"].to_csv(OUT_DIR / "adaptive_candidates.csv", index=False)
     adaptive["selection"].to_csv(OUT_DIR / "adaptive_selection.csv", index=False)
+    adaptive["rule_all"].drop(columns=["mean_score_exact"]).to_csv(OUT_DIR / "adaptive_rule_all.csv", index=False)
+    (OUT_DIR / "adaptive_tables.md").write_text(markdown_tables(adaptive["rule_all"]))
+    (OUT_DIR / "deployed_calibrators.yaml").write_text(
+        yaml.safe_dump(deployed, sort_keys=False, allow_unicode=True))
     adaptive["checks"].to_csv(OUT_DIR / "adaptive_checks.csv", index=False)
     (OUT_DIR / "adaptive_decision.yaml").write_text(
         yaml.safe_dump(adaptive["decision"], sort_keys=False, allow_unicode=True))

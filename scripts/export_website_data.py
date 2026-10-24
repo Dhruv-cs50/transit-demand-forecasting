@@ -256,7 +256,7 @@ def export_model_comparison(out_dir: Path) -> None:
                 "WAPE_pct": round(float(row["WAPE_%"]), 1) if pd.notna(row["WAPE_%"]) else None,
                 "Coverage_pct": round(float(row["Coverage_%"]), 1) if "Coverage_%" in row and pd.notna(row["Coverage_%"]) else None,
                 # Coverage_pct scores the band named by Interval_method (a
-                # split-conformal band fit on validation, or the model's own);
+                # conformal band fit on data up to val_end, or the model's own);
                 # Coverage_raw_pct always scores the model's own band. Without
                 # the label a calibrated and a raw coverage read the same.
                 "Coverage_raw_pct": round(float(row["Coverage_raw_%"]), 1) if "Coverage_raw_%" in row and pd.notna(row["Coverage_raw_%"]) else None,
