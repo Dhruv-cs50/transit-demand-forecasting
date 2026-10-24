@@ -18,9 +18,9 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
 |---|---|---|---|---|---|
 | S4c.1 | Audit every model/data claim against code and run outputs | orchestrator | — | Table with evidence per claim | done — 28 claims (+3 found while editing), `docs/site-claims-audit.md` |
 | S4c.2 | User decisions: covariates, EDA, report links, bio | orchestrator | S4c.1 | Answers recorded | done — 2026-10-24, recorded in the audit doc header |
-| S4c.3 | Apply the approved text fixes | orchestrator | S4c.2 | JSX/HTML parse; local render shows the changes, no console errors | done (commit on this branch) — TypeScript 5.9.3 parse OK; served locally: EDA and `shap` gone, Dataset grid one full-width card, 0 console errors |
-| S4c.4 | Review the diff against the audit table | code-reviewer | S4c.3 | No BLOCKER open | todo |
-| S4c.5 | Trial-merge with #137, #138, #139; push; open PR (no merge) | orchestrator | S4c.4 | PR open, conflicts listed | todo |
+| S4c.3 | Apply the approved text fixes | orchestrator | S4c.2 | JSX/HTML parse; local render shows the changes, no console errors | done (97b7c99; cache-buster v=11 in ffbf274) — TypeScript 5.9.3 parse OK; served locally: EDA and `shap` gone, Dataset grid one full-width card, 0 console errors |
+| S4c.4 | Review the diff against the audit table | code-reviewer | S4c.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 2 MAJOR (Method lede and README:43 named `run_pipeline.sh` as the reproduction path; it cannot reproduce the table), 11 MINOR. Fix round in the commit after ffbf274: both MAJOR fixed; MINOR fixed except the pull quote (kept: the user chose to re-attribute it) and README's `.venv311` line (follow-up, adjacent to #137's hunk). Re-parsed and re-rendered: 0 console errors |
+| S4c.5 | Trial-merge with #137, #138, #139, #140; push; open PR (no merge) | orchestrator | S4c.4 | PR open, conflicts listed | in progress — #137 clean; #138 board only; #139 board + `index.html` `?v=` line; #140 board + two `sections.jsx` hunks (keep #140's `bestNote`/`wapeSub`, drop `cm`/`shap`; keep the `EDAViz` deletion) |
 
 ### Rulings (Sprint 4c)
 
@@ -41,6 +41,14 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
   weather and an event source beyond 2023. Changes the leaderboard; the user's call.
 - Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
   and hour (`hour_of_day` is constant 0), so several plots need rewriting, not just rerunning.
+- Lag and rolling features are row shifts per station (`feature_engineering.py:497-500`), so
+  early-2022 rows lag into 2019 across the 2020–21 gap. No ranked model reads them today;
+  fix before any covariate model does.
+- README Known Limitations says `run_pipeline.sh` "assumes `.venv311/bin/python` exists"; it
+  falls back to `python3`. Left because the line sits next to #137's edit of the following line.
+- Headline metrics (hero cards, `HeroOrbit`, AtAGlance, Results lede/tiles, Benchmarks lede,
+  Rec 02) trace to today's run but are hard-coded, so they go stale on the next refresh. Derive
+  them with #140's `useSiteData`/`comparisonSplit` helpers once #140 merges.
 - `/tmp/tdf-venv` is broken (macOS tmp cleanup deleted `numpy/__init__.py` and `pyvenv.cfg`);
   any rerun of the gates needs a fresh pinned env.
 
