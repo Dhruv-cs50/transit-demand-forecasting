@@ -1,5 +1,68 @@
 # Sprint board
 
+## Sprint 4 — Calibrate the P10/P90 intervals (opened 2026-10-22)
+
+**Goal.** Bring every leaderboard model's P10–P90 coverage to ~80% on the
+2025-H2 holdout without changing a point forecast. The method is chosen on the
+validation split only (2025-H1); the test split is scored once, after the
+choice is committed. Branch `feat/interval-calibration`, stacked on
+`sprint3/pr-backlog` (PR #136 open).
+
+**Starting state** (pinned env, leaderboard byte-identical to the S3.8 gate):
+test coverage SARIMA 96.67%, Prophet 46.0%, Chronos-1 51.0%, SeasonalNaive
+94.33%, n=300.
+
+**Decision rules, fixed before any validation number was seen** (user's
+defaults, 2026-10-22): a method qualifies if every model lands in 75–85%
+validation coverage with neither tail above 15% misses; among qualifiers the
+lowest mean interval score wins, one method for all four models preferred.
+Prophet MCMC is measured and reported, not eligible. The website's "not
+calibrated" wording changes only if every model's calibrated test coverage is
+in 75–85%. Serving-path intervals (API, `forecasts.json`) are out of scope.
+
+**Gates.** `Coverage_raw_%` reproduces SARIMA 96.67 / Prophet 46.0 / Chronos-1 51.0 / SeasonalNaive 94.33; WAPE, MAE,
+RMSE, MAPE, sMAPE, MASE and n identical to the starting leaderboard; two runs
+byte-identical; unit tests pass; `py_compile` and JSX parse pass.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4.1 | Find why the earlier `mcmc_samples=200` run errored | orchestrator | — | Error reproduced and explained | done — the fit succeeded; the diagnostic read `params['sigma_obs'][0][0]`, which raises `IndexError` under MCMC (1-D, 400 draws). Reproduced in a scratch run (not committed); the earlier command, in the Sprint 3 subagent transcript, sent stderr to `/dev/null`. Recorded in `docs/interval-calibration.md` (215449c) |
+| S4.2 | `evaluation/calibration.py`: fit/apply split-conformal, P50 untouched | implementer (orchestrator) | — | `tests/test_calibration.py` passes | done (056bd7b) — 16 tests pass |
+| S4.3 | `evaluation/interval_study.py`: validation-only comparison of methods | implementer (orchestrator) | S4.2 | Data cut at `val_end` and asserted; table written | done (904c449) — study run on pinned env; no single method qualifies, see S4.4. A full refit from a clean copy at 215449c reproduced all four result CSVs byte-identical |
+| S4.4 | Choose the method by the fixed rule; config + write-up committed before any test run | orchestrator | S4.3 | Commit precedes the S4.5 run | done (215449c, committed 20:30:24; first calibrated run started 20:30:35) — no single method qualified; per model: Prophet `scaled/horizon`, Chronos-1 `relative/pooled`, SARIMA and SeasonalNaive none (no method passed). Website wording therefore stays "not calibrated" (rule needs every model) |
+| S4.5 | Wire the chosen method into `benchmarks.py`; run the gates; score test once | implementer (orchestrator) | S4.4 | All gates green | done — wiring in 215449c; test scored once at 215449c, result recorded in `docs/interval-calibration.md` (bf80b8f). Gates below |
+| S4.6 | README, website wording, `model_comparison.json` | orchestrator | S4.5 | Wording follows the fixed rule | done (65db1c1) — "not calibrated" kept per rule; range 46–97% → 73–97%; README table gains own-band and interval columns; export carries `Coverage_raw_pct` and `Interval_method` |
+| S4.7 | Review the sprint diff | code-reviewer | S4.6 | No BLOCKER open | done — 0 BLOCKER, 1 MAJOR (LaTeX table mixed calibrated and raw coverage unlabelled), 10 MINOR; spec PASS, quality PASS with findings. Findings and their disposition are in the fix-round list below and in the PR description. Fix round in 3dff990; third run byte-identical |
+| S4.8 | Audit board against git; open PR (not merged) | delivery-auditor, orchestrator | S4.7 | Audit clean; PR open | in progress — audit on 32a75df..3dff990: 0 HIGH, 1 MEDIUM, 8 LOW, all addressed in this commit. Push and PR are authorized by the task brief ("Branch + PR, do not merge") and the user's "Go ahead with the defaults" on the plan, which included opening a PR stacked on `sprint3/pr-backlog`. Branch first pushed at 65db1c1, before review; re-pushed at 5c7036a with the fix round. Done: PR #138 opened against `sprint3/pr-backlog` (mergeable, not merged; retarget to `main` after #136 merges) |
+
+**Gate results (S4.5, 2026-10-22, pinned env, code at 215449c).**
+
+| Gate | Result |
+|---|---|
+| Point metrics | WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected identical to the starting leaderboard (`assert_frame_equal`); existing column order unchanged |
+| Raw coverage | `Coverage_raw_%` = 96.67 / 46.0 / 51.0 / 94.33, the starting coverage exactly |
+| Determinism | Two consecutive runs: leaderboard and results CSVs byte-identical |
+| Calibrated test coverage (scored once) | Prophet 74.67%, Chronos-1 72.67% (calibrated); SARIMA 96.67%, SeasonalNaive 94.33% (own band). Validation predicted 82.0% / 84.3% for the two calibrated models |
+| Website rule | Not every model is in 75–85%, so "not calibrated" stays; only the range figure changes (46–97% → 73–97%) |
+| Tests / compile / JSX | 17 unit tests pass; `py_compile` passes on every touched .py; `sections.jsx` and `charts.jsx` parse (TypeScript 5.9.3) |
+| After the review fix round | Same configuration re-run: leaderboard and results CSVs byte-identical to the scored run; Chronos validation forecasts identical with the store cut at `val_end`; 28 unit tests pass |
+
+**Review fix round (S4.7).**
+- Fixed in code:
+  - the LaTeX table now carries `Coverage_raw_%` and `Interval_method` and a caption note (MAJOR);
+  - horizon is counted before missing actuals are dropped;
+  - a zero P50 with an infinite quantile gives [0, inf], not NaN;
+  - the study no longer crashes when `asym_relative` is configured;
+  - the Chronos entry carries `validated_for`, so another checkpoint keeps its own band;
+  - the Chronos calibration run gets a store cut at `val_end`;
+  - `describe()` labels asymmetric spans correctly.
+- Wording:
+  - the false comment "the leaderboard still rejects" a missing bound is corrected;
+  - the doc's runner-up and three-station-check text are corrected;
+  - board rows cite hashes.
+- Tests: `tests/test_benchmark_calibration.py` added (3dff990).
+- Not changed: `accept_model_rows` does not reject a model with missing interval bounds (NaN coverage, still ranked). That is `main`'s behaviour; left as a question for the user. The study's private `_store` swap is kept, restored in `finally`.
+
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
 **Goal.** Every still-valid fix in the 104 open PRs reaches `main` through one

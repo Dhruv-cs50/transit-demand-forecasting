@@ -41,6 +41,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from evaluation.metrics import wape, mae, rmse, mape, smape, coverage, mase, _infer_seasonal_period
+from evaluation.calibration import add_horizon, apply_conformal, describe, fit_conformal, no_calibration
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,6 +52,10 @@ log = logging.getLogger("benchmarks")
 PROCESSED_DIR = Path("data/processed")
 EVAL_DIR      = Path("evaluation/outputs")
 CONFIG_PATH   = Path("configs/model.yaml")
+# Calibration-window forecasts (validation split, from fits ending at
+# train_end) go here, so they never overwrite the test forecasts each model
+# saves under its default path.
+CAL_DIR       = EVAL_DIR / "calibration"
 
 
 def load_config() -> dict:
@@ -177,6 +182,7 @@ def compute_metrics(
     model_name: str,
     slices: dict = None,
     train_df: pd.DataFrame = None,
+    interval_method: str = None,
 ) -> list[dict]:
     """
     Compute metrics for a model overall and on each diagnostic slice.
@@ -190,9 +196,16 @@ def compute_metrics(
     silently dropping out of the score. Each row reports "n" (rows scored:
     actual and forecast both present) and "n_expected" (rows with an actual).
     When a slice has n < n_expected, the row also lists "missing_stations".
+
+    When preds carry p10_raw/p90_raw (see calibrate_intervals), "Coverage_%"
+    scores the calibrated p10/p90 and "Coverage_raw_%" the model's own band;
+    interval_method, when given, is recorded as "Interval_method" so a reader
+    can tell which band each row's Coverage_% scores.
     """
+    has_raw = {"p10_raw", "p90_raw"}.issubset(preds.columns)
+    band_cols = ["p10", "p50", "p90"] + (["p10_raw", "p90_raw"] if has_raw else [])
     merged = actuals.merge(
-        preds[["timestamp", "station_id", "p10", "p50", "p90"]],
+        preds[["timestamp", "station_id"] + band_cols],
         on=["timestamp", "station_id"],
         how="left",
         indicator="_forecast_merge",
@@ -238,6 +251,10 @@ def compute_metrics(
             row["MASE"] = round(mase(y_true, y_pred, y_train, seasonality=seasonal_period, ids=ids), 4)
         # Appended last so every existing column keeps its position.
         row["n_expected"] = int(np.sum(has_actual))
+        if has_raw:
+            row["Coverage_raw_%"] = round(coverage(y_true, subset["p10_raw"].values.astype(float), subset["p90_raw"].values.astype(float)), 2)
+        if interval_method is not None:
+            row["Interval_method"] = interval_method
         if row["n"] < row["n_expected"]:
             unforecast = subset.loc[has_actual & ~has_forecast, "station_id"]
             row["missing_stations"] = sorted(unforecast.unique().tolist(), key=str)
@@ -274,6 +291,108 @@ def compute_metrics(
                     rows.append(r)
 
     return rows
+
+
+# ── Interval calibration ───────────────────────────────────────────────────────
+
+def calibrate_intervals(
+    model_key: str,
+    model_name: str,
+    test_preds: pd.DataFrame,
+    make_val_preds,
+    val_df: pd.DataFrame,
+    cfg: dict,
+    checkpoint: str = None,
+) -> tuple[pd.DataFrame, str]:
+    """Split-conformal P10/P90 for one model's test forecasts.
+
+    The models' own bands are not 80% intervals (test coverage before this:
+    Prophet 46.0%, Chronos-1 51.0%, SARIMA 96.7%, SeasonalNaive 94.3%). For a
+    model with a calibration method in configs/model.yaml, the model also
+    forecasts the validation split from a fit that ends at train_end, and the
+    conformal quantile of those validation errors sets the test band. Methods
+    were chosen per model on validation data only, and a model for which no
+    method passed validation keeps its own band — see
+    docs/interval-calibration.md and evaluation/interval_study.py.
+
+    model_key: stable config key (calibration.models.<key>), independent of
+        the checkpoint-derived leaderboard label.
+    checkpoint: the checkpoint that produced test_preds, for models whose
+        weights are configurable. A method was validated for one checkpoint
+        (`validated_for` in the config); a different one keeps its own band
+        rather than inheriting a choice nobody measured for it.
+    make_val_preds: zero-argument callable returning the model's validation-
+        window forecasts. It is called after the test forecasts exist, so the
+        test run is unchanged.
+
+    P50 is returned untouched, so every point metric is identical to the
+    uncalibrated run. Returns (preds, interval_method): preds with p10/p90
+    replaced and the model's own bounds kept as p10_raw/p90_raw (unchanged
+    copies for a model left raw), and a label saying which band Coverage_%
+    scores. If calibration fails (e.g. a station has no validation forecast),
+    the error is logged and p10/p90 come back NaN, so the leaderboard shows a
+    missing calibrated coverage rather than quietly publishing the raw band
+    under the calibrated column.
+    """
+    ccfg = cfg.get("calibration") or {}
+    mcfg = (ccfg.get("models") or {}).get(model_key) or {}
+    method = mcfg.get("method", "none")
+    if method in (None, "none"):
+        return no_calibration(test_preds), f"raw: {mcfg.get('reason', 'not validated')}"
+    validated_for = mcfg.get("validated_for")
+    if validated_for and checkpoint and checkpoint != validated_for:
+        log.warning(f"  {model_name}: calibration method was validated for {validated_for}, "
+                    f"not {checkpoint}; keeping the model's own band")
+        return no_calibration(test_preds), f"raw: method validated for {validated_for} only"
+
+    group = mcfg.get("group", "pooled")
+    label = f"split-conformal {method}/{group}, fit on validation"
+    try:
+        val_preds = make_val_preds()
+        if val_preds is None or val_preds.empty:
+            raise ValueError("no validation-window forecasts")
+        cal = val_df[["timestamp", "station_id", "ridership"]].merge(
+            val_preds[["timestamp", "station_id", "p10", "p50", "p90"]],
+            on=["timestamp", "station_id"], how="left",
+        )
+        calibrator = fit_conformal(
+            add_horizon(cal), method=method, group=group,
+            level=float(ccfg.get("level", 0.8)),
+        )
+        log.info(f"  interval calibration: {describe(calibrator)}")
+        return apply_conformal(add_horizon(test_preds), calibrator), label
+    except Exception as e:
+        log.error(
+            f"  {model_name}: interval calibration FAILED ({e}); calibrated "
+            f"P10/P90 set to NaN, so Coverage_% is NaN for this model. "
+            f"Coverage_raw_% still reports the model's own band."
+        )
+        out = no_calibration(test_preds)
+        out["p10"], out["p90"] = np.nan, np.nan
+        return out, f"FAILED: {method}/{group}"
+
+
+def _forecast_checked(predictor, as_of, window_end, output_path: Path, mode: str) -> pd.DataFrame:
+    """Predictor forecasts for a calibration window, refusing a silent backend
+    fallback: calibrating Chronos on seasonal-naive errors would be the same
+    misattribution the leaderboard already refuses for the test forecasts.
+
+    Predictor reads its own on-disk store, which runs through the test split,
+    and passes rows after `as_of` to the model as future covariates. For the
+    calibration window it gets a store that ends at `window_end`, so no
+    test-period row reaches a validation forecast. (chronos-t5-small ignores
+    covariates, and its forecasts were checked identical either way; a
+    covariate-aware checkpoint would not be.)"""
+    full = predictor.get_feature_store()
+    predictor._store = full[full["timestamp"] <= window_end]
+    try:
+        preds = predictor.forecast_all_stations(as_of=as_of, output_path=output_path, force_mode=mode)
+    finally:
+        predictor._store = full
+    if getattr(predictor, "mode", None) != mode:
+        raise RuntimeError(f"backend {mode!r} did not run for the calibration window "
+                           f"(mode={getattr(predictor, 'mode', None)!r})")
+    return preds
 
 
 # ── Diebold-Mariano test ───────────────────────────────────────────────────────
@@ -362,10 +481,13 @@ MASE_NOTE_LINES = (
 def format_leaderboard_console(leaderboard: pd.DataFrame) -> str:
     """Render the console leaderboard table (and the MASE note, once, below it)."""
     has_mase = "MASE" in leaderboard.columns
+    has_raw = "Coverage_raw_%" in leaderboard.columns
     out = [f"\n{'═'*70}", "  MODEL BENCHMARK LEADERBOARD", f"{'═'*70}"]
     header = f"\n{'Rank':<6}{'Model':<25}{'WAPE%':>8}{'MAE':>10}{'RMSE':>10}{'MAPE%':>9}{'Cov%':>8}"
     if has_mase:
         header += f"{MASE_LABEL:>18}"
+    if has_raw:
+        header += f"{'RawCov%':>9}"
     out.append(header)
     out.append(f"{'─'*76}")
     for rank, row in leaderboard.iterrows():
@@ -376,21 +498,34 @@ def format_leaderboard_console(leaderboard: pd.DataFrame) -> str:
         if has_mase:
             mase_val = row.get("MASE")
             line += f"{mase_val:>18.3f}" if pd.notna(mase_val) else f"{'n/a':>18}"
+        if has_raw:
+            raw_val = row.get("Coverage_raw_%")
+            line += f"{raw_val:>8.1f}%" if pd.notna(raw_val) else f"{'n/a':>9}"
         out.append(line + marker)
     if has_mase:
         out.append("")
         out.extend(f"  {note}" for note in MASE_NOTE_LINES)
+    if has_raw:
+        out.append("  Cov% scores each row's Interval_method band; RawCov% the model's own band.")
     return "\n".join(out)
 
 
 def leaderboard_latex(leaderboard: pd.DataFrame) -> str:
     """Render the report-ready LaTeX table. Needs jinja2 (raises ImportError without it)."""
     has_mase = "MASE" in leaderboard.columns
+    has_raw = "Coverage_raw_%" in leaderboard.columns
     latex_cols = ["model", "WAPE_%", "MAE", "RMSE", "MAPE_%", "Coverage_%"]
     caption = "Model comparison on Bay Area transit test set"
     if has_mase:
         latex_cols.append("MASE")
         caption += ". " + " ".join(MASE_NOTE_LINES)
+    if has_raw:
+        # Coverage_% is calibrated for some rows and the model's own band for
+        # others; without these columns the two read as the same quantity.
+        latex_cols += ["Coverage_raw_%"] + (["Interval_method"] if "Interval_method" in leaderboard.columns else [])
+        caption = caption.rstrip(".") + (". Coverage_% scores the band named in Interval_method "
+                    "(split-conformal, fit on the validation split, or the model's own); "
+                    "Coverage_raw_% scores the model's own band")
     table = leaderboard[latex_cols].rename(columns={"MASE": MASE_LABEL})
     return table.to_latex(
         index=True,
@@ -431,6 +566,10 @@ def run_benchmarks(
         start_ts = _match_tz(pd.Timestamp(train_start))
         train_df = train_df[train_df["timestamp"] >= start_ts]
     test_df  = df[df["timestamp"] >  val_end]
+    # Validation split: the calibration window for the P10/P90 intervals
+    # (see calibrate_intervals). Each model forecasts it from a fit that ends
+    # at train_end, after its test forecast is made.
+    val_df   = df[(df["timestamp"] > train_end) & (df["timestamp"] <= val_end)]
 
     if test_df.empty:
         log.error("Test set is empty — check your date ranges in model.yaml")
@@ -446,8 +585,14 @@ def run_benchmarks(
     log.info("\n=== Seasonal Naive ===")
     naive_preds = seasonal_naive_forecast(train_df, test_df, freq)
     if not naive_preds.empty:
+        naive_preds, naive_interval = calibrate_intervals(
+            "SeasonalNaive", "SeasonalNaive", naive_preds,
+            lambda: seasonal_naive_forecast(train_df[train_df["timestamp"] <= train_end], val_df, freq),
+            val_df, cfg,
+        )
         model_preds["SeasonalNaive"] = naive_preds
-        rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df)
+        rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df,
+                               interval_method=naive_interval)
         rows = accept_model_rows(rows, "SeasonalNaive")
         all_rows.extend(rows)
         log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
@@ -461,8 +606,16 @@ def run_benchmarks(
                 df, cfg, train_cutoff=val_end, horizon_steps=horizon_steps, freq=freq
             )
             if not arima_preds.empty:
+                arima_preds, arima_interval = calibrate_intervals(
+                    "SARIMA", "SARIMA", arima_preds,
+                    lambda: run_arima_all_stations(
+                        df, cfg, output_dir=CAL_DIR / "arima", train_cutoff=train_end,
+                        horizon_steps=horizon_steps, freq=freq),
+                    val_df, cfg,
+                )
                 model_preds["SARIMA"] = arima_preds
-                rows = compute_metrics(test_df, arima_preds, "SARIMA", train_df=train_df)
+                rows = compute_metrics(test_df, arima_preds, "SARIMA", train_df=train_df,
+                                       interval_method=arima_interval)
                 rows = accept_model_rows(rows, "SARIMA")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
@@ -477,8 +630,16 @@ def run_benchmarks(
                 df, cfg, train_cutoff=val_end, horizon_steps=horizon_steps, freq=freq
             )
             if not prophet_preds.empty:
+                prophet_preds, prophet_interval = calibrate_intervals(
+                    "Prophet", "Prophet", prophet_preds,
+                    lambda: run_prophet_all_stations(
+                        df, cfg, output_dir=CAL_DIR / "prophet", train_cutoff=train_end,
+                        horizon_steps=horizon_steps, freq=freq),
+                    val_df, cfg,
+                )
                 model_preds["Prophet"] = prophet_preds
-                rows = compute_metrics(test_df, prophet_preds, "Prophet", train_df=train_df)
+                rows = compute_metrics(test_df, prophet_preds, "Prophet", train_df=train_df,
+                                       interval_method=prophet_interval)
                 rows = accept_model_rows(rows, "Prophet")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
@@ -523,8 +684,15 @@ def run_benchmarks(
                 f"fallback forecasts to Chronos."
             )
         elif not zs_preds.empty:
+            zs_preds, zs_interval = calibrate_intervals(
+                "Chronos", chronos_label, zs_preds,
+                lambda: _forecast_checked(predictor, train_end, val_end,
+                                          CAL_DIR / "chronos2_zeroshot_val_preds.parquet", "zeroshot"),
+                val_df, cfg, checkpoint=checkpoint,
+            )
             model_preds[chronos_label] = zs_preds
-            rows = compute_metrics(test_df, zs_preds, chronos_label, train_df=train_df)
+            rows = compute_metrics(test_df, zs_preds, chronos_label, train_df=train_df,
+                                   interval_method=zs_interval)
             rows = accept_model_rows(rows, chronos_label)
             all_rows.extend(rows)
             log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
@@ -544,8 +712,15 @@ def run_benchmarks(
                 force_mode="finetuned",
             )
             if not ft_preds.empty:
+                ft_preds, ft_interval = calibrate_intervals(
+                    "AutoGluon_Ensemble", "AutoGluon_Ensemble", ft_preds,
+                    lambda: _forecast_checked(predictor, train_end, val_end,
+                                              CAL_DIR / "chronos2_finetuned_val_preds.parquet", "finetuned"),
+                    val_df, cfg,
+                )
                 model_preds["AutoGluon_Ensemble"] = ft_preds
-                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble", train_df=train_df)
+                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble", train_df=train_df,
+                                       interval_method=ft_interval)
                 rows = accept_model_rows(rows, "AutoGluon_Ensemble")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")

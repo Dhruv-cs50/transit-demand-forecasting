@@ -66,6 +66,25 @@ prophet:
   daily_seasonality: false
   changepoint_prior_scale: 0.05   # flexibility of trend — low = smooth
 
+# ── Interval calibration (P10/P90) ────────────────────────────────────────────
+# Split-conformal widening of each model's band, fit on the validation split
+# (from a fit ending train_end) and applied to the test forecasts by
+# models/baselines/benchmarks.py. P50 is never changed.
+#
+# Chosen per model on validation only (evaluation/interval_study.py:
+# calibrate on 2024-H2, score 2025-H1). The rule, fixed before any number was
+# seen: 75-85% coverage with neither tail above 15% misses; lowest interval
+# score among qualifiers. No single method qualified for every model, and none
+# qualified for SARIMA or SeasonalNaive, so those two keep their own bands.
+# See docs/interval-calibration.md. A model not listed keeps its own band.
+calibration:
+  level: 0.8
+  models:
+    SeasonalNaive: {method: none, reason: "no method passed validation"}
+    SARIMA:        {method: none, reason: "no method passed validation"}
+    Prophet:       {method: scaled, group: horizon}
+    Chronos:       {method: relative, group: pooled, validated_for: "amazon/chronos-t5-small"}
+
 # ── Serving ───────────────────────────────────────────────────────────────────
 serving:
   nightly_refresh_cron: "0 2 * * *"   # 2am PT every night
