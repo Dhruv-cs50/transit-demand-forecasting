@@ -418,9 +418,10 @@ Endpoints:
 { "station_id": "EM", "horizon_hours": 6 }
 ```
 
-**Output** (`POST /forecast`). The forecast row and `generated_at` are from an
-image built from `Dockerfile.api` on 2026-10-23, before `model` and `interval`
-were added; first of six rows shown, values rounded here only. `model` and
+**Output** (`POST /forecast`). The forecast row and `generated_at` are from a
+response (generated 2026-10-23 UTC) of an image built from `Dockerfile.api`
+before `model` and `interval` were added; first of six rows shown, values
+rounded here only. `model` and
 `interval` are shown as the API now returns them for SARIMA:
 ```json
 {
