@@ -311,7 +311,7 @@ const Results = () => {
   }, []);
   const chartBand = bandKind(fcRecords);
   const chartBandNote = chartBand.conformal
-    ? ` · P10–P90 range set from the model's errors on ${BAND_FIT_WINDOW}`
+    ? ` · P10–P90 range set from the model's errors on ${BAND_FIT_WINDOW}, not a validated 80% interval`
     : chartBand.rawReason
       ? " · P10–P90 is the model's own band, not a validated 80% interval"
       : '';
@@ -823,7 +823,7 @@ const BARTForecasts = () => {
     && typeof r.Coverage_pct === 'number' && isFinite(r.Coverage_pct));
   const bandCov = bandRow ? Math.round(bandRow.Coverage_pct * 10) / 10 : null;
   const bandCoverage = bandRow
-    ? ` On ${fcRange} it held the actual ridership in ${bandCov.toFixed(1)}% of station-months, `
+    ? ` Over ${fcRange} it held the actual ridership in ${bandCov.toFixed(1)}% of station-months, `
       + `${bandCov < 80 ? 'short of' : bandCov > 80 ? 'above' : 'matching'} the 80% it aims for.`
     : '';
   const bandNote = band.conformal

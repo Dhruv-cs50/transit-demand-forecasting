@@ -350,9 +350,9 @@ matches the leaderboard's. Calibration never changes P50.
 Live URL: **https://cs-163-final-project-tra-f1136.wl.r.appspot.com**
 
 Refresh website data (after `models/baselines/benchmarks.py`, which saves the
-fitted calibrator the export applies). Without a matching calibrator the export
-writes the other files but not `forecasts.json` (any previous one stays, now
-stale) and exits 1:
+fitted calibrator the export applies). If the export cannot match the
+calibrator to the leaderboard, it writes the other files but not
+`forecasts.json` (any previous one stays, now stale) and exits 1. The command:
 
 ```bash
 python scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
@@ -392,8 +392,9 @@ same functions `benchmarks.py` scores (`fit_station` / `predict_station` in
   most 6 rows come back.
 - **Errors:** unknown station → `404`; malformed `as_of`, or one that leaves
   fewer than 24 months of history → `400`. If `configs/model.yaml` names a
-  calibration method for SARIMA but no fitted calibrator ships with the API →
-  `503`, so a raw band is never served under a calibrated label.
+  calibration method for SARIMA but no matching fitted calibrator ships with
+  the API (missing, unreadable or stale) → `503`, so a raw band is never served
+  under a calibrated label.
 
 Code: `machine_learning_files/api.py`. Tests (`requirements.txt` lacks `pytest` and `httpx`):
 

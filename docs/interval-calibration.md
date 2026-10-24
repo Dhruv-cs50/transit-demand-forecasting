@@ -374,7 +374,7 @@ Refusals. Nothing is served under a label it has not earned:
   (`set -e`) stops with an error instead of printing its deploy command.
   Deploying is a separate, manual step, and deploying anyway would publish the
   stale `forecasts.json` beside the fresh files. The cases:
-  - the calibrator is missing or stale;
+  - the calibrator is missing, unreadable or stale;
   - the leaderboard's `Interval_method` is absent or is not the served label,
     or the calibrator was fitted for another leaderboard model;
   - an exported row has no actual in the feature store, or more than one;
