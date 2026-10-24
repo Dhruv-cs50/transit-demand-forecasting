@@ -241,7 +241,7 @@ const Dataset = () => {
           </div>
           <div className="divider" />
           <p className="text-muted" style={{ fontSize: 13 }}>
-            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data, available for 2019–2023 only. Lags and rolling windows count calendar months; where one would reach into 2020–21, which has no data, it is left empty. No ranked model reads any of these columns, so their influence on the forecasts has not been measured.
+            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data, available for 2019–2023 only. Lags and rolling windows count calendar months; a lag that lands in 2020–21 is empty; a rolling window uses only the months in it that have data, and is empty when too few do. No ranked model reads any of these columns, so their influence on the forecasts has not been measured.
           </p>
         </Reveal>
       </div>
