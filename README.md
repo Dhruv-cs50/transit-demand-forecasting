@@ -56,7 +56,8 @@ single six-month window:
   P50 than below. It covers 83.7%. Its own ±20% band covered 94.3% at more
   than twice the width.
 - Prophet's and Chronos-1's own bands were far too narrow (46% and 51%
-  coverage). Calibrated, they reach 74.0% and 72.7%, still short of 80%.
+  coverage). Widened with conformal quantiles, they reach 74.0% and 72.7%,
+  still short of 80%.
   Prophet's band is now also fit on the rolling pool, as one symmetric
   quantile for every month ahead; it scored 74.7% under the earlier
   single-window method. Chronos-1's misses all fall above P90.
