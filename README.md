@@ -40,7 +40,8 @@ and `scored_split` so any figure can be traced to the run that made it.
 | Seasonal naive | 10,333 | 10.75% | 94.3% | 300 |
 
 All models are scored on the same 300 station-months (50 stations × 6 forecast
-steps). Reproduce with `bash scripts/run_pipeline.sh`.
+steps). Reproduce with the four steps listed under "Reproduce The Pipeline"
+below; `scripts/run_pipeline.sh` as a whole does not reproduce this table.
 
 Prophet and Chronos both sample, so `configs/model.yaml` seeds them
 (`prophet.seed`, `chronos2.seed`). Unseeded, Chronos moved between 8.06% and
@@ -181,6 +182,14 @@ That script performs:
 6. Train the AutoGluon time-series ensemble.
 7. Run model benchmarks.
 8. Export JSON files for the website.
+
+**The published leaderboard does not come from this script.** It came from four
+steps: `python machine_learning_files/bart_od_from_xlsx.py --zips <zips>` (see
+`data/MANIFEST.md`), `merge_pipeline.py`, `Processing/feature_engineering.py`,
+then `models/baselines/benchmarks.py`. The script runs under `set -e`, so where
+AutoGluon is not installed (it cannot be on Python 3.14) step 6 stops it before
+the benchmark runs; where AutoGluon is installed, the benchmark adds an
+`AutoGluon_Ensemble` row the published table does not have.
 
 For faster iteration, run individual steps:
 

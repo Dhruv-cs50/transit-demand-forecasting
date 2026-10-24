@@ -13,7 +13,6 @@ const I = {
   target: (p) => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>,
   arrowR: (p) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>,
   arrowOut: (p) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>,
-  download: (p) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
   github: (p) => <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" {...p}><path d="M12 .5C5.7.5.5 5.7.5 12a11.5 11.5 0 0 0 7.86 10.94c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.24 3.34.95.1-.74.4-1.24.72-1.53-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.17a10.97 10.97 0 0 1 5.74 0c2.19-1.48 3.15-1.17 3.15-1.17.62 1.58.23 2.75.11 3.04.73.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.25 5.65.41.36.78 1.06.78 2.15v3.18c0 .31.2.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.7 18.3.5 12 .5Z"/></svg>,
   sun: (p) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>,
   moon: (p) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>,
@@ -133,7 +132,7 @@ const AtAGlance = () => {
     { ic: <I.target />, num: '3.2', unit:'% WAPE', lbl:'SARIMA best model — vs 5.8% Prophet', delta:'Jul–Dec 2025 holdout · 300 station-months' },
     { ic: <I.chart />, num: '50', unit:' stations', lbl:'Full BART network covered', delta:'All OD pairs · Bay Area' },
     { ic: <I.database />, num: '3,000', unit:' mo', lbl:'Station-month ridership records', delta:'2019 + 2022–2025 BART OD' },
-    { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'Intervals not calibrated yet' },
+    { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'Intervals not calibrated yet', dn:true },
   ];
   return (
     <section id="overview-metrics" style={{ padding:'40px 0 80px', borderTop:'none' }}>
@@ -144,7 +143,7 @@ const AtAGlance = () => {
               <div className="icon">{m.ic}</div>
               <div className="num">{m.num}<span className="unit">{m.unit}</span></div>
               <div className="lbl">{m.lbl}</div>
-              <span className={`delta ${m.dn?'dn':''}`}>↑ {m.delta}</span>
+              <span className={`delta ${m.dn?'dn':''}`}>{m.dn ? '↓' : '↑'} {m.delta}</span>
             </Reveal>
           ))}
         </div>
@@ -169,7 +168,7 @@ const Method = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Methodology</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>Five steps from BART's monthly ridership reports to a per‑station forecast.</h2>
-            <p className="lede" style={{ maxWidth:'42ch' }}>scripts/run_pipeline.sh chains the steps. The benchmark seeds its sampling models, and two consecutive benchmark runs produced bit‑identical leaderboards.</p>
+            <p className="lede" style={{ maxWidth:'42ch' }}>The published leaderboard comes from one benchmark run (models/baselines/benchmarks.py) on the rebuilt feature store. Its sampling models are seeded, and two consecutive runs produced bit‑identical leaderboards.</p>
           </div></Reveal>
         </div>
         <div className="timeline">
@@ -198,7 +197,7 @@ const Dataset = () => {
   // Columns of feature_store_enriched.parquet. p = external data, which
   // covers 2019–2023 only (the weather and Sharks archives end there).
   const features = [
-    {n:'Lag ridership (1, 2, 3, 6, 12 mo)'}, {n:'Rolling mean (3-mo, 12-mo)'}, {n:'Rolling std (3-mo)'},
+    {n:'Lagged ridership (1, 2, 3, 6, 12 rows back)'}, {n:'Rolling mean (3, 12 rows)'}, {n:'Rolling std (3 rows)'},
     {n:'Month-of-year'}, {n:'Temperature (°F)', p:true}, {n:'Precipitation (mm)', p:true},
     {n:'Wind speed (mph)', p:true}, {n:'Sharks game day', p:true},
   ];
@@ -242,7 +241,7 @@ const Dataset = () => {
           </div>
           <div className="divider" />
           <p className="text-muted" style={{ fontSize: 13 }}>
-            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data, available for 2019–2023 only. No ranked model reads any of these columns, so their influence on the forecasts has not been measured.
+            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data, available for 2019–2023 only. Lags and rolling windows count monthly rows, so for early 2022 they reach back across the 2020–21 gap into 2019. No ranked model reads any of these columns, so their influence on the forecasts has not been measured.
           </p>
         </Reveal>
       </div>
@@ -398,7 +397,7 @@ const Benchmarks = () => {
   ] : [];
 
   const recs = [
-    { n:'01', t:'Integrate surge alerts into operations.', d:"The only event data ingested is a Sharks home-game schedule that ends in 2023 (the pipeline has no Ticketmaster key), and no ranked model reads it. Extending the event and weather archives through the forecast window, then fitting a model that accepts covariates, is what would let surge effects be measured at all, let alone flagged ahead of time.", who:'Operations Control' },
+    { n:'01', t:'Extend event and weather data through the forecast window.', d:"The only event data ingested is a Sharks home-game schedule that ends in 2023 (the pipeline has no Ticketmaster key), and no ranked model reads it. Extending the event and weather archives through the forecast window, then fitting a model that accepts covariates, is what would let surge effects be measured at all, let alone flagged ahead of time.", who:'Operations Control' },
     { n:'02', t:'Fine-tune Chronos per station cluster.', d:'Zero-shot Chronos-1 (chronos-t5-small) scores 9.7% WAPE here — ahead of seasonal-naïve at 10.8%, behind both classical baselines. It also runs univariate, since the pipeline cannot pass covariates to this checkpoint. Fixing that, then fine-tuning per station cluster, is the path worth testing.', who:'Data / ML' },
     { n:'03', t:'Test fresher data sources.', d:"The model trains on BART's monthly ridership reports. The 511 SF Bay API offers real-time stop monitoring and historical stop observations (arrival times, not ridership counts); the repo has a fetcher for them, but nothing joins them into the feature store yet. Whether they would cut data staleness, and how much of the residual error staleness accounts for, has not been measured.", who:'Data / IT' },
   ];
@@ -444,7 +443,7 @@ const Benchmarks = () => {
             <Reveal><div className="eyebrow"><span className="pip" /> Recommendations</div></Reveal>
             <Reveal delay="1"><div className="row">
               <h2>What BART planners should do next.</h2>
-              <p className="lede" style={{ maxWidth:'46ch' }}>Three decisions a service planning team can act on next quarter — derived directly from the model and its audit.</p>
+              <p className="lede" style={{ maxWidth:'46ch' }}>Three next steps, drawn from what the benchmark and its audit show.</p>
             </div></Reveal>
           </div>
           <div className="recs">
