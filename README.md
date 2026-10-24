@@ -65,7 +65,8 @@ half-year does not carry over to the next. The method comparison, the
 validation numbers it was chosen on, and why the earlier Prophet MCMC
 attempt failed are in [docs/interval-calibration.md](docs/interval-calibration.md).
 The API serves SARIMA's own band and labels it in each response;
-`website/data/forecasts.json` carries Chronos-1's calibrated band. See
+`website/data/forecasts.json` carries Chronos-1's split-conformal band (72.7%
+test coverage). See
 [Serving](docs/interval-calibration.md#serving).
 
 **AutoETS (AutoGluon) carries no row, deliberately rather than silently.**
@@ -340,15 +341,18 @@ Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 The frontend is a static site in `website/`. It uses CDN-loaded React and Babel — no Node build step needed. The site reads generated JSON files from `website/data/`.
 
 `website/data/forecasts.json` holds Chronos-1's Jul–Dec 2025 forecasts with its
-calibrated P10/P90 band: split-conformal, fit on validation, 72.7% test
-coverage against 51.0% for the model's own band. Each record also keeps the
+split-conformal P10/P90 band, set from the model's errors on the Jan–Jun 2025
+validation split. That band covered 72.7% of test actuals (51.0% for the
+model's own band), still short of 80%. Each record also keeps the
 model's own bounds as `p10_raw`/`p90_raw`, and an `interval_method` label that
 matches the leaderboard's. Calibration never changes P50.
 
 Live URL: **https://cs-163-final-project-tra-f1136.wl.r.appspot.com**
 
 Refresh website data (after `models/baselines/benchmarks.py`, which saves the
-fitted calibrator the export applies; without it the export refuses to write):
+fitted calibrator the export applies). Without a matching calibrator the export
+writes the other files but not `forecasts.json` (any previous one stays, now
+stale) and exits 1:
 
 ```bash
 python scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet

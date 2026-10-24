@@ -270,6 +270,27 @@ const Dataset = () => {
   );
 };
 
+/* ── Which P10/P90 band forecasts.json carries ─────────────────────
+   Read from the records' interval_method (the leaderboard's Interval_method
+   label); exports written before the label existed carry the model's own
+   band. A split-conformal band's quantile is fit on the validation split,
+   Jan–Jun 2025 (configs/model.yaml train_end..val_end, the saved
+   calibrator's window). That window is not in the export, so it is named
+   here, and only shown under the split-conformal label. */
+const BAND_FIT_WINDOW = 'Jan–Jun 2025';
+const bandKind = records => {
+  const labels = [...new Set((Array.isArray(records) ? records : []).map(r =>
+    r && typeof r.interval_method === 'string' && r.interval_method ? r.interval_method : null))];
+  const label = labels.length === 1 ? labels[0] : null;
+  const raw = label && /^raw: (.+)$/.exec(label);
+  return {
+    label,
+    conformal: !!label && /^split-conformal \S+, fit on validation$/.test(label),
+    rawReason: raw ? raw[1] : null,
+    labelled: labels.some(l => l !== null),
+  };
+};
+
 /* ── Results ───────────────────────────────────────────────────── */
 const Results = () => {
   const [chart, setChart] = useState('roc');
@@ -281,6 +302,19 @@ const Results = () => {
   }, []);
   const cmpRows = Array.isArray(cmp) ? cmp.filter(r => r.WAPE_pct != null) : [];
   const bestRow = cmpRows.length ? cmpRows.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a)) : null;
+  // The Intervals chart (charts.jsx Calibration) draws forecasts.json's
+  // P10/P90; its subtitle names that band. Loading, an unreadable file, an
+  // unlabelled (older) export or mixed labels keep the plain subtitle.
+  const [fcRecords, setFcRecords] = React.useState(null);
+  React.useEffect(() => {
+    fetch('data/forecasts.json').then(r => r.json()).catch(() => []).then(setFcRecords);
+  }, []);
+  const chartBand = bandKind(fcRecords);
+  const chartBandNote = chartBand.conformal
+    ? ` · P10–P90 range set from the model's errors on ${BAND_FIT_WINDOW}`
+    : chartBand.rawReason
+      ? " · P10–P90 is the model's own band, not a validated 80% interval"
+      : '';
   const cm = { tp: 168240, tn: 51820, fp: 14380, fn: 6360 };
   const shap = [
     {n:'Is game day', v: 0.46, dir:'pos'},
@@ -306,7 +340,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>{chart === 'roc' ? 'WAPE by model — test set' : 'Forecast intervals — Embarcadero'}</h3>
-                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders · Embarcadero (highest-volume BART station)'}</p>
+                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : `P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders${chartBandNote} · Embarcadero (highest-volume BART station)`}</p>
               </div>
               <div className="chip-grp">
                 <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>WAPE</button>
@@ -778,27 +812,26 @@ const BARTForecasts = () => {
     : fcFirst.m === 1 ? `Dec ${fcFirst.y - 1}` : `${MON[fcFirst.m-2]} ${fcFirst.y}`;
   const fcCount = new Set(fcMonths.map(p => p.y * 12 + p.m)).size;
 
-  // Which band P10/P90 is, read from the records' interval_method (the
-  // leaderboard's Interval_method label). Exports written before the label
-  // existed carry the model's own band. A coverage figure is shown only when
-  // the Chronos leaderboard row carries the same label, so the number always
-  // scores the band on screen.
-  const bandLabels = [...new Set(forecasts.map(r =>
-    r && typeof r.interval_method === 'string' && r.interval_method ? r.interval_method : null))];
-  const bandLabel = bandLabels.length === 1 ? bandLabels[0] : null;
-  const conformal = bandLabel && /^split-conformal (\S+), fit on validation$/.exec(bandLabel);
-  const rawReason = bandLabel && /^raw: (.+)$/.exec(bandLabel);
-  const bandRow = bandLabel && comparison.find(r =>
-    r && /^Chronos/.test(r.model || '') && r.Interval_method === bandLabel
-    && typeof r.Coverage_pct === 'number');
+  // Which band P10/P90 is (bandKind, above Results). A coverage figure is
+  // shown only when the Chronos leaderboard row carries the same label, so
+  // the number always scores the band on screen; it scores the forecast
+  // months (fcRange), and the comparison word follows the number. Without
+  // it, a split-conformal band still gets the "not validated" caveat.
+  const band = bandKind(forecasts);
+  const bandRow = band.label && comparison.find(r =>
+    r && /^Chronos/.test(r.model || '') && r.Interval_method === band.label
+    && typeof r.Coverage_pct === 'number' && isFinite(r.Coverage_pct));
+  const bandCov = bandRow ? Math.round(bandRow.Coverage_pct * 10) / 10 : null;
   const bandCoverage = bandRow
-    ? ` On the test split it covered ${bandRow.Coverage_pct.toFixed(1)}% of actuals, against a nominal 80%.`
+    ? ` On ${fcRange} it held the actual ridership in ${bandCov.toFixed(1)}% of station-months, `
+      + `${bandCov < 80 ? 'short of' : bandCov > 80 ? 'above' : 'matching'} the 80% it aims for.`
     : '';
-  const bandNote = conformal
-    ? `P10/P90 is the split-conformal band fit on validation (${conformal[1]}).${bandCoverage}`
-    : rawReason
-      ? `P10/P90 is the model's own band (${rawReason[1]}), not a validated 80% interval.${bandCoverage}`
-      : bandLabels.some(l => l !== null)
+  const bandNote = band.conformal
+    ? `The P10–P90 range is set from the model's errors on ${BAND_FIT_WINDOW}`
+      + (bandCoverage ? `.${bandCoverage}` : ', but it is not a validated 80% interval.')
+    : band.rawReason
+      ? `P10/P90 is the model's own band (${band.rawReason}), not a validated 80% interval.${bandCoverage}`
+      : band.labelled
         ? 'P10/P90 has no single recognised band label, so it is not a validated 80% interval.'
         : "P10/P90 is the model's own band, not a validated 80% interval.";
 

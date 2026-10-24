@@ -130,4 +130,4 @@ because no method passed validation:
 - AutoGluon errors with newer Python versions: recreate the environment with Python 3.11.
 - `404 Unknown station`: station IDs are the store's codes (`EM`, `MT`, `12`, …) — list them with `GET /stations`.
 - `400` with "months of history": the `as_of` leaves fewer than 24 months since `data.train_start`.
-- `503` mentioning a calibrator: `configs/model.yaml` names a calibration method for SARIMA, but no fitted calibrator ships with the API. The API refuses rather than serve the raw band under a calibrated label. SARIMA's method is `none` today, so this only follows a config change.
+- `503` mentioning a calibrator: `configs/model.yaml` names a calibration method for SARIMA, but the API has no matching fitted calibrator: it is missing or unreadable, or it is stale or mismatched (fitted for another method, level, model or training cut-off). The API refuses rather than serve the raw band under a calibrated label. SARIMA's method is `none` today, so this only follows a config change.

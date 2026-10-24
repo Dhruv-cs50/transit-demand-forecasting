@@ -88,7 +88,7 @@ flowchart TD
 | Feature engineering | `Processing/feature_engineering.py` | Add calendar, weather, event, lag, rolling, station covariates |
 | Validation | `evaluation/validators.py` | Schema checks, missing windows, coverage, anomaly detection |
 | Forecasting | `machine_learning_files/zero_shot.py`, `models/chronos2/`, `models/baselines/` | Produce forecast parquet files |
-| Website export | `scripts/export_website_data.py` | Convert model artifacts into `website/data/*.json`. `forecasts.json` gets Chronos-1's calibrated P10/P90 (the saved calibrator applied, never refit), the model's own bounds as `p10_raw`/`p90_raw`, and an `interval_method` label |
+| Website export | `scripts/export_website_data.py` | Convert model artifacts into `website/data/*.json`. `forecasts.json` gets Chronos-1's split-conformal P10/P90 band (the saved calibrator applied, never refit; 72.7% test coverage, not a dependable 80% interval), the model's own bounds as `p10_raw`/`p90_raw`, and an `interval_method` label |
 | API service | `machine_learning_files/api.py` | FastAPI: fits SARIMA (`models/baselines/arima.py`) for the requested station on each `/forecast` and returns P10/P50/P90, with an `interval` field saying which band P10/P90 is |
 | Website | `website/` | React/Babel static frontend deployed on App Engine Standard |
 | Docker (pipeline) | `Dockerfile` | Reproducible full pipeline container |
