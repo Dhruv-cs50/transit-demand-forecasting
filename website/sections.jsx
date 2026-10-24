@@ -197,7 +197,7 @@ const Dataset = () => {
   // Columns of feature_store_enriched.parquet. p = external data, which
   // covers 2019–2023 only (the weather and Sharks archives end there).
   const features = [
-    {n:'Lagged ridership (1, 2, 3, 6, 12 rows back)'}, {n:'Rolling mean (3, 12 rows)'}, {n:'Rolling std (3 rows)'},
+    {n:'Lagged ridership (1, 2, 3, 6, 12 months back)'}, {n:'Rolling mean (3, 12 months)'}, {n:'Rolling std (3 months)'},
     {n:'Month-of-year'}, {n:'Temperature (°F)', p:true}, {n:'Precipitation (mm)', p:true},
     {n:'Wind speed (mph)', p:true}, {n:'Sharks game day', p:true},
   ];
@@ -241,7 +241,7 @@ const Dataset = () => {
           </div>
           <div className="divider" />
           <p className="text-muted" style={{ fontSize: 13 }}>
-            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data, available for 2019–2023 only. Lags and rolling windows count monthly rows, so for early 2022 they reach back across the 2020–21 gap into 2019. No ranked model reads any of these columns, so their influence on the forecasts has not been measured.
+            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data, available for 2019–2023 only. Lags and rolling windows count calendar months; where one would reach into 2020–21, which has no data, it is left empty. No ranked model reads any of these columns, so their influence on the forecasts has not been measured.
           </p>
         </Reveal>
       </div>
