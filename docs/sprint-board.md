@@ -1,5 +1,136 @@
 # Sprint board
 
+## Sprint 6 — Bias-shifted bands for SARIMA and Chronos-1 (opened 2026-10-25)
+
+**Goal.** Measure, on data up to `val_end` only, whether a band whose
+centre is shifted by a recency-weighted estimate of the model's bias,
+re-estimated at every monthly forecast origin, can calibrate SARIMA and
+Chronos-1. Neither got a qualifying calibration in Sprint 5 (PR #145). P50,
+and so every point metric, stays identical. Branch
+`feat/adaptive-bias-calibration`, cut from PR #145's tip (1e27507), PR
+against `feat/adaptive-interval-calibration` (stacked: #136 → #138 → #145).
+
+**Integrity constraints.**
+- *The band is fixed at the forecast origin T.* "Re-estimated each month"
+  means re-estimated at each monthly forecast origin. Nothing updates inside
+  the scored window: that is what `aci_window` and `monthly_recal` did, which
+  Sprint 5 ruled ineligible, and at test time it would read 2025-H2 actuals.
+- *Only SARIMA and Chronos-1 are eligible.* SeasonalNaive's and Prophet's
+  Sprint 5 entries already have a scored test result; choosing for them again
+  now would be choosing with the test split in view. The new candidates are
+  scored for them as diagnostics only, and their entries stay whatever the
+  numbers say.
+- *Where the idea came from.* It was prompted partly by a test-split fact
+  already published in Sprint 5: Chronos-1's test misses are 0% below P10 and
+  27.3% above P90. The validation evidence for a bias shift, which is what
+  this sprint rests on: Chronos-1's Sprint 4 band misses 0.33% / 15.67%
+  (below / above) on 2024-H2 and 0.67% / 15% on 2025-H1, nearly all above;
+  SARIMA's own band misses 0.33% / 19.33% on 2024-H2 and 7.33% / 1.67% on
+  2025-H1, a sign flip.
+
+**Decision rules, fixed before any new number was seen** (user's "go",
+2026-10-25, on the plan's three recommendations: six candidates, choice per
+model, the fit function in `evaluation/calibration.py` from the start).
+
+*Data, windows, pools.* Exactly Sprint 5's: windows **B** = 2024-H2 from
+origin T = 2024-06-30 (pool origins 2023-12-31 … 2024-05-31) and **V** =
+2025-H1 from T = 2024-12-31 (pool origins 2023-12-31 … 2024-11-30); pool
+rows are those whose target is on or before T, each with explicit `horizon`
+and `age` = months from target to T; the store a forecast sees is cut at
+min(origin + 6 months, T); the store is cut at `val_end` on read and
+asserted; the store-cut check as in Sprint 5.
+
+*Notation.* r = (y − P50) / P50 for every pool row.
+- **Bias** m(t) over a set of rows: the lower weighted median of r over the
+  pool rows resolved by t (origin before t, target on or before t), weights
+  0.5^(age_t / h_b), age_t = months from target to t. Lower weighted median:
+  sort r ascending; the smallest r_(k) with Σ_(j ≤ k) w_(j) ≥ 0.5 · Σ w.
+- **Width** w: Sprint 5's weighted split-conformal quantile at level 0.8 of
+  the scores s_i = |r_i − m_i|, weights 0.5^(age_T / 6), the scored point
+  weighted 1: the smallest s with Σ_(s_i ≤ s) w_i ≥ 0.8 · (Σ w_i + 1), +∞ if
+  none.
+- **Band** at T: P10 = P50 · (1 + m − w), P90 = P50 · (1 + m + w), then
+  ordered and floored exactly as `apply_conformal` does (P10 ≤ P50 ≤ P90,
+  P10 ≥ 0). The ordering clip only ever widens a band; the rows where it
+  binds are counted and reported. The band is stored as an `asym_relative`
+  calibrator q = (m − w, m + w), so `apply_conformal` applies it unchanged
+  and never writes P50.
+- **Bias half-life** h_b ∈ {1, 3} months. The width keeps Sprint 5's 6
+  months. With h_b = 6 the pooled candidate would be close to
+  `rolling_hl6 asym_relative/pooled`, which already failed both models.
+
+*Eligible candidates, 7 per model (SARIMA, Chronos-1), settings fixed now:*
+- `shift_hl1 relative/pooled`, `shift_hl3 relative/pooled`: m = m(T) over
+  all pool rows; every s_i = |r_i − m|; one width.
+- `shift_hl1 relative/horizon`, `shift_hl3 relative/horizon`: per horizon
+  h = 1 … 6, m_h = m(T) over the pool rows at horizon h, s_i = |r_i − m_h|,
+  width w_h from those rows; a scored row at horizon h uses (m_h, w_h).
+- `shift_origin_hl1 relative/pooled`, `shift_origin_hl3 relative/pooled`:
+  each pool row i from origin o_i is scored against the bias that would have
+  been estimated at its own origin, m_i = m(o_i) over the pool rows resolved
+  by o_i; s_i = |r_i − m_i|. Rows from an origin with no resolved row (the
+  first, 2023-12-31) have no score and are left out of the width. The band
+  uses m(T) over all pool rows. The width therefore includes how far the
+  bias moved between estimate and target. Pooled only: on B no horizon-6 row
+  has an earlier horizon-6 bias, so a per-horizon version is infinite there
+  by construction.
+- `incumbent`: the current `configs/model.yaml` entry, as in Sprint 5:
+  SARIMA its own band; Chronos-1 split-conformal `relative/pooled` fit on the
+  previous half-year.
+
+*Measured and reported, not eligible:* the same six candidates for
+SeasonalNaive and Prophet.
+
+*Qualification and choice.* A candidate qualifies for a model if, on
+**both** B and V, coverage is 75–85%, neither tail has more than 15% misses
+and the interval score is finite (Sprint 5's test, `rule_table`). Interval
+score: Winkler, α = 0.2, summed and divided by total ridership. Each eligible
+model takes its own qualifier with the lowest mean of its B and V interval
+scores (unrounded; ties by candidate name). There is no "one method for
+every model" clause: the two models' errors behave in opposite ways. A model
+with no qualifier keeps its current entry.
+
+*Expectation, stated before measuring.* SARIMA may well fail: at T_V its
+most recent errors are 2024-H2 under-forecasts, so a shift that follows them
+pushes 2025-H1's band up, while 2025-H1 missed low. A non-qualifier is a
+valid result. No candidate is added after a number exists.
+
+*Known weaknesses, accepted with the rule.* B's pool has 6 origins (5 for
+`shift_origin`, whose first origin has no bias), its horizon-6 group rests on
+50 rows from one origin, and SARIMA's B pool comes from 24–29-observation
+fits (as in Sprint 5).
+
+*Test.* Scored once, after the choice is committed, and only if SARIMA's or
+Chronos-1's entry changes. Deployed mirror of the study one step later:
+T = `val_end`, pool origins 2023-12-31 … 2025-05-31, pool targets ≤
+`val_end`, forecasts made after the test forecasts. A chosen candidate goes
+into `configs/model.yaml` under a new method name, `shift_relative`, so a
+reader that ignores `scheme` (PR #144's `serve_band`, `sprint4d/store-rebuild`)
+stops instead of fitting a split band nobody chose. If nothing changes, the
+leaderboard is rerun at the unchanged configuration and must be
+byte-identical to PR #145's; that run chooses nothing and publishes nothing
+new. The website's "not calibrated" wording follows Sprint 4's rule
+(unchanged): it changes only if every model's calibrated test coverage is
+75–85%, and Prophet's 74.0% already fails it.
+
+**Gates.** Point metrics (WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected)
+identical to PR #145's leaderboard; `Coverage_raw_%` = 96.67 / 46.0 / 51.0 /
+94.33; SeasonalNaive and Prophet `Coverage_%` unchanged (83.67 / 74.00); two
+runs byte-identical; after the study change, Sprint 5's seven `adaptive_*`
+outputs and PR #138's four validation CSVs byte-identical; unit tests pass;
+`py_compile` passes.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S6.1 | Rebuild env (outside `/tmp`) and store; reproduce Sprint 5's study outputs | orchestrator | — | Store `assert_frame_equal` to PR #145's; unchanged study's outputs byte-identical | in progress |
+| S6.2 | Fix the rule and candidate definitions before measuring | orchestrator | — | Board committed before any new number | done (this commit) |
+| S6.3 | `evaluation/calibration.py`: weighted median, `fit_shift_conformal` (bias at T or at each origin) | implementer | S6.2 | Tests written first, fail, then pass | todo |
+| S6.4 | `evaluation/interval_study.py`: `shift_study` with its own outputs, per-model rule, config check layered over Sprint 5's | implementer | S6.3 | Sprint 5 / PR #138 outputs byte-identical; tests | todo |
+| S6.5 | Run the study; apply the rule; write-up; commit the choice before any test run | orchestrator | S6.1, S6.4 | Commit precedes S6.6's run | todo |
+| S6.6 | If a model qualifies: config + `benchmarks.py` wiring, score test once; else rerun the leaderboard unchanged | implementer | S6.5 | All gates green | todo |
+| S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | todo |
+| S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | todo |
+
 ## Sprint 5 — Interval calibration that tracks recent errors (opened 2026-10-24)
 
 **Goal.** Close the gap PR #138 left (test coverage Prophet 74.7%, Chronos-1
