@@ -197,7 +197,8 @@ published number; the valid `interval_plan` labels are unchanged (tested).
   - S6.6b's tests and f426445's extra test landed with their
     implementation. f426445's message says so; 8fa116d's does not mention
     it (recorded here instead).
-- 258 tests pass after the fix round.
+- 258 tests pass after the fix round, also on a clean `git archive` of the
+  pushed tip cbb79c5 (no untracked outputs present).
 
 **Gate results (S6.6c, 2026-10-25, pinned env; runs at 5818932, publishing in fb19405).**
 

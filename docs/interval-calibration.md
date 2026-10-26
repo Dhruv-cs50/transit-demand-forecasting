@@ -267,6 +267,8 @@ Chronos-1 band, coverage and label.
 ```bash
 python -m unittest tests.test_shift_calibration tests.test_shift_study
 python evaluation/interval_study.py          # also writes evaluation/outputs/interval_study/shift_*
+python models/baselines/benchmarks.py        # reads the test split: the leaderboard, Chronos-1's 84.67%
+python scripts/interval_test_breakdown.py    # reads the test split: tails, widths, by month; chooses nothing
 ```
 
 ## Sprint 5 — calibrations that track recent errors
