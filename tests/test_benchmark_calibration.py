@@ -210,6 +210,46 @@ class RollingSchemeTest(unittest.TestCase):
         self.assertTrue(out[["p10", "p90"]].isna().all().all())
         self.assertEqual(self.calls, [])
 
+    def _cfg_with_data(self, mcfg=None):
+        return {"calibration": {"level": 0.8, "models": {"Prophet": mcfg or self.CFG}},
+                "data": {"forecast_horizon_steps": 6, "train_end": "2024-12-31", "val_end": "2025-06-30"}}
+
+    def test_saved_rolling_calibrator_is_served_as_scored(self):
+        import tempfile
+        from evaluation.calibration import CalibratorUnavailable, load_calibrator, serve_band
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "Prophet.json"
+            cfg = self._cfg_with_data()
+            out, label = calibrate_intervals(
+                "Prophet", "Prophet", self.test_preds, lambda: self.fail("split path"), None, cfg,
+                calibrator_path=path, make_origin_preds=self._make, history_df=self.history, as_of=self.AS_OF)
+            prov = load_calibrator(path)["provenance"]
+            self.assertEqual((prov["fit_end"], prov["scheme"], prov["half_life"], prov["first_origin"]),
+                             ("2025-06-30", "rolling", 6, "2023-12-31"))
+            served, plan = serve_band(self.test_preds, "Prophet", cfg, calibrator_path=path)
+            np.testing.assert_allclose(served["p10"].values, out["p10"].values)
+            np.testing.assert_allclose(served["p90"].values, out["p90"].values)
+            self.assertEqual(plan["label"], label)
+            # A config that no longer asks for this rolling band refuses the file.
+            for change in ({"scheme": "split"}, {"half_life": 3}, {"first_origin": "2024-06-30"}):
+                with self.assertRaises(CalibratorUnavailable, msg=change):
+                    serve_band(self.test_preds, "Prophet", self._cfg_with_data({**self.CFG, **change}),
+                               calibrator_path=path)
+            # So does a run on other splits.
+            moved = self._cfg_with_data(); moved["data"]["val_end"] = "2025-12-31"
+            with self.assertRaises(CalibratorUnavailable):
+                serve_band(self.test_preds, "Prophet", moved, calibrator_path=path)
+
+    def test_split_calibrator_is_refused_under_a_rolling_config(self):
+        import tempfile
+        from evaluation.calibration import CalibratorUnavailable, fit_conformal as fc, save_calibrator, serve_band
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "Prophet.json"
+            cal = fc(_preds("2025-01-01", n_stations=6, seed=13), "relative", "pooled", 0.8)
+            save_calibrator(cal, path, model_key="Prophet", fit_end="2025-06-30")
+            with self.assertRaises(CalibratorUnavailable):
+                serve_band(self.test_preds, "Prophet", self._cfg_with_data(), calibrator_path=path)
+
     def test_unknown_scheme_fails_loudly(self):
         out, label = self._run(mcfg={**self.CFG, "scheme": "telepathy"})
         self.assertTrue(label.startswith("FAILED"))

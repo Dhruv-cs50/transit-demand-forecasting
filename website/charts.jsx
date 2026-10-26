@@ -87,32 +87,30 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
   );
 };
 
-/* ── Forecast interval chart — P10/P50/P90 for Embarcadero (real data) ── */
+/* ── Forecast interval chart — P10/P50/P90 vs actual riders for Embarcadero (real data) ── */
 const Calibration = ({ width = 460, height = 260 }) => {
   const [pts, setPts] = React.useState(null);
+  const [actualByMonth, setActualByMonth] = React.useState({});
   React.useEffect(() => {
-    fetch('data/forecasts.json')
-      .then(r => r.json()).catch(() => [])
-      .then(d => {
-        // website/data/forecasts.json's station_id values are the short
-        // codes stations_meta.json's `bart_id` uses (e.g. "EM" for
-        // Embarcadero), not the 4-letter feature-store/live-API convention
-        // ("EMBR") — filtering on "EMBR" here never matched a single row.
-        const em = d.filter(r => r.station_id === 'EM')
-                    .sort((a, b) => a.month.localeCompare(b.month));
-        setPts(em);
+    Promise.all([
+      fetch('data/forecasts.json').then(r => r.json()).catch(() => []),
+      fetch('data/ridership_actuals.json').then(r => r.json()).catch(() => []),
+    ]).then(([fc, ac]) => {
+      // Station ids are BART's two-letter codes everywhere (data files and live API).
+      const em = (Array.isArray(fc) ? fc : []).filter(r => r.station_id === 'EM')
+                  .sort((a, b) => a.month.localeCompare(b.month));
+      const act = {};
+      (Array.isArray(ac) ? ac : []).forEach(r => {
+        if (r.station_id === 'EM' && r.ridership != null) act[r.month] = r.ridership;
       });
+      setActualByMonth(act);
+      setPts(em);
+    });
   }, []);
 
   if (!pts) return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
       <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">Loading…</text>
-    </svg>
-  );
-  const allVals = pts.flatMap(r => [r.p10, r.p50, r.p90]).filter(v => v != null);
-  if (pts.length === 0 || allVals.length === 0) return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
-      <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">No forecast data</text>
     </svg>
   );
 
@@ -121,15 +119,28 @@ const Calibration = ({ width = 460, height = 260 }) => {
   // into sy() below (`v - minV`) coerces it to 0 - minV -- a finite but
   // wrong y-coordinate -- silently drawing a spurious spike/dip instead of
   // skipping the point. Drop any row missing a quantile before building the
-  // paths (the all-null case above already handles the "no usable rows at
-  // all" case).
+  // paths.
   const validPts = pts.filter(r => r.p10 != null && r.p50 != null && r.p90 != null);
+  if (validPts.length === 0) return (
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }}>
+      <text x="50%" y="50%" textAnchor="middle" fontSize="13" fill="var(--ink-muted)">No forecast data</text>
+    </svg>
+  );
 
-  const pad = { l: 58, r: 20, t: 24, b: 38 };
+  // Actual riders for the forecast months, at the same x index as validPts.
+  const actualPts = validPts
+    .map((r, i) => ({ i, v: actualByMonth[r.month] }))
+    .filter(a => a.v != null);
+  const hasActual = actualPts.length > 0;
+
+  const pad = { l: 58, r: 20, t: 44, b: 38 };
   const W = width - pad.l - pad.r;
   const H = height - pad.t - pad.b;
   const n = validPts.length;
 
+  // Actuals join the y-domain so a month outside the band is still drawn.
+  // Misses happen with the calibrated band too (docs/interval-calibration.md).
+  const allVals = [...validPts.flatMap(r => [r.p10, r.p50, r.p90]), ...actualPts.map(a => a.v)];
   const minV = Math.min(...allVals) * 0.92;
   const maxV = Math.max(...allVals) * 1.05;
 
@@ -137,6 +148,9 @@ const Calibration = ({ width = 460, height = 260 }) => {
   const sy = v => pad.t + (1 - (v - minV) / (maxV - minV)) * H;
   const fmtK = v => v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : (v / 1e3).toFixed(0) + 'k';
   const monthLabel = s => { const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return mo[parseInt(s.slice(5,7),10)-1]; };
+  const firstYear = validPts[0].month.slice(0, 4);
+  const lastYear = validPts[n - 1].month.slice(0, 4);
+  const yearLabel = firstYear === lastYear ? firstYear : `${firstYear}–${lastYear}`;
 
   const bandPath = [
     ...validPts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p90).toFixed(1)}`),
@@ -146,6 +160,7 @@ const Calibration = ({ width = 460, height = 260 }) => {
   const p50Path = validPts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p50).toFixed(1)}`).join(' ');
   const p10Path = validPts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p10).toFixed(1)}`).join(' ');
   const p90Path = validPts.map((r, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(r.p90).toFixed(1)}`).join(' ');
+  const actualPath = actualPts.map((a, k) => `${k === 0 ? 'M' : 'L'}${sx(a.i).toFixed(1)},${sy(a.v).toFixed(1)}`).join(' ');
 
   const gridVals = [0.25, 0.5, 0.75, 1].map(t => minV + (maxV - minV) * t);
 
@@ -176,6 +191,13 @@ const Calibration = ({ width = 460, height = 260 }) => {
       {validPts.map((r, i) => (
         <circle key={i} cx={sx(i)} cy={sy(r.p50)} r="3.5" fill="var(--bg-elev)" stroke="var(--primary)" strokeWidth="1.8" />
       ))}
+      {/* actual riders */}
+      {hasActual && (
+        <path d={actualPath} fill="none" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+      {actualPts.map(a => (
+        <circle key={`a${a.i}`} className="actual-pt" cx={sx(a.i)} cy={sy(a.v)} r="3.5" fill="var(--accent)" stroke="var(--bg-elev)" strokeWidth="1.2" />
+      ))}
 
       {/* x labels */}
       {validPts.map((r, i) => (
@@ -183,19 +205,25 @@ const Calibration = ({ width = 460, height = 260 }) => {
       ))}
 
       {/* annotations */}
-      <text x={pad.l + 8} y={pad.t + 13} fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">Embarcadero · Chronos-1 zero-shot forecast</text>
-      <text x={pad.l + W} y={pad.t + H + 30} textAnchor="end" fontSize="10" fill="var(--ink-muted)">2024</text>
+      <text x={pad.l} y={14} fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">Embarcadero · Chronos-1 zero-shot forecast</text>
+      <text x={pad.l + W} y={pad.t + H + 30} textAnchor="end" fontSize="10" fill="var(--ink-muted)">{yearLabel}</text>
 
       {/* legend */}
-      <g transform={`translate(${pad.l + W - 160}, ${pad.t + 22})`}>
-        <rect x="0" y="-14" width="155" height="46" rx="6" fill="var(--bg-elev)" stroke="var(--line)" />
-        <line x1="8" y1="0" x2="26" y2="0" stroke="var(--primary)" strokeWidth="2.4" />
-        <circle cx="17" cy="0" r="3" fill="var(--bg-elev)" stroke="var(--primary)" strokeWidth="1.8" />
-        <text x="32" y="4" fontSize="10.5" fill="var(--ink)" fontFamily="var(--body)">P50 median</text>
-        <rect x="8" y="14" width="18" height="8" rx="2" fill="var(--primary)" opacity="0.16" />
-        <line x1="8" y1="14" x2="26" y2="14" stroke="var(--primary)" strokeWidth="1" strokeDasharray="3 2" opacity="0.5" />
-        <line x1="8" y1="22" x2="26" y2="22" stroke="var(--primary)" strokeWidth="1" strokeDasharray="3 2" opacity="0.5" />
-        <text x="32" y="22" fontSize="10.5" fill="var(--ink)" fontFamily="var(--body)">P10–P90 band</text>
+      <g transform={`translate(${pad.l}, 30)`}>
+        <line x1="0" y1="0" x2="18" y2="0" stroke="var(--primary)" strokeWidth="2.4" />
+        <circle cx="9" cy="0" r="3" fill="var(--bg-elev)" stroke="var(--primary)" strokeWidth="1.8" />
+        <text x="24" y="4" fontSize="10.5" fill="var(--ink)" fontFamily="var(--body)">P50 median</text>
+        <rect x="100" y="-4" width="18" height="8" rx="2" fill="var(--primary)" opacity="0.16" />
+        <line x1="100" y1="-4" x2="118" y2="-4" stroke="var(--primary)" strokeWidth="1" strokeDasharray="3 2" opacity="0.5" />
+        <line x1="100" y1="4" x2="118" y2="4" stroke="var(--primary)" strokeWidth="1" strokeDasharray="3 2" opacity="0.5" />
+        <text x="124" y="4" fontSize="10.5" fill="var(--ink)" fontFamily="var(--body)">P10–P90 band</text>
+        {hasActual && (
+          <g transform="translate(212, 0)">
+            <line x1="0" y1="0" x2="18" y2="0" stroke="var(--accent)" strokeWidth="1.6" />
+            <circle cx="9" cy="0" r="3" fill="var(--accent)" />
+            <text x="24" y="4" fontSize="10.5" fill="var(--ink)" fontFamily="var(--body)">Actual riders</text>
+          </g>
+        )}
       </g>
     </svg>
   );

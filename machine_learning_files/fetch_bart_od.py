@@ -44,59 +44,9 @@ YEAR_MONTH_FORMAT = {
     range(2020, 2027): "{year_month_dash}_Ridership_{year}.xlsx",
 }
 
-# BART station abbreviation → full name mapping (subset of all 50 stations)
-STATION_NAMES = {
-    "12TH": "12th St. Oakland City Center",
-    "16TH": "16th St. Mission",
-    "19TH": "19th St. Oakland",
-    "24TH": "24th St. Mission",
-    "ANTC": "Antioch",
-    "ASHB": "Ashby",
-    "BALB": "Balboa Park",
-    "BAYF": "Bay Fair",
-    "BERY": "Berryessa/North San José",
-    "CAST": "Castro Valley",
-    "CIVC": "Civic Center/UN Plaza",
-    "COLS": "Coliseum",
-    "COLM": "Colma",
-    "CONC": "Concord",
-    "DALY": "Daly City",
-    "DBRK": "Downtown Berkeley",
-    "DUBL": "Dublin/Pleasanton",
-    "DELN": "El Cerrito Del Norte",
-    "PLZA": "El Cerrito Plaza",
-    "EMBR": "Embarcadero",
-    "FRMT": "Fremont",
-    "FTVL": "Fruitvale",
-    "GLEN": "Glen Park",
-    "HAYW": "Hayward",
-    "LAFY": "Lafayette",
-    "LAKE": "Lake Merritt",
-    "MCAR": "MacArthur",
-    "MLBR": "Millbrae",
-    "MLPT": "Milpitas",
-    "MONT": "Montgomery St.",
-    "NBRK": "North Berkeley",
-    "NCON": "North Concord/Martinez",
-    "OAKL": "Oakland International Airport",
-    "ORIN": "Orinda",
-    "PITT": "Pittsburg/Bay Point",
-    "PCTR": "Pittsburg Center",
-    "PHIL": "Pleasant Hill/Contra Costa Centre",
-    "POWL": "Powell St.",
-    "RICH": "Richmond",
-    "ROCK": "Rockridge",
-    "SBRN": "San Bruno",
-    "SFIA": "SFO",
-    "SANL": "San Leandro",
-    "SHAY": "South Hayward",
-    "SSAN": "South San Francisco",
-    "UCTY": "Union City",
-    "WARM": "Warm Springs/South Fremont",
-    "WCRK": "Walnut Creek",
-    "WDUB": "West Dublin/Pleasanton",
-    "WOAK": "West Oakland",
-}
+# The workbooks and the feature store use two-letter codes; the one station table lives in bart_stations.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bart_stations import API_CODE_TO_NAME as STATION_NAMES  # 4-letter API code -> name
 
 
 def build_url_candidates(year: int, month: int) -> list[str]:

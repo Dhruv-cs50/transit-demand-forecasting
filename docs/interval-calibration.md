@@ -579,8 +579,10 @@ Interval_method for SeasonalNaive and Prophet.
   - A next step for either would be a bias correction of the band that is
     re-estimated each month. That stays within "P50 unchanged", but it is a
     new candidate set and needs a new rule.
-- **The serving path is still not calibrated.** The API and
-  `forecasts.json` still publish raw bands.
+- **No surface serves the two new bands.** The API serves SARIMA's own band,
+  and `forecasts.json` serves Chronos-1's split-conformal band (see
+  [Serving](#serving)). SeasonalNaive's and Prophet's rolling calibrators are
+  saved, but nothing publishes them yet.
 - **Each window is a single forecast origin.** Its misses cluster by month,
   so a 300-row window carries far less information than 300 independent
   rows. Two windows halve the luck of one, but they do not remove it.
@@ -592,6 +594,78 @@ python -m unittest tests.test_calibration tests.test_adaptive_calibration tests.
 python evaluation/interval_study.py          # writes evaluation/outputs/interval_study/adaptive_*.csv
 python models/baselines/benchmarks.py
 ```
+
+## Serving
+
+Which P10/P90 band each published surface returns. P50 is never changed on
+any of them.
+
+| Surface | Model | P10/P90 served | Label |
+|---|---|---|---|
+| Leaderboard (`model_comparison.json`) | all four | Per model, as in Sprint 5's [Decision](#decision) table: rolling-origin conformal band for SeasonalNaive and Prophet, split-conformal band for Chronos-1, own band for SARIMA. `Coverage_pct` scores that band; `Coverage_raw_pct` scores the model's own band | `Interval_method` |
+| `website/data/forecasts.json` | Chronos-1 zero-shot, Jul–Dec 2025 | The split-conformal `relative/pooled` band, the one the leaderboard scores (72.7%). The model's own bounds stay as `p10_raw`/`p90_raw` | `interval_method` on every record |
+| API `POST /forecast` | SARIMA, fit per request | SARIMA's own band (nominal 80%), not calibrated: no method passed validation | `interval` (`calibrated`, `method`, `nominal_level`, `label`, `description`) |
+
+The `label` and `interval_method` strings are the leaderboard's
+`Interval_method` string, so a published band can be matched to the coverage
+that scored it.
+
+Where the calibrator comes from:
+- `models/baselines/benchmarks.py` fits it, and nothing else does.
+  - `scheme: split` (Chronos-1): from the 2025-H1 validation forecasts, made
+    by a fit ending 2024-12-31 (`train_end`).
+  - `scheme: rolling` (SeasonalNaive, Prophet): from forecasts made at
+    monthly origins 2023-12-31 … 2025-05-31, with targets up to 2025-06-30
+    (`val_end`).
+- It saves it to `evaluation/outputs/calibration/calibrators/<model_key>.json`
+  with the model key, model, checkpoint, label, fit end and calibration
+  window. A rolling calibrator also records its scheme, half-life and first
+  origin.
+  Each run first removes every saved calibrator, so any file present
+  afterwards was fitted by the latest run. A model left on its own band, or
+  whose calibration fails or cannot be saved, has no file.
+- `serve_band` in `evaluation/calibration.py` applies the saved calibrator.
+  It never refits, and it refuses an unreadable file. It checks the file
+  against `configs/model.yaml` and the forecasts being served:
+  - method, group, level, scheme, model key and checkpoint;
+  - for a rolling calibrator, its half-life and first origin;
+  - its fit end: `train_end` for split, `val_end` for rolling.
+- A model whose method is `none` keeps its own band, and no calibrator file
+  is read. That is SARIMA today, so the API image carries no calibrator.
+- No surface serves SeasonalNaive's or Prophet's band yet. Their calibrators
+  are saved, and `serve_band` accepts them (tested), but the export and the
+  API do not call it for those models.
+
+Refusals. Nothing is served under a label it has not earned:
+- **API:** if `configs/model.yaml` names a method for SARIMA and no matching
+  calibrator is in the image, `/forecast` answers `503`.
+- **Export** (`scripts/export_website_data.py`) does not write `forecasts.json`
+  in the cases below. Any previous `forecasts.json` is left in place, and is
+  then stale. The other four files (`stations_ridership.json`,
+  `stations_meta.json`, `ridership_actuals.json`, `model_comparison.json`) are
+  still written. The script then exits 1, so `scripts/run_pipeline.sh`
+  (`set -e`) stops with an error instead of printing its deploy command.
+  Deploying is a separate, manual step, and deploying anyway would publish the
+  stale `forecasts.json` beside the fresh files. The cases:
+  - the calibrator is missing, unreadable or stale;
+  - the leaderboard's `Interval_method` is absent or is not the served label,
+    or the calibrator was fitted for another leaderboard model;
+  - an exported row has no actual in the feature store, or more than one;
+  - the served band's coverage of the test actuals, rounded as the leaderboard
+    rounds, differs from the leaderboard's `Coverage_%` (or the own band's
+    from `Coverage_raw_%`).
+- That coverage check is the only use of test actuals when serving. It is a
+  consistency check, not tuning: nothing is chosen from it.
+
+Caveats:
+- The Chronos quantile was fit on forecasts from a 2024-12-31 origin and is
+  applied to forecasts from a 2025-06-30 origin. That transfer rests on the
+  usual split-conformal assumption: errors at the later origin are
+  exchangeable with the validation errors. It was scored only on the 2025-H2
+  window, where it fell short of 80%. A band from any other origin is
+  unscored.
+- The API's default forecast (refit through Dec 2025) has no actuals yet.
+  SARIMA's 96.7% is the coverage of its Jul–Dec 2025 holdout forecasts.
 
 ## Sprint 4 — one validation window (PR #138)
 
@@ -930,11 +1004,9 @@ Reading:
 
 ### Not covered
 
-- Serving-path intervals are not calibrated. `forecasts.json` (the
-  Embarcadero chart on the website) and the API (`machine_learning_files/api.py`,
-  `models/chronos2/predict.py`) still publish the model's own band.
-- `website/api-demo.html` labels raw Chronos-1 output "P10/P90 = 80%
-  prediction interval". Raw Chronos-1 covered 51.0% on test. Follow-up.
+- Code that calls a model directly (`models/chronos2/predict.py`,
+  `machine_learning_files/zero_shot.py`) returns the model's own band. Only
+  the surfaces in [Serving](#serving) apply the configured band.
 - Drift between half-years is the limit on any one-window calibration. A
   calibration that tracks recent errors, such as adaptive conformal or a
   rolling window, would be the next thing to measure for SARIMA and

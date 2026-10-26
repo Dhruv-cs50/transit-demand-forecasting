@@ -12,18 +12,18 @@ CS163 Data Science Senior Project - Dhruv Shah
 
 ---
 
-Bay Area Transit Demand Forecasting is an end-to-end forecasting project for monthly BART station ridership. It builds a station-level feature store from public transit, weather, event, and calendar data; trains statistical and machine-learning forecasting models; evaluates them on chronological splits; and exports the results to a static website hosted on Google App Engine.
+Bay Area Transit Demand Forecasting is an end-to-end forecasting project for monthly BART station ridership. It builds a station-level feature store from public transit, weather, event, and calendar data; fits statistical forecasting models and runs a pretrained foundation model (Chronos-1) zero-shot; evaluates them on chronological splits; and exports the results to a static website hosted on Google App Engine.
 
 The current production path models BART origin-destination ridership at a month-start cadence. The codebase also includes ingestion and feature hooks for broader Bay Area transit feeds, event calendars, weather covariates, and road context so the project can expand beyond the current monthly BART target.
 
 ## Highlights
 
 - Monthly station-level BART ridership forecasting with chronological train, validation, and test splits.
-- External covariates from Open-Meteo weather and NHL/Ticketmaster event schedules.
-- Baselines and model comparison across seasonal naive, SARIMA, Prophet, Chronos zero-shot, and AutoGluon time-series models.
+- Weather (Open-Meteo) and San Jose Sharks home-game columns in the feature store, 2019–2023 only. No ranked model uses them yet (see the Chronos caveat below); Ticketmaster ingestion exists but needs a key.
+- Baselines and model comparison across seasonal naive, SARIMA, Prophet and Chronos-1 zero-shot. AutoGluon fine-tuning code exists but has never produced a result (see below).
 - Data validation for required columns, missing windows, station coverage, and ridership anomalies.
 - Static website export that turns feature stores and model outputs into JSON consumed by the frontend.
-- FastAPI service for station forecasts with cached-output and live-inference paths.
+- FastAPI service that fits the leaderboard's best model (SARIMA) per request for station forecasts.
 
 ## Current Results
 
@@ -40,7 +40,8 @@ and `scored_split` so any figure can be traced to the run that made it.
 | Seasonal naive | 10,333 | 10.75% | 83.7% | 94.3% | rolling-origin conformal (asymmetric), fit on data to Jun 2025 | 300 |
 
 All models are scored on the same 300 station-months (50 stations × 6 forecast
-steps). Reproduce with `bash scripts/run_pipeline.sh`.
+steps). Reproduce with the four steps listed under "Reproduce The Pipeline"
+below; `scripts/run_pipeline.sh` as a whole does not reproduce this table.
 
 Prophet and Chronos both sample, so `configs/model.yaml` seeds them
 (`prophet.seed`, `chronos2.seed`). Unseeded, Chronos moved between 8.06% and
@@ -71,7 +72,10 @@ before measuring. Errors shift from one half-year to the next, which limits
 any calibration fit on the past. The comparison, the validation numbers each
 choice rests on, and why the earlier Prophet MCMC attempt failed are in
 [docs/interval-calibration.md](docs/interval-calibration.md).
-The API and `website/data/forecasts.json` still serve the models' own bands.
+The API serves SARIMA's own band and labels it in each response;
+`website/data/forecasts.json` carries Chronos-1's split-conformal band (72.7%
+test coverage). See
+[Serving](docs/interval-calibration.md#serving).
 
 **AutoETS (AutoGluon) carries no row, deliberately rather than silently.**
 `autogluon.timeseries` requires Python <3.14 and cannot be installed here, and
@@ -155,7 +159,7 @@ The merge pipeline aggregates BART OD records to origin station-month totals, jo
 
 ## Setup
 
-**Prerequisites:** Python 3.11, Git. AutoGluon and Chronos require Python 3.11 — newer versions have dependency conflicts.
+**Prerequisites:** Python 3.11, Git. AutoGluon needs Python below 3.14; the published benchmark (SARIMA, Prophet, Chronos-1) ran on Python 3.14 without it.
 
 ```bash
 # Clone
@@ -180,7 +184,7 @@ pip install -r machine_learning_files/requirements.txt
 | Open-Meteo | Weather data | No key required |
 | PeMS | Road data | Manual download, CALTRANS account |
 
-The pipeline works without these keys if you skip the corresponding fetchers — BART OD data (the core dataset) requires no API key and is fetched directly.
+The pipeline works without these keys if you skip the corresponding fetchers — BART OD data (the core dataset) requires no API key, but bart.gov blocks automated downloads, so the Ridership workbooks are downloaded by hand (see `data/MANIFEST.md` and Troubleshooting).
 
 ## Reproduce The Pipeline
 
@@ -202,6 +206,14 @@ That script performs:
 6. Train the AutoGluon time-series ensemble.
 7. Run model benchmarks.
 8. Export JSON files for the website.
+
+**The published leaderboard does not come from this script.** It came from four
+steps: `python machine_learning_files/bart_od_from_xlsx.py --zips <zips>` (see
+`data/MANIFEST.md`), `merge_pipeline.py`, `Processing/feature_engineering.py`,
+then `models/baselines/benchmarks.py`. The script runs under `set -e`, so where
+AutoGluon is not installed (it cannot be on Python 3.14) step 6 stops it before
+the benchmark runs; where AutoGluon is installed, the benchmark adds an
+`AutoGluon_Ensemble` row the published table does not have.
 
 For faster iteration, run individual steps:
 
@@ -225,13 +237,15 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 
 | Path | Description |
 | --- | --- |
-| `data/processed/feature_store.parquet` | merged station-month feature store |
+| `data/processed/feature_store.parquet` | merged station-month feature store — committed, and the only data the API reads (see [`data/MANIFEST.md`](data/MANIFEST.md)) |
 | `data/processed/feature_store_enriched.parquet` | feature-engineered model input |
 | `data/processed/splits/train.parquet` | training split |
 | `data/processed/splits/val.parquet` | validation split |
 | `data/processed/splits/test.parquet` | held-out test split |
 | `data/processed/validation_report.csv` | latest validation summary |
-| `models/chronos2/outputs/zero_shot_forecasts_*.parquet` | Chronos forecast artifacts |
+| `models/chronos2/outputs/zero_shot_forecasts_*.parquet` | Chronos zero-shot forecasts written by `zero_shot.py`; not what the website publishes |
+| `evaluation/outputs/chronos2_zeroshot_preds.parquet` | Chronos zero-shot test-window predictions written by `models/baselines/benchmarks.py` and scored on the leaderboard; the export reads them for `website/data/forecasts.json` and applies the saved calibrator to their band |
+| `evaluation/outputs/calibration/calibrators/<model_key>.json` | fitted P10/P90 calibrators saved by `models/baselines/benchmarks.py` (fit on 2025-H1 validation forecasts); the export applies them, never refits |
 | `models/baselines/outputs/arima/arima_forecasts.parquet` | SARIMA forecast artifact |
 | `models/baselines/outputs/prophet/prophet_forecasts.parquet` | Prophet forecast artifact |
 | `website/data/*.json` | static frontend data generated from model and feature artifacts |
@@ -245,6 +259,14 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 | API Playground | https://cs-163-final-project-tra-f1136.wl.r.appspot.com/api-demo.html |
 | API (Cloud Run) | https://transit-api-308878596074.us-west2.run.app |
 | API Docs (Swagger) | https://transit-api-308878596074.us-west2.run.app/docs |
+
+The Cloud Run revision live at that URL was not built from this code. Checked
+2026-10-22 (Pacific): it titles itself "Bay Area Traffic Forecast API … Chronos-2
+powered" and answers `/forecast` from a Chronos cache for Jan–Jun 2024 on the
+pre-Sprint-2 target definition (EM p50 1.16–1.45M riders/month, against 326–390k
+actual for those months in the current feature store). The [Forecast API](#forecast-api) section describes
+what `Dockerfile.api` builds; the live service matches it only after a rebuild
+and redeploy.
 
 ## Cloud Deployment
 
@@ -263,7 +285,8 @@ Two Dockerfiles are provided:
 
 **`Dockerfile.api`** (inference service — used in production):
 - Base: `python:3.11-slim`
-- Copies the API source, `configs/model.yaml` and the feature-store parquets into the image. It does **not** copy `models/chronos2/outputs/` (gitignored, absent from a fresh checkout) and does not install `chronos-forecasting`, so the image ships with no forecast cache and no live-inference path: `/forecast` returns `503` for known stations until a cache is provided. This is a known gap.
+- Copies `machine_learning_files/api.py`, `models/baselines/arima.py`, `evaluation/calibration.py` (picks and labels the P10/P90 band), `configs/model.yaml` and the committed `data/processed/feature_store.parquet` into the image, and installs `statsmodels` for SARIMA. No forecast cache, no `chronos-forecasting`: each `/forecast` fits SARIMA for the requested station (see [Forecast API](#forecast-api)).
+- Builds from a clean clone — every file it copies is in git
 - Exposes FastAPI on port `$PORT` (Cloud Run injects this env var)
 - Build: `docker build -f Dockerfile.api -t transit-api .`
 
@@ -292,10 +315,10 @@ gcloud run deploy transit-api \
 
 | Data | Location | Notes |
 | --- | --- | --- |
-| Feature store parquet | `data/processed/feature_store.parquet` + `data/processed/feature_store_enriched.parquet` | `Dockerfile.api` bakes in both, but the live API (`api.py`'s `get_feature_store()`, `zero_shot.py`'s `load_feature_store()`) reads only the pre-enrichment `feature_store.parquet` at serve time — the enriched file feeds offline training splits (`finetune.py`) instead |
+| Feature store parquet | `data/processed/feature_store.parquet` (committed) | `Dockerfile.api` bakes it in; `api.py`'s `get_feature_store()` reads it at serve time. The enriched store is not in the image — only the offline pipeline (benchmarks, training, validation, website export) reads it |
 | Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API |
 | Website assets | App Engine Standard | HTML/CSS/JSX/JSON, served via static file handlers |
-| Pre-computed forecasts | Not in the image (known gap) | `models/chronos2/outputs/*.parquet` is gitignored and `Dockerfile.api` does not copy it; `api.py` reads it from the working directory when present |
+| Forecasts | Not stored | Computed per request from the feature store; the image holds no forecast cache |
 
 ### System Design and Scalability
 
@@ -313,21 +336,19 @@ flowchart LR
         AR[Artifact Registry\nDocker image]
         CR[Cloud Run\ntransit-api]
         GAE[App Engine\nwebsite]
-        FC -.->|not copied into image| AR
+        FS -->|feature_store.parquet baked in| AR
         AR --> CR
         JSON -->|static files| GAE
     end
 
     USER([Browser]) -->|HTTPS| GAE
     GAE -->|POST /forecast| CR
-    CR -.->|parquet lookup if cache present| FC
 ```
 
 **Scalability:**
 - **App Engine Standard** — auto-scales instances, zero when idle, no server management
 - **Cloud Run** — scales 0→N replicas per concurrency, each replica stateless
-- **Pre-computed parquet cache** — when `models/chronos2/outputs/` holds a cache, `api.py` answers from a parquet lookup with no model load. `Dockerfile.api` ships no cache today, so the production image does not use this path (known gap)
-- **Upgrade path** — `Dockerfile.api` (the production image) doesn't bundle `chronos-forecasting`, so a cache miss returns `503` today rather than running live inference; a local dev server started from `machine_learning_files/requirements.txt` (which does pin it) runs Chronos-T5-Small on CPU on cache miss — bundling it into `Dockerfile.api` and moving to GPU Cloud Run or Vertex AI is the upgrade path for live inference in production
+- **Per-request SARIMA** — each `/forecast` is one small model fit (48 monthly points). In a local container one forecast took 0.03–0.6 s and the startup `statsmodels` import 1–17 s, on a laptop under heavy load from other work; neither has been measured on Cloud Run. The import happens at startup, so it lands on the cold start rather than the first request. Nothing is cached between requests
 
 Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
@@ -335,9 +356,19 @@ Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 The frontend is a static site in `website/`. It uses CDN-loaded React and Babel — no Node build step needed. The site reads generated JSON files from `website/data/`.
 
+`website/data/forecasts.json` holds Chronos-1's Jul–Dec 2025 forecasts with its
+split-conformal P10/P90 band, set from the model's errors on the Jan–Jun 2025
+validation split. That band covered 72.7% of test actuals (51.0% for the
+model's own band), still short of 80%. Each record also keeps the
+model's own bounds as `p10_raw`/`p90_raw`, and an `interval_method` label that
+matches the leaderboard's. Calibration never changes P50.
+
 Live URL: **https://cs-163-final-project-tra-f1136.wl.r.appspot.com**
 
-Refresh website data:
+Refresh website data (after `models/baselines/benchmarks.py`, which saves the
+fitted calibrator the export applies). If the export cannot match the
+calibrator to the leaderboard, it writes the other files but not
+`forecasts.json` (any previous one stays, now stale) and exits 1. The command:
 
 ```bash
 python scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
@@ -353,9 +384,42 @@ gcloud app deploy website/app.yaml --quiet
 
 Live URL: **https://transit-api-308878596074.us-west2.run.app**
 
-Model code: `machine_learning_files/api.py` (FastAPI service), `models/chronos2/finetune.py` (AutoGluon/Chronos training).
+(See the note under [Live Deployment](#live-deployment): that URL still runs an
+older image.)
 
-Start locally after building the feature store:
+The API serves **SARIMA airline (0,1,1)(0,1,1,12)**, the leaderboard's best
+model. Each `/forecast` fits it for the requested station on demand with the
+same functions `benchmarks.py` scores (`fit_station` / `predict_station` in
+`models/baselines/arima.py`):
+
+- **History:** months from `data.train_start` (2022-01) whose start is `<= as_of`.
+  Without `as_of`, that is Jan 2022 through Dec 2025 (the store's 2019 months
+  are never used), so the forecast covers Jan–Jun 2026.
+- **What the 3.21% means here:** it is the holdout score of this spec trained
+  through Jun 2025 (`"as_of": "2025-06-30"` reproduces those forecasts exactly).
+  The default forecast, refit through Dec 2025, has not been scored — its months
+  have no actuals yet.
+- **Intervals:** P10/P90 are SARIMA's own band (nominal 80%). It is not
+  calibrated, because no method passed validation. Its Jul–Dec 2025 holdout
+  forecasts covered 96.7% of actuals — over-wide. Each response says so in its
+  `interval` field (`"calibrated": false`, `"method": "none"`); see the output
+  below.
+- **`horizon_hours` counts months.** The name predates the monthly target; at
+  most 6 rows come back.
+- **Errors:** unknown station → `404`; malformed `as_of`, or one that leaves
+  fewer than 24 months of history → `400`. If `configs/model.yaml` names a
+  calibration method for SARIMA but no matching fitted calibrator ships with
+  the API (missing, unreadable or stale) → `503`, so a raw band is never served
+  under a calibrated label.
+
+Code: `machine_learning_files/api.py`. Tests (`requirements.txt` lacks `pytest` and `httpx`):
+
+```bash
+pip install fastapi==0.115.0 pydantic==2.7.0 pandas==2.2.0 pyarrow==16.0.0 numpy==1.26.4 PyYAML==6.0.1 scipy==1.14.1 statsmodels==0.14.4 httpx pytest
+python -m pytest tests/
+```
+
+Start locally (the feature store is committed, so no pipeline run is needed):
 
 ```bash
 uvicorn machine_learning_files.api:app --reload --port 8000
@@ -365,29 +429,40 @@ Endpoints:
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/health` | Service health, model/store load status |
+| `GET` | `/health` | Service health, served model, P10/P90 band label, feature-store load status |
 | `GET` | `/stations` | List of forecastable station IDs |
 | `POST` | `/forecast` | Request P10/P50/P90 quantile forecasts |
 | `GET` | `/docs` | Swagger UI (interactive API explorer) |
 
-**Input** (`POST /forecast`):
+**Input** (`POST /forecast`; `as_of` is optional):
 ```json
-{ "station_id": "EMBR", "horizon_hours": 6 }
+{ "station_id": "EM", "horizon_hours": 6 }
 ```
 
-**Output** (`POST /forecast`):
+**Output** (`POST /forecast`). The forecast row and `generated_at` are from a
+response (generated 2026-10-23 UTC) of an image built from `Dockerfile.api`
+before `model` and `interval` were added; first of six rows shown, values
+rounded here only. `model` and
+`interval` are shown as the API now returns them for SARIMA:
 ```json
 {
-  "station_id": "EMBR",
+  "station_id": "EM",
   "horizon_hours": 6,
-  "generated_at": "2025-06-01T12:00:00.000000Z",
+  "generated_at": "2026-10-23T03:31:46.115150Z",
+  "model": "SARIMA(0, 1, 1)x(0, 1, 1, 12)",
+  "interval": {
+    "calibrated": false,
+    "method": "none",
+    "nominal_level": 0.8,
+    "label": "raw: no method passed validation",
+    "description": "SARIMA's own P10/P90 band (nominal 80%), not calibrated: no method passed validation."
+  },
   "forecasts": [
-    { "timestamp": "2024-01-01", "p10": 42000, "p50": 58000, "p90": 74000 }
+    { "timestamp": "2026-01-01 00:00:00", "p10": 386519.9, "p50": 415136.9, "p90": 443753.8 }
   ]
 }
 ```
 
-The API serves from cached parquet in `models/chronos2/outputs/` when present. That directory is not committed and `Dockerfile.api` does not copy it, so a fresh checkout and an image built from `Dockerfile.api` have no cache: every request takes the live-inference path (`amazon/chronos-t5-small`, i.e. Chronos-1). That path needs `chronos-forecasting`, which `Dockerfile.api` does not install, so `/forecast` returns `503` from that image; only a server installed from `machine_learning_files/requirements.txt` can run it.
 
 ## Documentation
 
@@ -400,9 +475,9 @@ Additional project documentation:
 ## Known Limitations
 
 - The active modeled target is monthly BART OD ridership. Some files describe future higher-frequency transit support, but the current reliable pipeline is monthly.
-- Weather and event data are currently aggregated to the monthly modeling cadence.
+- Weather and event data are aggregated to the monthly modeling cadence, and both raw archives end in December 2023, so 2024–2025 rows (the test window included) have no weather and no games. No ranked model reads these columns.
 - `scripts/run_pipeline.sh` assumes `.venv311/bin/python` exists.
-- Chronos defaults to `cpu` in `configs/model.yaml` (suitable for Cloud Run); change it to `mps` on Apple Silicon or `cuda` on a GPU machine for faster inference.
+- Chronos (benchmarks only; the API does not run it) defaults to `cpu` in `configs/model.yaml`; change it to `mps` on Apple Silicon or `cuda` on a GPU machine for faster inference.
 - Some source fetchers require external credentials or manual data access.
 
 ## Troubleshooting

@@ -37,6 +37,10 @@ docs/interval-calibration.md (produced by evaluation/interval_study.py).
 
 from __future__ import annotations
 
+import json
+import math
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -605,3 +609,263 @@ def fit_shift_conformal(
             "bias": bias, "width": width, "n_by_group": n_by,
             "weight_sum": float(w_width[scored].sum()), "n_no_bias": int((~scored).sum()),
             "clipped_groups": clipped}
+
+
+# ── Which band a model gets, and serving it outside the benchmark run ─────────
+#
+# benchmarks.py fits each calibrator on the validation split (from a fit that
+# ends at train_end) and saves it with save_calibrator. Anything that publishes
+# a model's forecasts later — the website export, the API — calls serve_band,
+# which applies that saved calibrator, never refits one, and says which band it
+# returned. P50 is never changed.
+
+CALIBRATOR_FORMAT = 1
+
+
+class CalibratorUnavailable(RuntimeError):
+    """configs/model.yaml names a calibration method for a model, but no saved
+    calibrator matches it. Serving the raw band under that method's label would
+    misstate the interval, so callers refuse instead (the API answers 503, the
+    export writes nothing)."""
+
+
+def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> dict:
+    """The band configs/model.yaml assigns to `model_key`.
+
+    Returns {"model_key", "calibrated", "method", "group", "level", "reason",
+    "checkpoint_mismatch", "label", "description", "scheme", "half_life",
+    "half_life_given", "first_origin"}. `scheme` is "split" (one quantile
+    from the validation split's forecasts, the default) or "rolling" (a
+    weighted quantile over forecasts from monthly origins first_origin ..
+    val_end - 1 month, weight 0.5**(age / half_life); Sprint 5). `label` is the exact
+    string benchmarks.py writes to the leaderboard's Interval_method column,
+    so a published band can be matched to the coverage figure that scored it.
+    `description` is one plain sentence for people. `checkpoint_mismatch` is
+    True only when a configured method is set aside because it was validated
+    for another checkpoint.
+
+    A model that is not listed, or whose method is "none" (or empty), keeps its
+    own band; its reason is the configured one, or "not validated" when none is
+    given. So does a model whose method was validated for a different
+    checkpoint (`validated_for`) than the one that produced the forecasts.
+    """
+    ccfg = cfg.get("calibration") or {}
+    mcfg = (ccfg.get("models") or {}).get(model_key) or {}
+    level = float(ccfg.get("level", 0.8))
+    method = mcfg.get("method", "none")
+    group = mcfg.get("group", "pooled")
+    scheme = mcfg.get("scheme", "split")
+    plan = {"model_key": model_key, "level": level, "scheme": scheme,
+            "half_life": mcfg.get("half_life"), "half_life_given": "half_life" in mcfg,
+            "first_origin": mcfg.get("first_origin")}
+
+    # Raw or calibrated is decided here, from the method and the checkpoint
+    # alone; the reason text only labels a raw band. (Deciding from the reason
+    # turned `reason:` left blank in the YAML into "calibrated with method
+    # none".)
+    no_method = method in (None, "none")
+    validated_for = mcfg.get("validated_for")
+    checkpoint_mismatch = bool(
+        not no_method and validated_for and checkpoint and checkpoint != validated_for
+    )
+
+    if no_method or checkpoint_mismatch:
+        if checkpoint_mismatch:
+            reason = f"method validated for {validated_for} only"
+        else:
+            reason = mcfg.get("reason")
+            if reason is None or (isinstance(reason, str) and not reason.strip()):
+                reason = "not validated"
+        plan.update(
+            calibrated=False, method="none", group=None, reason=reason,
+            checkpoint_mismatch=checkpoint_mismatch,
+            label=f"raw: {reason}",
+            description=(f"{model_key}'s own P10/P90 band (nominal {level:.0%}), "
+                         f"not calibrated: {reason}."),
+        )
+        return plan
+
+    # An unknown method is not rejected here: fit_conformal and load_calibrator
+    # reject it, which benchmarks.py reports as a FAILED calibration and
+    # serve_band as CalibratorUnavailable.
+    if scheme == "rolling":
+        label = (f"rolling-origin conformal {method}/{group}, half-life {plan['half_life']} months, "
+                 f"fit on data to val_end")
+        description = (f"Conformal P10/P90 band ({method}/{group}, nominal {level:.0%}), fit on "
+                       f"{model_key}'s errors from monthly forecast origins up to the end of the "
+                       f"validation split, recent months weighted more.")
+    else:
+        # An unknown scheme gets this label too; benchmarks.py rejects it as a
+        # FAILED calibration and serve_band as CalibratorUnavailable.
+        label = f"split-conformal {method}/{group}, fit on validation"
+        description = (f"Split-conformal P10/P90 band ({method}/{group}, nominal "
+                       f"{level:.0%}), fit on {model_key}'s validation-split errors.")
+    plan.update(
+        calibrated=True, method=method, group=group, reason=None,
+        checkpoint_mismatch=False, label=label, description=description,
+    )
+    return plan
+
+
+def _encode_float(v: float):
+    """JSON has no inf/nan; write them as strings so the file stays strict JSON."""
+    v = float(v)
+    return v if math.isfinite(v) else str(v)
+
+
+def _decode_float(v) -> float:
+    return float(v)
+
+
+def save_calibrator(calibrator: dict, path, **provenance) -> None:
+    """Write a fitted calibrator to `path` as strict JSON.
+
+    q is stored as a list of [key, value] pairs, not a JSON object: an object
+    would turn horizon keys (ints) into strings, and apply_conformal would
+    then find no quantile for any row. Asymmetric quantiles are stored as
+    [q_lo, q_hi] and read back as tuples. `provenance` (model_key, checkpoint,
+    calibration window, ...) is stored alongside and checked by serve_band.
+    """
+    q = []
+    for key, val in calibrator["q"].items():
+        if isinstance(key, bool) or not isinstance(key, (int, str)):
+            raise TypeError(f"calibrator group key {key!r} is not an int or str")
+        q.append([key, [_encode_float(x) for x in val] if isinstance(val, tuple) else _encode_float(val)])
+    doc = {
+        "format": CALIBRATOR_FORMAT,
+        "method": calibrator["method"],
+        "group": calibrator["group"],
+        "level": float(calibrator["level"]),
+        "n": int(calibrator["n"]),
+        "q": q,
+        "provenance": provenance,
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, indent=2, allow_nan=False) + "\n")
+
+
+def load_calibrator(path) -> dict:
+    """Read a calibrator written by save_calibrator; apply_conformal accepts the
+    result as it does a freshly fitted one.
+
+    Raises OSError when the file cannot be read, and ValueError (including
+    json.JSONDecodeError) on a document this code did not write. A malformed
+    `q` or `level` can also raise KeyError or TypeError; serve_band turns all
+    of these into CalibratorUnavailable."""
+    doc = json.loads(Path(path).read_text())
+    if not isinstance(doc, dict):
+        raise ValueError(f"{path}: calibrator is a JSON {type(doc).__name__}, not an object")
+    provenance = doc.get("provenance")
+    if provenance is None:
+        provenance = {}
+    elif not isinstance(provenance, dict):
+        raise ValueError(f"{path}: calibrator provenance is a JSON {type(provenance).__name__}, not an object")
+    if doc.get("format") != CALIBRATOR_FORMAT:
+        raise ValueError(f"{path}: calibrator format {doc.get('format')!r}, expected {CALIBRATOR_FORMAT}")
+    method, group = doc.get("method"), doc.get("group")
+    if method not in METHODS or group not in GROUPS:
+        raise ValueError(f"{path}: unknown calibration method/group {method!r}/{group!r}")
+    q = {}
+    for key, val in doc["q"]:
+        if isinstance(val, list):
+            if method != "asym_relative" or len(val) != 2:
+                raise ValueError(f"{path}: quantile pair for group {key!r} under method {method!r}")
+            q[key] = (_decode_float(val[0]), _decode_float(val[1]))
+        else:
+            if method == "asym_relative":
+                raise ValueError(f"{path}: asym_relative needs a (q_lo, q_hi) pair for group {key!r}")
+            q[key] = _decode_float(val)
+    return {
+        "method": method,
+        "group": group,
+        "level": float(doc["level"]),
+        "n": int(doc["n"]),
+        "q": q,
+        "provenance": provenance,
+    }
+
+
+def serve_band(
+    preds: pd.DataFrame,
+    model_key: str,
+    cfg: dict,
+    calibrator_path=None,
+    checkpoint: str | None = None,
+) -> tuple[pd.DataFrame, dict]:
+    """The P10/P90 band configs/model.yaml assigns to `model_key`, applied to
+    forecasts made outside the benchmark run.
+
+    preds: one row per (station_id, timestamp) with p10/p50/p90, one
+        contiguous forecast block per station (so `horizon` can be counted).
+    calibrator_path: the file benchmarks.py saved for this model. Not read
+        when the model keeps its own band.
+
+    Returns (preds, plan). preds carries p10_raw/p90_raw (the model's own
+    bounds) beside p10/p90 (the band served); P50 is untouched. plan is
+    interval_plan's dict, plus "n" and "provenance" from the calibrator when
+    one was applied.
+
+    Raises CalibratorUnavailable when a method is configured but the file is
+    missing, unreadable, or was fitted for another method, group, level,
+    scheme, half-life, model, checkpoint or training split (provenance
+    `fit_end` other than the config's data.train_end for scheme split, or
+    data.val_end for scheme rolling; checked only when the config names it):
+    a stale calibrator would publish a band nobody scored.
+    """
+    plan = interval_plan(model_key, cfg, checkpoint)
+    if not plan["calibrated"]:
+        return no_calibration(preds), plan
+
+    try:
+        present = calibrator_path is not None and Path(calibrator_path).exists()
+    except OSError as e:  # e.g. an unsearchable parent directory on Python <= 3.11
+        raise CalibratorUnavailable(f"{model_key}: cannot read calibrator {calibrator_path}: {e!r}") from e
+    if not present:
+        raise CalibratorUnavailable(
+            f"{model_key}: configs/model.yaml calibrates this model's band "
+            f"({plan['method']}/{plan['group']}) but no saved calibrator was found"
+            f"{f' at {calibrator_path}' if calibrator_path is not None else ''}; "
+            f"run models/baselines/benchmarks.py to fit it"
+        )
+    try:
+        cal = load_calibrator(calibrator_path)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise CalibratorUnavailable(f"{model_key}: unreadable calibrator {calibrator_path}: {e!r}") from e
+
+    prov = cal["provenance"]
+    if plan["scheme"] not in ("split", "rolling"):
+        raise CalibratorUnavailable(f"{model_key}: unknown calibration scheme {plan['scheme']!r}")
+    # A split calibrator is fit on the validation window (fit ending
+    # train_end); a rolling one on every target resolved by val_end.
+    end_key = "val_end" if plan["scheme"] == "rolling" else "train_end"
+    fit_end_expected = (cfg.get("data") or {}).get(end_key)
+    mismatches = []
+    if prov.get("scheme", "split") != plan["scheme"]:
+        mismatches.append(f"scheme {prov.get('scheme', 'split')!r} (config: {plan['scheme']!r})")
+    elif plan["scheme"] == "rolling" and (prov.get("half_life") != plan["half_life"]
+                                          or str(prov.get("first_origin")) != str(plan["first_origin"])):
+        mismatches.append(f"half_life/first_origin {prov.get('half_life')!r}/{prov.get('first_origin')!r} "
+                          f"(config: {plan['half_life']!r}/{plan['first_origin']!r})")
+    if (cal["method"], cal["group"]) != (plan["method"], plan["group"]):
+        mismatches.append(f"method {cal['method']}/{cal['group']} (config: {plan['method']}/{plan['group']})")
+    if cal["level"] != plan["level"]:
+        mismatches.append(f"level {cal['level']} (config: {plan['level']})")
+    if prov.get("model_key") != model_key:
+        mismatches.append(f"model {prov.get('model_key')!r}")
+    if checkpoint is not None and prov.get("checkpoint") != checkpoint:
+        mismatches.append(f"checkpoint {prov.get('checkpoint')!r} (serving: {checkpoint!r})")
+    # A calibrator from a run on other splits (or saved with no fit_end at
+    # all) was not fitted on this config's data.
+    if fit_end_expected is not None and ("fit_end" not in prov or str(prov["fit_end"]) != str(fit_end_expected)):
+        mismatches.append(f"fit_end {prov.get('fit_end')!r} (config {end_key}: {str(fit_end_expected)!r})")
+    if mismatches:
+        raise CalibratorUnavailable(
+            f"{model_key}: saved calibrator {calibrator_path} does not match: "
+            + "; ".join(mismatches)
+        )
+
+    out = apply_conformal(add_horizon(preds), cal)
+    if "horizon" not in preds.columns:
+        out = out.drop(columns="horizon")
+    return out, {**plan, "n": cal["n"], "provenance": prov}
