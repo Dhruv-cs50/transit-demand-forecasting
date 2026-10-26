@@ -489,7 +489,11 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     """The band configs/model.yaml assigns to `model_key`.
 
     Returns {"model_key", "calibrated", "method", "group", "level", "reason",
-    "checkpoint_mismatch", "label", "description"}. `label` is the exact
+    "checkpoint_mismatch", "label", "description", "scheme", "half_life",
+    "half_life_given", "first_origin"}. `scheme` is "split" (one quantile
+    from the validation split's forecasts, the default) or "rolling" (a
+    weighted quantile over forecasts from monthly origins first_origin ..
+    val_end - 1 month, weight 0.5**(age / half_life); Sprint 5). `label` is the exact
     string benchmarks.py writes to the leaderboard's Interval_method column,
     so a published band can be matched to the coverage figure that scored it.
     `description` is one plain sentence for people. `checkpoint_mismatch` is
@@ -506,7 +510,10 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     level = float(ccfg.get("level", 0.8))
     method = mcfg.get("method", "none")
     group = mcfg.get("group", "pooled")
-    plan = {"model_key": model_key, "level": level}
+    scheme = mcfg.get("scheme", "split")
+    plan = {"model_key": model_key, "level": level, "scheme": scheme,
+            "half_life": mcfg.get("half_life"), "half_life_given": "half_life" in mcfg,
+            "first_origin": mcfg.get("first_origin")}
 
     # Raw or calibrated is decided here, from the method and the checkpoint
     # alone; the reason text only labels a raw band. (Deciding from the reason
@@ -537,12 +544,21 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     # An unknown method is not rejected here: fit_conformal and load_calibrator
     # reject it, which benchmarks.py reports as a FAILED calibration and
     # serve_band as CalibratorUnavailable.
+    if scheme == "rolling":
+        label = (f"rolling-origin conformal {method}/{group}, half-life {plan['half_life']} months, "
+                 f"fit on data to val_end")
+        description = (f"Conformal P10/P90 band ({method}/{group}, nominal {level:.0%}), fit on "
+                       f"{model_key}'s errors from monthly forecast origins up to the end of the "
+                       f"validation split, recent months weighted more.")
+    else:
+        # An unknown scheme gets this label too; benchmarks.py rejects it as a
+        # FAILED calibration and serve_band as CalibratorUnavailable.
+        label = f"split-conformal {method}/{group}, fit on validation"
+        description = (f"Split-conformal P10/P90 band ({method}/{group}, nominal "
+                       f"{level:.0%}), fit on {model_key}'s validation-split errors.")
     plan.update(
         calibrated=True, method=method, group=group, reason=None,
-        checkpoint_mismatch=False,
-        label=f"split-conformal {method}/{group}, fit on validation",
-        description=(f"Split-conformal P10/P90 band ({method}/{group}, nominal "
-                     f"{level:.0%}), fit on {model_key}'s validation-split errors."),
+        checkpoint_mismatch=False, label=label, description=description,
     )
     return plan
 
@@ -648,8 +664,9 @@ def serve_band(
 
     Raises CalibratorUnavailable when a method is configured but the file is
     missing, unreadable, or was fitted for another method, group, level,
-    model, checkpoint or training split (provenance `fit_end` other than the
-    config's data.train_end; checked only when the config names a train_end):
+    scheme, half-life, model, checkpoint or training split (provenance
+    `fit_end` other than the config's data.train_end for scheme split, or
+    data.val_end for scheme rolling; checked only when the config names it):
     a stale calibrator would publish a band nobody scored.
     """
     plan = interval_plan(model_key, cfg, checkpoint)
@@ -673,8 +690,19 @@ def serve_band(
         raise CalibratorUnavailable(f"{model_key}: unreadable calibrator {calibrator_path}: {e!r}") from e
 
     prov = cal["provenance"]
-    train_end = (cfg.get("data") or {}).get("train_end")
+    if plan["scheme"] not in ("split", "rolling"):
+        raise CalibratorUnavailable(f"{model_key}: unknown calibration scheme {plan['scheme']!r}")
+    # A split calibrator is fit on the validation window (fit ending
+    # train_end); a rolling one on every target resolved by val_end.
+    end_key = "val_end" if plan["scheme"] == "rolling" else "train_end"
+    fit_end_expected = (cfg.get("data") or {}).get(end_key)
     mismatches = []
+    if prov.get("scheme", "split") != plan["scheme"]:
+        mismatches.append(f"scheme {prov.get('scheme', 'split')!r} (config: {plan['scheme']!r})")
+    elif plan["scheme"] == "rolling" and (prov.get("half_life") != plan["half_life"]
+                                          or str(prov.get("first_origin")) != str(plan["first_origin"])):
+        mismatches.append(f"half_life/first_origin {prov.get('half_life')!r}/{prov.get('first_origin')!r} "
+                          f"(config: {plan['half_life']!r}/{plan['first_origin']!r})")
     if (cal["method"], cal["group"]) != (plan["method"], plan["group"]):
         mismatches.append(f"method {cal['method']}/{cal['group']} (config: {plan['method']}/{plan['group']})")
     if cal["level"] != plan["level"]:
@@ -684,9 +712,9 @@ def serve_band(
     if checkpoint is not None and prov.get("checkpoint") != checkpoint:
         mismatches.append(f"checkpoint {prov.get('checkpoint')!r} (serving: {checkpoint!r})")
     # A calibrator from a run on other splits (or saved with no fit_end at
-    # all) was not fitted on this config's validation window.
-    if train_end is not None and ("fit_end" not in prov or str(prov["fit_end"]) != str(train_end)):
-        mismatches.append(f"fit_end {prov.get('fit_end')!r} (config train_end: {str(train_end)!r})")
+    # all) was not fitted on this config's data.
+    if fit_end_expected is not None and ("fit_end" not in prov or str(prov["fit_end"]) != str(fit_end_expected)):
+        mismatches.append(f"fit_end {prov.get('fit_end')!r} (config {end_key}: {str(fit_end_expected)!r})")
     if mismatches:
         raise CalibratorUnavailable(
             f"{model_key}: saved calibrator {calibrator_path} does not match: "
