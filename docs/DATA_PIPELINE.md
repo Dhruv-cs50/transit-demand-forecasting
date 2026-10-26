@@ -83,10 +83,14 @@ python models/baselines/benchmarks.py
 
 Expected outputs include:
 
-- `models/chronos2/outputs/zero_shot_forecasts_*.parquet`
+- `models/chronos2/outputs/zero_shot_forecasts_*.parquet` — written by
+  `zero_shot.py`. Not what the website publishes; step 6 does not read it.
 - `models/baselines/outputs/`
 - `models/chronos2/weights/`
 - `evaluation/outputs/benchmark_leaderboard.csv`
+- `evaluation/outputs/chronos2_zeroshot_preds.parquet` — the Chronos
+  zero-shot test-window predictions, written by `models/baselines/benchmarks.py`
+  and scored on the leaderboard. Step 6 reads it for `forecasts.json`.
 
 ### 6. Export website data
 
@@ -94,13 +98,39 @@ Expected outputs include:
 python scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
 ```
 
+Run it from the repo root: the `evaluation/outputs/` inputs are read relative to
+the working directory. Every station id in the outputs is the store's
+two-letter BART workbook code (`EM`, `MT`, `12`, ...); names, website node ids
+and weather locations come from `machine_learning_files/bart_stations.py`.
+
 Expected outputs:
 
-- `website/data/stations_ridership.json`
-- `website/data/stations_meta.json`
-- `website/data/ridership_actuals.json`
-- `website/data/forecasts.json`
-- `website/data/model_comparison.json`
+- `website/data/stations_ridership.json` — object keyed by station code, all
+  stations: name, website node id (or null), average monthly ridership over the
+  store's latest 12 months and that average on a 0–2.4 heat scale.
+- `website/data/stations_meta.json` — list of all stations (`bart_id` = code)
+  with API code, website node id, name, weather station and that average,
+  highest average first.
+- `website/data/ridership_actuals.json` — every feature-store row, keyed by
+  station code and month: monthly ridership and a daily estimate.
+- `website/data/forecasts.json` — keyed by station code and month: the Chronos
+  zero-shot P10/P50/P90 test-month predictions that
+  `models/baselines/benchmarks.py` scored on the leaderboard
+  (`evaluation/outputs/chronos2_zeroshot_preds.parquet`). Needs `benchmarks.py`
+  to have run with the Chronos row accepted: one overall Chronos row in
+  `benchmark_leaderboard.csv`, every prediction `model_mode == "zeroshot"`,
+  one prediction per station and month, and as many predictions as that row's
+  `n` (and `n_expected`). Otherwise the export refuses it: an error is logged,
+  no `forecasts.json` is written (an existing one is left as it is, and is
+  then stale), the other four files are still written, and the export
+  **exits 1**, so `scripts/run_pipeline.sh` stops before its deploy message.
+- `website/data/model_comparison.json` — one entry per model from
+  `evaluation/outputs/benchmark_leaderboard.csv`.
+
+The export also exits 1 **before writing any file** when
+`benchmark_leaderboard.csv` is missing (unless `--allow-val-fallback` is
+given), or when any station in `bart_stations.py` has no feature-store rows in
+the averaging window or a non-finite average.
 
 ### 7. Deploy website
 
@@ -131,7 +161,7 @@ The minimum columns expected by validators and downstream scripts are:
 | Column | Type | Notes |
 | --- | --- | --- |
 | `timestamp` | datetime | Current cadence is month start. |
-| `station_id` | string | BART OD origin station code in the active pipeline. |
+| `station_id` | string | Two-letter BART workbook code of the origin (entry) station, e.g. `EM`, `12`; the station table is `machine_learning_files/bart_stations.py`. |
 | `ridership` | numeric | Forecast target. |
 
 Common optional columns include:

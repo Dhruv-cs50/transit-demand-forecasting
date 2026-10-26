@@ -88,11 +88,11 @@ flowchart TD
 | Feature engineering | `Processing/feature_engineering.py` | Add calendar, weather, event, lag, rolling, station covariates |
 | Validation | `evaluation/validators.py` | Schema checks, missing windows, coverage, anomaly detection |
 | Forecasting | `machine_learning_files/zero_shot.py`, `models/chronos2/`, `models/baselines/` | Produce forecast parquet files |
-| Website export | `scripts/export_website_data.py` | Convert model artifacts into `website/data/*.json` |
-| API service | `machine_learning_files/api.py` | FastAPI: fits SARIMA (`models/baselines/arima.py`) for the requested station on each `/forecast` and returns P10/P50/P90 |
+| Website export | `scripts/export_website_data.py` | Convert model artifacts into `website/data/*.json`. `forecasts.json` gets Chronos-1's split-conformal P10/P90 band (the saved calibrator applied, never refit; 72.7% test coverage, not a dependable 80% interval), the model's own bounds as `p10_raw`/`p90_raw`, and an `interval_method` label |
+| API service | `machine_learning_files/api.py` | FastAPI: fits SARIMA (`models/baselines/arima.py`) for the requested station on each `/forecast` and returns P10/P50/P90, with an `interval` field saying which band P10/P90 is |
 | Website | `website/` | React/Babel static frontend deployed on App Engine Standard |
 | Docker (pipeline) | `Dockerfile` | Reproducible full pipeline container |
-| Docker (serving) | `Dockerfile.api` | API image: `api.py`, `arima.py`, config, the committed `feature_store.parquet`, and `statsmodels`. No forecast cache, no `chronos-forecasting` |
+| Docker (serving) | `Dockerfile.api` | API image: `api.py`, `arima.py`, `evaluation/calibration.py` (picks and labels the band), config, the committed `feature_store.parquet`, and `statsmodels`. No forecast cache, no calibrator file, no `chronos-forecasting` |
 | Cloud build | `cloudbuild.yaml` | Build `Dockerfile.api` for `linux/amd64`, push to Artifact Registry |
 
 ## Data Flow
@@ -133,6 +133,7 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
 
 \* `Dockerfile.api` takes no forecast outputs. It bakes in `feature_store.parquet`
 (committed) and `models/baselines/arima.py`, and the API fits SARIMA per request.
+It takes no calibrator either: SARIMA's band is served raw, so none is read.
 
 ## Artifact Contracts
 
@@ -141,7 +142,7 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `timestamp` | datetime | Month start (`MS` cadence) |
-| `station_id` | string | BART OD origin station code |
+| `station_id` | string | BART's two-letter workbook code for the OD origin station (`EM`, `12`); names, website ids and weather locations come from `machine_learning_files/bart_stations.py` |
 | `station_name` | string | Human-readable station name |
 | `ridership` | int | Monthly boardings (target variable) |
 | `agency_id` | string | `BA` for BART |
@@ -151,14 +152,22 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
 
 | Method | Path | Input | Output |
 | --- | --- | --- | --- |
-| GET | `/health` | — | `{status, timestamp, model, store_loaded}` |
+| GET | `/health` | — | `{status, timestamp, model, interval, store_loaded}` (`interval` is the band label) |
 | GET | `/stations` | — | `{stations: [station_id, ...], count}` |
-| POST | `/forecast` | `{station_id, horizon_hours, as_of?}` | `{station_id, horizon_hours, generated_at, forecasts: [{timestamp, p10, p50, p90}]}` |
+| POST | `/forecast` | `{station_id, horizon_hours, as_of?}` | `{station_id, horizon_hours, generated_at, model, interval: {calibrated, method, nominal_level, label, description}, forecasts: [{timestamp, p10, p50, p90}]}` |
 
 `horizon_hours` counts **months** (the name predates the monthly target); at
 most 6 rows come back. `as_of` picks the history: months whose start is
 `<= as_of`, from `data.train_start` on. Fewer than 24 such months is a `400`;
 an unknown station is a `404`.
+
+`interval` says which P10/P90 band the response carries; `label` is the
+leaderboard's `Interval_method` string. Today it is SARIMA's own band (nominal
+80%), not calibrated because no method passed validation (`calibrated: false`,
+`method: "none"`). If `configs/model.yaml` names a method for SARIMA and no
+matching saved calibrator is in the image, `/forecast` returns `503` rather than
+serve the raw band under a calibrated label. See
+[interval-calibration.md](interval-calibration.md#serving).
 
 ### Chronological Splits
 

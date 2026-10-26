@@ -16,7 +16,7 @@ something is wrong.
 
 Usage:
     python models/baselines/arima.py
-    python models/baselines/arima.py --station EMBR
+    python models/baselines/arima.py --station EM
 """
 
 from __future__ import annotations

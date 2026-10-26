@@ -42,8 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from evaluation.metrics import wape, mae, rmse, mape, smape, coverage, mase, _infer_seasonal_period
 from evaluation.calibration import (
-    add_horizon, apply_conformal, describe, fit_conformal, fit_rolling_conformal, no_calibration,
-    with_origin_horizon,
+    add_horizon, apply_conformal, describe, fit_conformal, fit_rolling_conformal, interval_plan,
+    no_calibration, save_calibrator, with_origin_horizon,
 )
 
 logging.basicConfig(
@@ -59,6 +59,9 @@ CONFIG_PATH   = Path("configs/model.yaml")
 # train_end) go here, so they never overwrite the test forecasts each model
 # saves under its default path.
 CAL_DIR       = EVAL_DIR / "calibration"
+# Fitted calibrators, one JSON per model key, read back by
+# scripts/export_website_data.py through evaluation.calibration.serve_band.
+CALIBRATOR_DIR = CAL_DIR / "calibrators"
 
 
 def load_config() -> dict:
@@ -306,6 +309,7 @@ def calibrate_intervals(
     val_df: pd.DataFrame,
     cfg: dict,
     checkpoint: str = None,
+    calibrator_path: Path = None,
     make_origin_preds=None,
     history_df: pd.DataFrame = None,
     as_of: pd.Timestamp = None,
@@ -331,6 +335,14 @@ def calibrate_intervals(
     make_val_preds: zero-argument callable returning the model's validation-
         window forecasts. It is called after the test forecasts exist, so the
         test run is unchanged.
+    calibrator_path: where to save the fitted calibrator, so the website
+        export and the API serve the band this leaderboard row scores (see
+        evaluation.calibration.serve_band). Any file already there is removed
+        first: a model left raw, or a failed calibration, leaves no calibrator
+        behind for a later step to apply. A file that cannot be removed or
+        written is logged as an error and does not change the returned band or
+        label; the export and the API then refuse this model's calibrated band
+        for lack of a matching file.
 
     `scheme: rolling` (Sprint 5) calibrates on a pool instead of one window:
     forecasts from every monthly origin from `first_origin` to one month
@@ -349,52 +361,49 @@ def calibrate_intervals(
     missing calibrated coverage rather than quietly publishing the raw band
     under the calibrated column.
     """
-    ccfg = cfg.get("calibration") or {}
-    mcfg = (ccfg.get("models") or {}).get(model_key) or {}
-    method = mcfg.get("method", "none")
-    if method in (None, "none"):
-        return no_calibration(test_preds), f"raw: {mcfg.get('reason', 'not validated')}"
-    validated_for = mcfg.get("validated_for")
-    if validated_for and checkpoint and checkpoint != validated_for:
-        log.warning(f"  {model_name}: calibration method was validated for {validated_for}, "
-                    f"not {checkpoint}; keeping the model's own band")
-        return no_calibration(test_preds), f"raw: method validated for {validated_for} only"
+    if calibrator_path is not None:
+        _remove_calibrator(calibrator_path, model_name)
 
-    group = mcfg.get("group", "pooled")
-    scheme = mcfg.get("scheme", "split")
-    level = float(ccfg.get("level", 0.8))
-    if scheme == "rolling" and "half_life" not in mcfg:
+    plan = interval_plan(model_key, cfg, checkpoint)
+    if not plan["calibrated"]:
+        if plan["checkpoint_mismatch"]:
+            log.warning(f"  {model_name}: calibration {plan['reason']}, not {checkpoint}; "
+                        f"keeping the model's own band")
+        return no_calibration(test_preds), plan["label"]
+
+    method, group, label, scheme = plan["method"], plan["group"], plan["label"], plan["scheme"]
+    if scheme == "rolling" and not plan["half_life_given"]:
         # A missing half_life would silently mean equal weights, a different
         # method from the one chosen; null must be written out to ask for it.
         log.error(f"  {model_name}: scheme rolling needs half_life (null for equal weights)")
         out = no_calibration(test_preds)
         out["p10"], out["p90"] = np.nan, np.nan
         return out, f"FAILED: {method}/{group} (no half_life)"
-    if scheme == "rolling":
-        label = (f"rolling-origin conformal {method}/{group}, half-life {mcfg.get('half_life')} months, "
-                 f"fit on data to val_end")
-    else:
-        label = f"split-conformal {method}/{group}, fit on validation"
     try:
         if scheme == "rolling":
             pool = _rolling_origin_pool(make_origin_preds, history_df, as_of,
-                                        mcfg.get("first_origin"), cfg)
-            calibrator = fit_rolling_conformal(pool, method, group, level, as_of,
-                                               half_life=mcfg.get("half_life"))
-            log.info(f"  interval calibration: {describe(calibrator)}")
-            return apply_conformal(with_origin_horizon(test_preds, as_of), calibrator), label
-        if scheme != "split":
+                                        plan["first_origin"], cfg)
+            calibrator = fit_rolling_conformal(pool, method, group, plan["level"], as_of,
+                                               half_life=plan["half_life"])
+            calibrated = apply_conformal(with_origin_horizon(test_preds, as_of), calibrator)
+            # Fitted on every resolved target up to as_of (val_end).
+            fit_end = (cfg.get("data") or {}).get("val_end")
+            months = pd.to_datetime(pool.loc[pool["timestamp"] <= as_of, "timestamp"])
+        elif scheme == "split":
+            val_preds = make_val_preds()
+            if val_preds is None or val_preds.empty:
+                raise ValueError("no validation-window forecasts")
+            cal = val_df[["timestamp", "station_id", "ridership"]].merge(
+                val_preds[["timestamp", "station_id", "p10", "p50", "p90"]],
+                on=["timestamp", "station_id"], how="left",
+            )
+            calibrator = fit_conformal(add_horizon(cal), method=method, group=group, level=plan["level"])
+            calibrated = apply_conformal(add_horizon(test_preds), calibrator)
+            fit_end = (cfg.get("data") or {}).get("train_end")
+            months = pd.to_datetime(val_df["timestamp"])
+        else:
             raise ValueError(f"unknown calibration scheme {scheme!r}")
-        val_preds = make_val_preds()
-        if val_preds is None or val_preds.empty:
-            raise ValueError("no validation-window forecasts")
-        cal = val_df[["timestamp", "station_id", "ridership"]].merge(
-            val_preds[["timestamp", "station_id", "p10", "p50", "p90"]],
-            on=["timestamp", "station_id"], how="left",
-        )
-        calibrator = fit_conformal(add_horizon(cal), method=method, group=group, level=level)
         log.info(f"  interval calibration: {describe(calibrator)}")
-        return apply_conformal(add_horizon(test_preds), calibrator), label
     except Exception as e:
         log.error(
             f"  {model_name}: interval calibration FAILED ({e}); calibrated "
@@ -404,6 +413,73 @@ def calibrate_intervals(
         out = no_calibration(test_preds)
         out["p10"], out["p90"] = np.nan, np.nan
         return out, f"FAILED: {method}/{group}"
+
+    # Saving is outside the scoring try: the leaderboard row scores the band
+    # computed above whether or not the file can be written.
+    if calibrator_path is not None:
+        try:
+            extra = ({"scheme": "rolling", "half_life": plan["half_life"],
+                      "first_origin": str(plan["first_origin"])} if scheme == "rolling" else {})
+            save_calibrator(
+                calibrator, calibrator_path,
+                model_key=model_key, model=model_name, checkpoint=checkpoint, label=label,
+                fit_end=str(fit_end),
+                window=[months.min().strftime("%Y-%m-%d"), months.max().strftime("%Y-%m-%d")],
+                **extra,
+            )
+            log.info(f"  calibrator saved → {calibrator_path}")
+        except Exception as e:
+            log.error(
+                f"  {model_name}: could not save the calibrator to {calibrator_path} ({e!r}). "
+                f"The leaderboard row is unaffected, but the website export and the API "
+                f"will refuse this model's calibrated band until a run saves it."
+            )
+            # A partly written file must not be left for serve_band to find.
+            _remove_calibrator(calibrator_path, model_name)
+    return calibrated, label
+
+
+def _remove_calibrator(path: Path, model_name: str) -> None:
+    """Delete a saved calibrator if present. A failure is logged, not raised:
+    whether a file can be removed must not change the leaderboard."""
+    try:
+        Path(path).unlink(missing_ok=True)
+    except NotADirectoryError:
+        pass  # a parent is a regular file, so no calibrator can exist there
+    except OSError as e:
+        log.error(f"  {model_name}: could not remove the calibrator at {path} ({e!r}); "
+                  f"a stale file there could be served")
+
+
+def accept_rows_and_calibrator(rows: list[dict], model_name: str, calibrator_path: Path) -> list[dict]:
+    """accept_model_rows, and a rejected model's calibrator goes with it.
+
+    A model can be rejected after calibrate_intervals saved its calibrator in
+    this run (same fit_end), so serve_band would otherwise serve a band whose
+    leaderboard row was never published."""
+    accepted = accept_model_rows(rows, model_name)
+    if not accepted:
+        _remove_calibrator(calibrator_path, model_name)
+    return accepted
+
+
+def clear_saved_calibrators(directory: Path) -> int:
+    """Remove every saved calibrator (*.json directly in `directory`) and return
+    how many were removed. run_benchmarks calls this once at the start, so any
+    calibrator present afterwards was fitted by that run: a --quick run, a
+    model that crashes or is skipped, or a model rejected later, cannot leave
+    an older run's file behind. A missing directory has nothing to clear; a
+    file that cannot be removed raises, before any model has run."""
+    directory = Path(directory)
+    if not directory.is_dir():
+        return 0
+    removed = 0
+    for path in sorted(directory.glob("*.json")):
+        if path.is_dir() and not path.is_symlink():
+            continue
+        path.unlink(missing_ok=True)
+        removed += 1
+    return removed
 
 
 def _rolling_origin_pool(make_origin_preds, history_df: pd.DataFrame, as_of: pd.Timestamp,
@@ -609,6 +685,10 @@ def run_benchmarks(
     Run all models on the test set and produce a leaderboard.
     """
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
+    # Every calibrator left by an earlier run goes first, so a file present
+    # after this run was fitted by it (see clear_saved_calibrators).
+    removed = clear_saved_calibrators(CALIBRATOR_DIR)
+    log.info(f"Removed {removed} saved calibrator(s) from {CALIBRATOR_DIR} before this run")
 
     def _match_tz(ts: pd.Timestamp) -> pd.Timestamp:
         # Compare in the same tz space as df["timestamp"] — the feature store
@@ -653,7 +733,7 @@ def run_benchmarks(
         naive_preds, naive_interval = calibrate_intervals(
             "SeasonalNaive", "SeasonalNaive", naive_preds,
             lambda: seasonal_naive_forecast(train_df[train_df["timestamp"] <= train_end], val_df, freq),
-            val_df, cfg,
+            val_df, cfg, calibrator_path=CALIBRATOR_DIR / "SeasonalNaive.json",
             make_origin_preds=lambda o, cut: seasonal_naive_forecast(
                 train_df[train_df["timestamp"] <= o],
                 df[(df["timestamp"] > o) & (df["timestamp"] <= cut)], freq),
@@ -662,7 +742,7 @@ def run_benchmarks(
         model_preds["SeasonalNaive"] = naive_preds
         rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df,
                                interval_method=naive_interval)
-        rows = accept_model_rows(rows, "SeasonalNaive")
+        rows = accept_rows_and_calibrator(rows, "SeasonalNaive", CALIBRATOR_DIR / "SeasonalNaive.json")
         all_rows.extend(rows)
         log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
 
@@ -680,12 +760,12 @@ def run_benchmarks(
                     lambda: run_arima_all_stations(
                         df, cfg, output_dir=CAL_DIR / "arima", train_cutoff=train_end,
                         horizon_steps=horizon_steps, freq=freq),
-                    val_df, cfg,
+                    val_df, cfg, calibrator_path=CALIBRATOR_DIR / "SARIMA.json",
                 )
                 model_preds["SARIMA"] = arima_preds
                 rows = compute_metrics(test_df, arima_preds, "SARIMA", train_df=train_df,
                                        interval_method=arima_interval)
-                rows = accept_model_rows(rows, "SARIMA")
+                rows = accept_rows_and_calibrator(rows, "SARIMA", CALIBRATOR_DIR / "SARIMA.json")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -704,7 +784,7 @@ def run_benchmarks(
                     lambda: run_prophet_all_stations(
                         df, cfg, output_dir=CAL_DIR / "prophet", train_cutoff=train_end,
                         horizon_steps=horizon_steps, freq=freq),
-                    val_df, cfg,
+                    val_df, cfg, calibrator_path=CALIBRATOR_DIR / "Prophet.json",
                     make_origin_preds=lambda o, cut: run_prophet_all_stations(
                         df[df["timestamp"] <= cut], cfg,
                         output_dir=CAL_DIR / "prophet_rolling" / f"{o:%Y-%m-%d}",
@@ -714,7 +794,7 @@ def run_benchmarks(
                 model_preds["Prophet"] = prophet_preds
                 rows = compute_metrics(test_df, prophet_preds, "Prophet", train_df=train_df,
                                        interval_method=prophet_interval)
-                rows = accept_model_rows(rows, "Prophet")
+                rows = accept_rows_and_calibrator(rows, "Prophet", CALIBRATOR_DIR / "Prophet.json")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:
@@ -763,11 +843,12 @@ def run_benchmarks(
                 lambda: _forecast_checked(predictor, train_end, val_end,
                                           CAL_DIR / "chronos2_zeroshot_val_preds.parquet", "zeroshot"),
                 val_df, cfg, checkpoint=checkpoint,
+                calibrator_path=CALIBRATOR_DIR / "Chronos.json",
             )
             model_preds[chronos_label] = zs_preds
             rows = compute_metrics(test_df, zs_preds, chronos_label, train_df=train_df,
                                    interval_method=zs_interval)
-            rows = accept_model_rows(rows, chronos_label)
+            rows = accept_rows_and_calibrator(rows, chronos_label, CALIBRATOR_DIR / "Chronos.json")
             all_rows.extend(rows)
             log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
     except Exception as e:
@@ -790,12 +871,12 @@ def run_benchmarks(
                     "AutoGluon_Ensemble", "AutoGluon_Ensemble", ft_preds,
                     lambda: _forecast_checked(predictor, train_end, val_end,
                                               CAL_DIR / "chronos2_finetuned_val_preds.parquet", "finetuned"),
-                    val_df, cfg,
+                    val_df, cfg, calibrator_path=CALIBRATOR_DIR / "AutoGluon_Ensemble.json",
                 )
                 model_preds["AutoGluon_Ensemble"] = ft_preds
                 rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble", train_df=train_df,
                                        interval_method=ft_interval)
-                rows = accept_model_rows(rows, "AutoGluon_Ensemble")
+                rows = accept_rows_and_calibrator(rows, "AutoGluon_Ensemble", CALIBRATOR_DIR / "AutoGluon_Ensemble.json")
                 all_rows.extend(rows)
                 log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
         except Exception as e:

@@ -125,7 +125,8 @@ input[type=range]{width:100%;accent-color:var(--primary);cursor:pointer;margin-t
     <p>
       Live interface for the <b>Bay Area Transit Demand Forecast</b> FastAPI service.
       Fits SARIMA — the best model on the benchmark leaderboard — per request and returns P10/P50/P90
-      monthly ridership per BART station for up to 6 months.
+      monthly ridership per BART station for up to 6 months. Newer versions of the API say in each response
+      which P10/P90 band they return; the result below shows that description, or says when the API does not give one.
     </p>
     <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <span id="healthBadge" class="status loading"><span class="status-dot"></span>Checking…</span>
@@ -215,7 +216,7 @@ Content-Type: application/json
     <h3 style="font-size:15px;margin-bottom:14px">Try with curl</h3>
     <pre id="curlExample" class="mono" style="background:var(--bg-muted);border-radius:8px;padding:14px;font-size:12px;overflow-x:auto;margin:0;color:var(--ink);white-space:pre-wrap">curl -X POST https://&lt;your-url&gt;/forecast \
   -H "Content-Type: application/json" \
-  -d '{"station_id":"EMBR","horizon_hours":6}'</pre>
+  -d '{"station_id":"EM","horizon_hours":6}'</pre>
   </div>
 </main>
 
@@ -248,6 +249,21 @@ function fmtRiders(n) {
   return String(Math.round(n));
 }
 
+/* Text from the API or the form goes into innerHTML templates, so escape it. */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
+
+/* Which P10/P90 band the response returned, in the API's own words
+   (`interval.description`). Older API versions send no `interval`. */
+function intervalNote(interval) {
+  const d = interval && interval.description;
+  if (typeof d === 'string' && d.trim()) return d.trim();
+  return 'P10/P90: band not labelled by this API version; not a validated 80% interval.';
+}
+
 /* ── Health check ── */
 async function pingHealth() {
   const badge = document.getElementById('healthBadge');
@@ -272,31 +288,62 @@ async function pingHealth() {
 }
 
 /* ── Load stations ── */
+/* Station names from the static export (data/stations_meta.json), keyed by
+   BART's two-letter code. Optional: without them options show the bare code.
+   They load in parallel with /stations and label the options whenever they
+   arrive, before or after the list. */
+let stationNames = {};
+
+async function loadStationNames() {
+  const names = {};
+  try {
+    const res = await fetch('data/stations_meta.json', { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return names;
+    const meta = await res.json();
+    (Array.isArray(meta) ? meta : []).forEach(m => {
+      if (m && m.bart_id && m.station_name) names[m.bart_id] = m.station_name;
+    });
+  } catch(e) { /* keep bare codes */ }
+  return names;
+}
+
+function stationLabel(code) {
+  return stationNames[code] ? `${code} — ${stationNames[code]}` : code;
+}
+
+function fillStations(sel, codes) {
+  sel.innerHTML = '<option value="">— select station —</option>';
+  codes.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = stationLabel(s);
+    sel.appendChild(opt);
+  });
+}
+
+/* Relabel the options already in place; the selection is left as it is. */
+function relabelStations(sel) {
+  Array.from(sel.options).forEach(opt => {
+    if (opt.value) opt.textContent = stationLabel(opt.value);
+  });
+}
+
 async function loadStations() {
   const sel = document.getElementById('stationSel');
+  loadStationNames().then(names => { stationNames = names; relabelStations(sel); });
   try {
     const res = await fetch(getBase() + '/stations', { signal: AbortSignal.timeout(8000) });
     const data = await res.json();
-    sel.innerHTML = '<option value="">— select station —</option>';
-    (data.stations || []).forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s;
-      opt.textContent = s;
-      sel.appendChild(opt);
-    });
+    fillStations(sel, data.stations || []);
     /* default to Embarcadero */
-    if (data.stations && data.stations.includes('EMBR')) sel.value = 'EMBR';
+    if (data.stations && data.stations.includes('EM')) sel.value = 'EM';
   } catch(e) {
-    /* fallback: common BART station IDs (4-letter codes matching the feature store's station_id) */
-    const fallback = ['EMBR','MONT','POWL','CIVC','12TH','24TH','DBRK','19TH','BALB','DALY','SFIA','MCAR','FTVL','WOAK'];
-    sel.innerHTML = '<option value="">— select station —</option>';
-    fallback.forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s; opt.textContent = s;
-      sel.appendChild(opt);
-    });
-    sel.value = 'EMBR';
+    /* fallback: common BART stations (two-letter codes matching the feature store's station_id) */
+    const fallback = ['EM','MT','PL','CC','12','24','BK','19','BP','DC','SO','MA','FV','OW'];
+    fillStations(sel, fallback);
+    sel.value = 'EM';
   }
+  updatePreview();
 }
 
 /* ── Update request preview ── */
@@ -406,10 +453,10 @@ function renderChart(forecasts) {
   });
 }
 
-function renderTable(station, forecasts) {
+function renderTable(station, forecasts, interval) {
   const rows = forecasts.map(f => {
     const d = new Date(f.timestamp);
-    const mo = isNaN(d) ? f.timestamp : d.toLocaleDateString('en-US', {month:'short', year:'numeric'});
+    const mo = escapeHtml(isNaN(d) ? f.timestamp : d.toLocaleDateString('en-US', {month:'short', year:'numeric'}));
     return `<tr>
       <td>${mo}</td>
       <td class="p10">${fmtRiders(f.p10)}</td>
@@ -431,7 +478,7 @@ function renderTable(station, forecasts) {
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:10px;font-size:11px;color:var(--ink-soft)">
-      Station: <b class="mono">${station}</b> · P10/P90 = 80% prediction interval
+      Station: <b class="mono">${escapeHtml(station)}</b> · ${escapeHtml(intervalNote(interval))}
     </div>`;
 }
 
@@ -472,7 +519,7 @@ async function runForecast() {
     document.getElementById('resultContent').innerHTML = `
       <div class="chart-wrap"><canvas id="forecastChart"></canvas></div>
       <div class="divider"></div>
-      ${renderTable(station, forecasts)}`;
+      ${renderTable(station, forecasts, data.interval)}`;
 
     renderChart(forecasts);
     updateHealthOk();
@@ -480,7 +527,7 @@ async function runForecast() {
   } catch(e) {
     document.getElementById('resultContent').innerHTML = `
       <div class="errbox">
-        <b>Request failed</b><br>${e.message}<br>
+        <b>Request failed</b><br>${escapeHtml(e.message)}<br>
         <span style="font-size:12px;opacity:.8">Check the API URL above and make sure the service is running.</span>
       </div>
       <div class="result-placeholder" style="min-height:200px">

@@ -72,7 +72,10 @@ before measuring. Errors shift from one half-year to the next, which limits
 any calibration fit on the past. The comparison, the validation numbers each
 choice rests on, and why the earlier Prophet MCMC attempt failed are in
 [docs/interval-calibration.md](docs/interval-calibration.md).
-The API and `website/data/forecasts.json` still serve the models' own bands.
+The API serves SARIMA's own band and labels it in each response;
+`website/data/forecasts.json` carries Chronos-1's split-conformal band (72.7%
+test coverage). See
+[Serving](docs/interval-calibration.md#serving).
 
 **AutoETS (AutoGluon) carries no row, deliberately rather than silently.**
 `autogluon.timeseries` requires Python <3.14 and cannot be installed here, and
@@ -240,7 +243,9 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 | `data/processed/splits/val.parquet` | validation split |
 | `data/processed/splits/test.parquet` | held-out test split |
 | `data/processed/validation_report.csv` | latest validation summary |
-| `models/chronos2/outputs/zero_shot_forecasts_*.parquet` | Chronos forecast artifacts |
+| `models/chronos2/outputs/zero_shot_forecasts_*.parquet` | Chronos zero-shot forecasts written by `zero_shot.py`; not what the website publishes |
+| `evaluation/outputs/chronos2_zeroshot_preds.parquet` | Chronos zero-shot test-window predictions written by `models/baselines/benchmarks.py` and scored on the leaderboard; the export reads them for `website/data/forecasts.json` and applies the saved calibrator to their band |
+| `evaluation/outputs/calibration/calibrators/<model_key>.json` | fitted P10/P90 calibrators saved by `models/baselines/benchmarks.py` (fit on 2025-H1 validation forecasts); the export applies them, never refits |
 | `models/baselines/outputs/arima/arima_forecasts.parquet` | SARIMA forecast artifact |
 | `models/baselines/outputs/prophet/prophet_forecasts.parquet` | Prophet forecast artifact |
 | `website/data/*.json` | static frontend data generated from model and feature artifacts |
@@ -280,7 +285,7 @@ Two Dockerfiles are provided:
 
 **`Dockerfile.api`** (inference service — used in production):
 - Base: `python:3.11-slim`
-- Copies `machine_learning_files/api.py`, `models/baselines/arima.py`, `configs/model.yaml` and the committed `data/processed/feature_store.parquet` into the image, and installs `statsmodels` for SARIMA. No forecast cache, no `chronos-forecasting`: each `/forecast` fits SARIMA for the requested station (see [Forecast API](#forecast-api)).
+- Copies `machine_learning_files/api.py`, `models/baselines/arima.py`, `evaluation/calibration.py` (picks and labels the P10/P90 band), `configs/model.yaml` and the committed `data/processed/feature_store.parquet` into the image, and installs `statsmodels` for SARIMA. No forecast cache, no `chronos-forecasting`: each `/forecast` fits SARIMA for the requested station (see [Forecast API](#forecast-api)).
 - Builds from a clean clone — every file it copies is in git
 - Exposes FastAPI on port `$PORT` (Cloud Run injects this env var)
 - Build: `docker build -f Dockerfile.api -t transit-api .`
@@ -351,9 +356,19 @@ Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 The frontend is a static site in `website/`. It uses CDN-loaded React and Babel — no Node build step needed. The site reads generated JSON files from `website/data/`.
 
+`website/data/forecasts.json` holds Chronos-1's Jul–Dec 2025 forecasts with its
+split-conformal P10/P90 band, set from the model's errors on the Jan–Jun 2025
+validation split. That band covered 72.7% of test actuals (51.0% for the
+model's own band), still short of 80%. Each record also keeps the
+model's own bounds as `p10_raw`/`p90_raw`, and an `interval_method` label that
+matches the leaderboard's. Calibration never changes P50.
+
 Live URL: **https://cs-163-final-project-tra-f1136.wl.r.appspot.com**
 
-Refresh website data:
+Refresh website data (after `models/baselines/benchmarks.py`, which saves the
+fitted calibrator the export applies). If the export cannot match the
+calibrator to the leaderboard, it writes the other files but not
+`forecasts.json` (any previous one stays, now stale) and exits 1. The command:
 
 ```bash
 python scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
@@ -384,12 +399,18 @@ same functions `benchmarks.py` scores (`fit_station` / `predict_station` in
   through Jun 2025 (`"as_of": "2025-06-30"` reproduces those forecasts exactly).
   The default forecast, refit through Dec 2025, has not been scored — its months
   have no actuals yet.
-- **Intervals:** P10/P90 are SARIMA's 80% interval, which covered 96.7% of
-  holdout actuals — over-wide; don't read it as a calibrated 80% band.
+- **Intervals:** P10/P90 are SARIMA's own band (nominal 80%). It is not
+  calibrated, because no method passed validation. Its Jul–Dec 2025 holdout
+  forecasts covered 96.7% of actuals — over-wide. Each response says so in its
+  `interval` field (`"calibrated": false`, `"method": "none"`); see the output
+  below.
 - **`horizon_hours` counts months.** The name predates the monthly target; at
   most 6 rows come back.
 - **Errors:** unknown station → `404`; malformed `as_of`, or one that leaves
-  fewer than 24 months of history → `400`.
+  fewer than 24 months of history → `400`. If `configs/model.yaml` names a
+  calibration method for SARIMA but no matching fitted calibrator ships with
+  the API (missing, unreadable or stale) → `503`, so a raw band is never served
+  under a calibrated label.
 
 Code: `machine_learning_files/api.py`. Tests (`requirements.txt` lacks `pytest` and `httpx`):
 
@@ -408,7 +429,7 @@ Endpoints:
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/health` | Service health, served model, feature-store load status |
+| `GET` | `/health` | Service health, served model, P10/P90 band label, feature-store load status |
 | `GET` | `/stations` | List of forecastable station IDs |
 | `POST` | `/forecast` | Request P10/P50/P90 quantile forecasts |
 | `GET` | `/docs` | Swagger UI (interactive API explorer) |
@@ -418,13 +439,24 @@ Endpoints:
 { "station_id": "EM", "horizon_hours": 6 }
 ```
 
-**Output** (`POST /forecast`), from an image built from `Dockerfile.api` — first
-of six rows shown, values rounded here only:
+**Output** (`POST /forecast`). The forecast row and `generated_at` are from a
+response (generated 2026-10-23 UTC) of an image built from `Dockerfile.api`
+before `model` and `interval` were added; first of six rows shown, values
+rounded here only. `model` and
+`interval` are shown as the API now returns them for SARIMA:
 ```json
 {
   "station_id": "EM",
   "horizon_hours": 6,
   "generated_at": "2026-10-23T03:31:46.115150Z",
+  "model": "SARIMA(0, 1, 1)x(0, 1, 1, 12)",
+  "interval": {
+    "calibrated": false,
+    "method": "none",
+    "nominal_level": 0.8,
+    "label": "raw: no method passed validation",
+    "description": "SARIMA's own P10/P90 band (nominal 80%), not calibrated: no method passed validation."
+  },
   "forecasts": [
     { "timestamp": "2026-01-01 00:00:00", "p10": 386519.9, "p50": 415136.9, "p90": 443753.8 }
   ]

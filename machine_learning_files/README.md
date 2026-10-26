@@ -79,7 +79,7 @@ python machine_learning_files/zero_shot.py
 Run Chronos zero-shot for one station:
 
 ```bash
-python machine_learning_files/zero_shot.py --station EMBR --as-of 2023-06-01
+python machine_learning_files/zero_shot.py --station EM --as-of 2023-06-01
 ```
 
 Start the forecast API:
@@ -99,6 +99,22 @@ curl -X POST http://localhost:8000/forecast \
 `horizon_hours` counts months (at most 6 are returned). Add `"as_of": "2025-06-30"` to
 fit on history up to that date instead — that cutoff reproduces the leaderboard's SARIMA forecasts.
 
+The response carries `station_id`, `horizon_hours`, `generated_at`, `model`, `interval` and
+`forecasts` (one `{timestamp, p10, p50, p90}` row per month). `interval` says which P10/P90
+band was returned. For SARIMA it is the model's own band (nominal 80%), not calibrated
+because no method passed validation:
+
+```json
+"model": "SARIMA(0, 1, 1)x(0, 1, 1, 12)",
+"interval": {
+  "calibrated": false,
+  "method": "none",
+  "nominal_level": 0.8,
+  "label": "raw: no method passed validation",
+  "description": "SARIMA's own P10/P90 band (nominal 80%), not calibrated: no method passed validation."
+}
+```
+
 ## Configuration Notes
 
 - `configs/model.yaml` controls the modeled frequency, context length, forecast horizon, chronological split dates, quantile levels, and AutoGluon training settings.
@@ -114,3 +130,4 @@ fit on history up to that date instead — that cutoff reproduces the leaderboar
 - AutoGluon errors with newer Python versions: recreate the environment with Python 3.11.
 - `404 Unknown station`: station IDs are the store's codes (`EM`, `MT`, `12`, …) — list them with `GET /stations`.
 - `400` with "months of history": the `as_of` leaves fewer than 24 months since `data.train_start`.
+- `503` mentioning a calibrator: `configs/model.yaml` names a calibration method for SARIMA, but the API has no matching fitted calibrator: it is missing or unreadable, or it is stale or mismatched (fitted for another method, level, model or training cut-off). The API refuses rather than serve the raw band under a calibrated label. SARIMA's method is `none` today, so this only follows a config change.

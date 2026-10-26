@@ -255,7 +255,7 @@ def interval_width(y_lower: np.ndarray, y_upper: np.ndarray) -> float:
 @dataclass
 class MetricsReport:
     """Holds all computed metrics with metadata."""
-    label:    str                     # e.g. "Overall", "Station: EMBR"
+    label:    str                     # e.g. "Overall", "Station: EM"
     n:        int                     # number of predictions evaluated
     mae:      float
     rmse:     float

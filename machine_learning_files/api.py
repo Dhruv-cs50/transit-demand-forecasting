@@ -6,13 +6,25 @@ benchmark leaderboard — as a REST API over monthly BART station ridership.
 
 Each /forecast request fits SARIMA for one station on demand, using the same
 spec and functions the leaderboard scores (models/baselines/arima.py): history
-from data.train_start up to `as_of`, airline order (0,1,1)(0,1,1,12), 80%
-interval as P10/P90. `as_of` = data.val_end reproduces the leaderboard's
-SARIMA forecasts; the default forecasts the months after the last one in the
-feature store, which no benchmark has scored.
+from data.train_start up to `as_of`, airline order (0,1,1)(0,1,1,12). `as_of`
+= data.val_end reproduces the leaderboard's SARIMA forecasts; the default
+forecasts the months after the last one in the feature store, which no
+benchmark has scored.
+
+P10/P90 is SARIMA's own prediction band (nominal 80%), not a calibrated 80%
+interval: no calibration method passed validation for SARIMA
+(configs/model.yaml `calibration.models.SARIMA`; measurements in
+docs/interval-calibration.md), so the band is served as the model produces it.
+Every response says which band it carries in `interval`, whose `label` is the
+leaderboard's Interval_method string. The band comes from
+evaluation/calibration.py's serve_band(): if the config ever names a method
+for SARIMA, the API serves the calibrator benchmarks.py saved under
+CALIBRATOR_DIR, and answers 503 when that file is missing or stale. P50 is
+never changed.
 
 Endpoints:
-    POST /forecast   — returns P10/P50/P90 monthly ridership for a station
+    POST /forecast   — returns P10/P50/P90 monthly ridership for a station,
+                       naming the model and the P10/P90 band served
     GET  /stations   — lists available station IDs
     GET  /health     — liveness check
 
@@ -37,6 +49,10 @@ import numpy as np
 import pandas as pd
 import yaml
 
+# Imported eagerly (it needs only numpy/pandas): a missing copy in the image
+# then fails at startup, not as a 500 on every /forecast.
+from evaluation.calibration import interval_plan, serve_band
+
 log = logging.getLogger("machine_learning_files.api")
 # arima.py logs two INFO lines per fit, i.e. per /forecast. Keep its warnings
 # (non-convergence) and drop the rest.
@@ -54,6 +70,11 @@ except ImportError:
 
 PROCESSED_DIR = Path("data/processed")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
+# Where models/baselines/benchmarks.py saves fitted calibrators. Read only when
+# configs/model.yaml names a calibration method for the served model.
+CALIBRATOR_DIR = Path("evaluation/outputs/calibration/calibrators")
+# The served model's key under calibration.models in configs/model.yaml.
+CALIBRATION_KEY = "SARIMA"
 
 
 class InvalidRequestError(Exception):
@@ -90,10 +111,19 @@ if _FASTAPI_AVAILABLE:
         p50:       Optional[float] = None
         p90:       Optional[float] = None
 
+    class IntervalInfo(BaseModel):
+        calibrated:    bool  = Field(..., description="True if P10/P90 were rebuilt from validation-split errors; false if they are the model's own band")
+        method:        str   = Field(..., description='Calibration method; "none" means the model\'s own band')
+        nominal_level: float = Field(..., description="Coverage the band is meant to have (0.8 for P10-P90), not a measured coverage")
+        label:         str   = Field(..., description="Same string as the benchmark leaderboard's Interval_method column")
+        description:   str   = Field(..., description="One plain sentence saying which band this is")
+
     class ForecastResponse(BaseModel):
         station_id:    str
         horizon_hours: int
         generated_at:  str
+        model:         str          = Field(..., description="Model that produced the forecasts")
+        interval:      IntervalInfo = Field(..., description="Which P10/P90 band the forecasts carry")
         forecasts:     list[QuantileForecast]
 
     class StationsResponse(BaseModel):
@@ -150,13 +180,18 @@ def _run_forecast(
     station_id: str,
     horizon_hours: int,
     as_of: pd.Timestamp | None,
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     """Fit SARIMA on one station's history up to `as_of` and forecast ahead.
 
     Mirrors run_arima_all_stations() in models/baselines/arima.py, which the
     benchmark leaderboard scores: history is clipped to data.train_start (the
     store jumps 2019 -> 2022, and fit_station() alone would interpolate across
     that gap), and the same minimum-history rule applies.
+
+    Returns (rows, plan): rows carry P50 exactly as predict_station() gives it
+    and the P10/P90 band serve_band() assigns; plan says which band that is.
+    Raises CalibratorUnavailable (a RuntimeError -> 503) when the config names
+    a calibration method but no matching saved calibrator exists.
     """
     from models.baselines.arima import fit_station, get_sarima_orders, predict_station
 
@@ -216,8 +251,17 @@ def _run_forecast(
     steps = min(cfg["data"].get("forecast_horizon_steps", 6), horizon_hours)
     fit, last_ts = fit_station(history, station_id, freq)
     pred_df = predict_station(fit, last_ts, steps, freq)
+    pred_df["station_id"] = station_id
 
-    return [
+    # The band configs/model.yaml assigns SARIMA: its own P10/P90 while the
+    # method is "none" (the file is then never read), else the saved
+    # calibrator's band. P50 passes through untouched either way.
+    pred_df, plan = serve_band(
+        pred_df, CALIBRATION_KEY, cfg,
+        calibrator_path=CALIBRATOR_DIR / f"{CALIBRATION_KEY}.json",
+    )
+
+    rows = [
         {
             "timestamp": str(row.timestamp),
             "p10": _clean_quantile(row.p10),
@@ -226,6 +270,7 @@ def _run_forecast(
         }
         for row in pred_df.itertuples()
     ]
+    return rows, plan
 
 
 # ── FastAPI app ────────────────────────────────────────────────────────────────
@@ -233,7 +278,10 @@ def _run_forecast(
 if _FASTAPI_AVAILABLE:
     app = FastAPI(
         title="Bay Area Transit Forecast API",
-        description="SARIMA monthly ridership forecasts (P10/P50/P90) for BART stations, fitted per request",
+        description=(
+            "SARIMA monthly ridership forecasts (P10/P50/P90) for BART stations, fitted per request. "
+            "Each response's `interval` says which P10/P90 band it carries."
+        ),
         version="1.0.0",
     )
 
@@ -266,6 +314,7 @@ if _FASTAPI_AVAILABLE:
             "status":       "ok",
             "timestamp":    datetime.utcnow().isoformat() + "Z",
             "model":        _model_name(),
+            "interval":     interval_plan(CALIBRATION_KEY, _get_config())["label"],
             "store_loaded": _feature_store is not None,
         }
 
@@ -285,12 +334,14 @@ if _FASTAPI_AVAILABLE:
     @app.post("/forecast", response_model=ForecastResponse)
     def forecast(req: ForecastRequest):
         try:
-            forecasts = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
+            forecasts, plan = _run_forecast(req.station_id, req.horizon_hours, req.as_of)
         except InvalidRequestError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except UnknownStationError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except RuntimeError as e:
+            # Also CalibratorUnavailable (a RuntimeError): the config names a
+            # calibration method but its saved calibrator is missing or stale.
             raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
             log.exception("Forecast failed")
@@ -306,6 +357,14 @@ if _FASTAPI_AVAILABLE:
             # by exactly the visitor's UTC offset. Append "Z" so it's parsed
             # as UTC and correctly converted to the visitor's local time.
             "generated_at":  datetime.utcnow().isoformat() + "Z",
+            "model":         _model_name(),
+            "interval": {
+                "calibrated":    plan["calibrated"],
+                "method":        plan["method"],
+                "nominal_level": plan["level"],
+                "label":         plan["label"],
+                "description":   plan["description"],
+            },
             "forecasts":     forecasts,
         }
 
