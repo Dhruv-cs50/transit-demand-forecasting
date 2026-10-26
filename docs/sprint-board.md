@@ -163,6 +163,20 @@ unit tests pass; `py_compile` passes.
   0.103179, 0.090771, 0.089513; width = 0.086624, 0.111627, 0.106900,
   0.110687, 0.111075, 0.114898; no clipped horizon.
 
+**Follow-ups closed after S6.8 (branch `fix/calibration-serving-hardening`,
+stacked on PR #153; user's "do it here", 2026-10-25).** No band, choice or
+published number changes: `website/data/` re-exported byte-identical
+(export 21:42:15, reads the test split for its consistency check only).
+- `serve_band(..., forecast_origin=)` counts months ahead from the origin
+  (`with_origin_horizon`), as `benchmarks.py` scores; the export passes
+  `val_end`, the API its last fitted month. A row at or before the origin is
+  refused. On complete blocks the band is identical to the dense-rank one
+  (tested); a station missing its first month now keeps its horizons.
+- `check_config_matches_decision` (Sprint 5) treats the choice "incumbent"
+  as keeping the entry instead of crashing on the unpack.
+- `evaluation/outputs/` is in `.gitignore` (nothing under it was tracked).
+- Tests first (7f29095, 7 failing), then the fix; 265 tests pass.
+
 **Review fix round (S6.7).** None of these changes a choice, a band or a
 published number; the valid `interval_plan` labels are unchanged (tested).
 - MAJOR, fixed: `website/index.html` cache-bust `sections.jsx?v=13` collided

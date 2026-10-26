@@ -687,7 +687,12 @@ Where the calibrator comes from:
   afterwards was fitted by the latest run. A model left on its own band, or
   whose calibration fails or cannot be saved, has no file.
 - `serve_band` in `evaluation/calibration.py` applies the saved calibrator.
-  It never refits, and it refuses an unreadable file. It checks the file
+  It never refits, and it refuses an unreadable file. Given the forecast
+  origin (the export passes `val_end`, the API the last fitted month), it
+  counts each row's month ahead from it, as `benchmarks.py` does when it
+  scores the band, and refuses a row at or before it; without one it falls
+  back to each station's row order, which agrees only when every station's
+  block starts one month after the origin. It checks the file
   against `configs/model.yaml` and the forecasts being served:
   - method, group, level, scheme, model key and checkpoint;
   - for a rolling calibrator, its half-life and first origin;

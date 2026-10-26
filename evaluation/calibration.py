@@ -820,9 +820,19 @@ def serve_band(
     cfg: dict,
     calibrator_path=None,
     checkpoint: str | None = None,
+    forecast_origin=None,
 ) -> tuple[pd.DataFrame, dict]:
     """The P10/P90 band configs/model.yaml assigns to `model_key`, applied to
     forecasts made outside the benchmark run.
+
+    forecast_origin: the date the forecasts were made from (for the website
+        export, data.val_end). Given, each row's `horizon` is its months after
+        it, as benchmarks.py counts them when it scores the band
+        (with_origin_horizon), so a per-horizon band stays right for a station
+        whose first forecast month is missing; a row at or before the origin
+        is refused (ValueError). Omitted, horizons are each station's dense
+        rank (add_horizon), which agrees only when every station's block
+        starts at origin + 1 month.
 
     preds: one row per (station_id, timestamp) with p10/p50/p90, one
         contiguous forecast block per station (so `horizon` can be counted).
@@ -921,7 +931,15 @@ def serve_band(
             + "; ".join(mismatches)
         )
 
-    out = apply_conformal(add_horizon(preds), cal)
-    if "horizon" not in preds.columns:
-        out = out.drop(columns="horizon")
+    if forecast_origin is None:
+        keyed = add_horizon(preds)
+    else:
+        keyed = with_origin_horizon(preds.drop(columns=["origin", "horizon"], errors="ignore"),
+                                    forecast_origin)
+        early = keyed["horizon"] < 1
+        if early.any():
+            raise ValueError(f"{model_key}: {int(early.sum())} forecast row(s) at or before the forecast "
+                             f"origin {pd.Timestamp(forecast_origin):%Y-%m-%d}")
+    out = apply_conformal(keyed, cal)
+    out = out.drop(columns=[c for c in ("origin", "horizon") if c in out.columns and c not in preds.columns])
     return out, {**plan, "n": cal["n"], "provenance": prov}

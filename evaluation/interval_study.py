@@ -577,7 +577,8 @@ def check_config_matches_decision(model: str, mcfg: dict, decision: dict, incumb
     candidate, or the incumbent when nothing qualified. Anything else would
     deploy a calibrator nobody scored, so stop."""
     choice = decision["choice"]
-    if choice == "keep current entry":
+    if choice in ("keep current entry", "incumbent"):
+        # The incumbent is the current entry, so choosing it is keeping it.
         expected = _config_entry(incumbent)
     else:
         scheme, rest = choice.split(" ")
