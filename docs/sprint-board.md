@@ -15,6 +15,7 @@ store say. No model or number change.
 |---|---|---|---|---|---|
 | S4g.1 | Correct every "ends 2023" claim in `website/` and `README.md` | orchestrator | — | grep finds none; each new sentence traces to `data/MANIFEST.md`, the store or model code; render shows 0 console errors | done (f5db1eb) |
 | S4g.2 | Push; open PR (no merge) | orchestrator | S4g.1 | PR open with claim → evidence table | done — PR #154 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/154), not merged |
+| S4g.3 | Retitle Rec 01 to the covariate result (the user's decision, 2026-10-26) | orchestrator | S4g.2, #146 | Title consistent with `docs/covariate-experiment.md`; render 0 console errors | done — "Keep weather and Sharks games out of the monthly forecast." |
 
 ## Sprint 4h — EDA section rebuilt from the current store (opened 2026-10-24)
 
