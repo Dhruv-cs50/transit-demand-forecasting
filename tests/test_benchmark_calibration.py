@@ -20,7 +20,9 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from evaluation.calibration import add_horizon, apply_conformal, describe, fit_conformal  # noqa: E402
+from evaluation.calibration import (  # noqa: E402
+    add_horizon, apply_conformal, describe, fit_conformal, fit_rolling_conformal, with_origin_horizon,
+)
 from models.baselines.benchmarks import (  # noqa: E402
     calibrate_intervals, compute_metrics, leaderboard_latex,
 )
@@ -129,6 +131,129 @@ class LeaderboardColumnsTest(unittest.TestCase):
         self.assertRegex(tex, r"Coverage\\?_raw")          # the column, escaped or not
         self.assertRegex(tex, r"Interval\\?_method")
         self.assertIn("split-conformal scaled/horizon", tex)
+
+
+class RollingSchemeTest(unittest.TestCase):
+    """scheme: rolling (Sprint 5) — a pool of forecasts from monthly origins
+    first_origin .. as_of - 1 month, each store cut at min(origin + 6, as_of)."""
+
+    AS_OF = pd.Timestamp("2025-06-30")
+    CFG = {"method": "relative", "group": "pooled", "scheme": "rolling",
+           "half_life": 6, "first_origin": "2023-12-31"}
+
+    def setUp(self):
+        rng = np.random.default_rng(11)
+        ts = pd.date_range("2022-01-01", "2025-12-01", freq="MS")
+        rows = [(t, f"S{i}") for i in range(6) for t in ts]
+        self.history = pd.DataFrame(rows, columns=["timestamp", "station_id"])
+        self.history["ridership"] = 10_000 * (1 + rng.normal(0, 0.06, len(self.history)))
+        self.test_preds = _preds("2025-07-01", n_stations=6, seed=12)[
+            ["timestamp", "station_id", "p10", "p50", "p90"]]
+        self.calls = []
+
+    def _make(self, origin, cut):
+        self.calls.append((origin, cut))
+        ts = pd.date_range(origin + pd.offsets.MonthBegin(1), periods=6, freq="MS")
+        out = pd.DataFrame([(t, f"S{i}") for i in range(6) for t in ts], columns=["timestamp", "station_id"])
+        out["p50"], out["p10"], out["p90"] = 10_000.0, 9_800.0, 10_200.0
+        return out
+
+    def _run(self, history=None, make=None, mcfg=None):
+        cfg = {"calibration": {"level": 0.8, "models": {"Prophet": mcfg or self.CFG}},
+               "data": {"forecast_horizon_steps": 6}}
+        return calibrate_intervals(
+            "Prophet", "Prophet", self.test_preds, lambda: self.fail("rolling must not use the split path"),
+            None, cfg, make_origin_preds=make or self._make,
+            history_df=self.history if history is None else history, as_of=self.AS_OF)
+
+    def test_origins_and_store_cuts(self):
+        self._run()
+        origins = [o for o, _ in self.calls]
+        self.assertEqual(origins, list(pd.date_range("2023-12-31", "2025-05-31", freq="ME")))
+        for o, cut in self.calls:
+            self.assertEqual(cut, min(o + pd.DateOffset(months=6), self.AS_OF))
+
+    def test_band_matches_a_rolling_fit_on_the_same_pool(self):
+        out, label = self._run()
+        pool = []
+        for o in pd.date_range("2023-12-31", "2025-05-31", freq="ME"):
+            cut = min(o + pd.DateOffset(months=6), self.AS_OF)
+            actual = self.history[(self.history["timestamp"] > o) & (self.history["timestamp"] <= cut)]
+            pool.append(with_origin_horizon(actual.merge(self._make(o, cut), on=["timestamp", "station_id"],
+                                                         how="left"), o))
+        calib = fit_rolling_conformal(pd.concat(pool), "relative", "pooled", 0.8, self.AS_OF, half_life=6)
+        expected = apply_conformal(with_origin_horizon(self.test_preds, self.AS_OF), calib)
+        np.testing.assert_array_equal(out["p50"].values, self.test_preds["p50"].values)
+        np.testing.assert_allclose(out["p10"].values, expected["p10"].values)
+        np.testing.assert_allclose(out["p90"].values, expected["p90"].values)
+        self.assertEqual(out["horizon"].tolist(), with_origin_horizon(self.test_preds, self.AS_OF)["horizon"].tolist())
+        self.assertIn("rolling-origin", label)
+        self.assertIn("half-life 6", label)
+
+    def test_rows_after_as_of_never_reach_the_pool(self):
+        a, _ = self._run()
+        noisy = self.history.copy()
+        late = noisy["timestamp"] > self.AS_OF
+        noisy.loc[late, "ridership"] *= 5
+        b, _ = self._run(history=noisy)
+        np.testing.assert_array_equal(a["p90"].values, b["p90"].values)
+
+    def test_missing_origin_forecasts_fail_loudly(self):
+        out, label = self._run(make=lambda o, cut: pd.DataFrame())
+        self.assertTrue(label.startswith("FAILED"))
+        self.assertTrue(out[["p10", "p90"]].isna().all().all())
+
+    def test_missing_half_life_fails_instead_of_equal_weights(self):
+        mcfg = {k: v for k, v in self.CFG.items() if k != "half_life"}
+        out, label = self._run(mcfg=mcfg)
+        self.assertTrue(label.startswith("FAILED"))
+        self.assertTrue(out[["p10", "p90"]].isna().all().all())
+        self.assertEqual(self.calls, [])
+
+    def _cfg_with_data(self, mcfg=None):
+        return {"calibration": {"level": 0.8, "models": {"Prophet": mcfg or self.CFG}},
+                "data": {"forecast_horizon_steps": 6, "train_end": "2024-12-31", "val_end": "2025-06-30"}}
+
+    def test_saved_rolling_calibrator_is_served_as_scored(self):
+        import tempfile
+        from evaluation.calibration import CalibratorUnavailable, load_calibrator, serve_band
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "Prophet.json"
+            cfg = self._cfg_with_data()
+            out, label = calibrate_intervals(
+                "Prophet", "Prophet", self.test_preds, lambda: self.fail("split path"), None, cfg,
+                calibrator_path=path, make_origin_preds=self._make, history_df=self.history, as_of=self.AS_OF)
+            prov = load_calibrator(path)["provenance"]
+            self.assertEqual((prov["fit_end"], prov["scheme"], prov["half_life"], prov["first_origin"]),
+                             ("2025-06-30", "rolling", 6, "2023-12-31"))
+            served, plan = serve_band(self.test_preds, "Prophet", cfg, calibrator_path=path)
+            np.testing.assert_allclose(served["p10"].values, out["p10"].values)
+            np.testing.assert_allclose(served["p90"].values, out["p90"].values)
+            self.assertEqual(plan["label"], label)
+            # A config that no longer asks for this rolling band refuses the file.
+            for change in ({"scheme": "split"}, {"half_life": 3}, {"first_origin": "2024-06-30"}):
+                with self.assertRaises(CalibratorUnavailable, msg=change):
+                    serve_band(self.test_preds, "Prophet", self._cfg_with_data({**self.CFG, **change}),
+                               calibrator_path=path)
+            # So does a run on other splits.
+            moved = self._cfg_with_data(); moved["data"]["val_end"] = "2025-12-31"
+            with self.assertRaises(CalibratorUnavailable):
+                serve_band(self.test_preds, "Prophet", moved, calibrator_path=path)
+
+    def test_split_calibrator_is_refused_under_a_rolling_config(self):
+        import tempfile
+        from evaluation.calibration import CalibratorUnavailable, fit_conformal as fc, save_calibrator, serve_band
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "Prophet.json"
+            cal = fc(_preds("2025-01-01", n_stations=6, seed=13), "relative", "pooled", 0.8)
+            save_calibrator(cal, path, model_key="Prophet", fit_end="2025-06-30")
+            with self.assertRaises(CalibratorUnavailable):
+                serve_band(self.test_preds, "Prophet", self._cfg_with_data(), calibrator_path=path)
+
+    def test_unknown_scheme_fails_loudly(self):
+        out, label = self._run(mcfg={**self.CFG, "scheme": "telepathy"})
+        self.assertTrue(label.startswith("FAILED"))
+        self.assertTrue(out[["p10", "p90"]].isna().all().all())
 
 
 class CalibrationEdgeCasesTest(unittest.TestCase):
