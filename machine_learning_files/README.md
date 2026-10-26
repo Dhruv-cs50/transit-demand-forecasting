@@ -12,7 +12,7 @@ This folder contains the ingestion, feature-store, zero-shot forecasting, API, a
 | `fetch_events.py` | Fetch Sharks and Ticketmaster event calendars. | NHL API, Ticketmaster API | `data/raw/events/events_*.parquet` |
 | `merge_pipeline.py` | Merge raw ridership, weather, events, and calendar features. | `data/raw/*`, `configs/*.yaml` | `data/processed/feature_store.parquet`, `data/processed/splits/*.parquet` |
 | `zero_shot.py` | Run Chronos zero-shot forecasts for one or all stations. | `data/processed/feature_store.parquet` | `models/chronos2/outputs/zero_shot_forecasts_*.parquet` |
-| `api.py` | Serve forecasts through FastAPI. | feature store and/or cached forecast parquet | HTTP API |
+| `api.py` | Serve SARIMA forecasts through FastAPI, fitted per request with `models/baselines/arima.py`. | `data/processed/feature_store.parquet` | HTTP API |
 | `requirements.txt` | Python dependency list for the ML stack. | Python 3.11 environment | installed packages |
 
 ## Setup
@@ -44,7 +44,7 @@ data/processed/splits/{train,val,test}.parquet
         +----------------------------------------+
         |                                        |
         v                                        v
-Processing/feature_engineering.py       zero_shot.py / api.py (live path)
+Processing/feature_engineering.py       zero_shot.py / api.py
         |                                reads feature_store.parquet
         v                                directly — bypasses enrichment
 data/processed/feature_store_enriched.parquet
@@ -93,14 +93,17 @@ Example request:
 ```bash
 curl -X POST http://localhost:8000/forecast \
   -H "Content-Type: application/json" \
-  -d '{"station_id": "EMBR", "horizon_hours": 6}'
+  -d '{"station_id": "EM", "horizon_hours": 6}'
 ```
+
+`horizon_hours` counts months (at most 6 are returned). Add `"as_of": "2025-06-30"` to
+fit on history up to that date instead — that cutoff reproduces the leaderboard's SARIMA forecasts.
 
 ## Configuration Notes
 
 - `configs/model.yaml` controls the modeled frequency, context length, forecast horizon, chronological split dates, quantile levels, and AutoGluon training settings.
 - `configs/sources.yaml` controls source endpoints, API-key placeholders, venue IDs, agency IDs, and weather station coordinates.
-- The API serves cached forecasts first from `models/chronos2/outputs/`. The production `Dockerfile.api` image doesn't install `chronos-forecasting`, so a cache miss there returns `503`; live Chronos inference fallback only works on a local dev server installed from `requirements.txt`.
+- The API does not use Chronos or any forecast cache. Each `/forecast` fits SARIMA(0,1,1)(0,1,1,12) for one station on months from `data.train_start` up to `as_of` (default: the latest month in the store), with the same code and settings `benchmarks.py` scores for the leaderboard. Tests: `python -m pytest tests/`.
 - `scripts/run_pipeline.sh` expects `.venv311/bin/python` to exist.
 
 ## Troubleshooting
@@ -109,4 +112,5 @@ curl -X POST http://localhost:8000/forecast \
 - `No BART OD files found`: run `python machine_learning_files/fetch_bart_od.py` or place parsed BART parquet files in `data/raw/transit/bart/`.
 - Chronos device errors: `chronos2.device` in `configs/model.yaml` defaults to `cpu`; set it to `mps` on Apple Silicon or `cuda` on a GPU machine as appropriate.
 - AutoGluon errors with newer Python versions: recreate the environment with Python 3.11.
-- Empty API responses for a station: confirm the station ID exists with `GET /stations` and check the latest cached forecast parquet.
+- `404 Unknown station`: station IDs are the store's codes (`EM`, `MT`, `12`, …) — list them with `GET /stations`.
+- `400` with "months of history": the `as_of` leaves fewer than 24 months since `data.train_start`.
