@@ -10,7 +10,7 @@ before investing in fine-tuning.
 
 Usage:
     python machine_learning_files/zero_shot.py
-    python machine_learning_files/zero_shot.py --station EMBR --horizon 24
+    python machine_learning_files/zero_shot.py --station EM --horizon 24
 """
 
 import argparse

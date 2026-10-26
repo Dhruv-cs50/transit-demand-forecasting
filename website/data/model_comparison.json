@@ -5,6 +5,8 @@
     "MAPE_pct": 3.4,
     "WAPE_pct": 3.2,
     "Coverage_pct": 96.7,
+    "Coverage_raw_pct": 96.7,
+    "Interval_method": "raw: no method passed validation",
     "n_predictions": 300,
     "source": "benchmark_leaderboard",
     "scored_split": "test"
@@ -14,7 +16,9 @@
     "MAE": 5526.0,
     "MAPE_pct": 5.7,
     "WAPE_pct": 5.8,
-    "Coverage_pct": 46.0,
+    "Coverage_pct": 74.7,
+    "Coverage_raw_pct": 46.0,
+    "Interval_method": "split-conformal scaled/horizon, fit on validation",
     "n_predictions": 300,
     "source": "benchmark_leaderboard",
     "scored_split": "test"
@@ -24,7 +28,9 @@
     "MAE": 9321.0,
     "MAPE_pct": 9.3,
     "WAPE_pct": 9.7,
-    "Coverage_pct": 51.0,
+    "Coverage_pct": 72.7,
+    "Coverage_raw_pct": 51.0,
+    "Interval_method": "split-conformal relative/pooled, fit on validation",
     "n_predictions": 300,
     "source": "benchmark_leaderboard",
     "scored_split": "test"
@@ -35,6 +41,8 @@
     "MAPE_pct": 10.2,
     "WAPE_pct": 10.8,
     "Coverage_pct": 94.3,
+    "Coverage_raw_pct": 94.3,
+    "Interval_method": "raw: no method passed validation",
     "n_predictions": 300,
     "source": "benchmark_leaderboard",
     "scored_split": "test"

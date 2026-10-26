@@ -159,7 +159,7 @@ const Method = () => {
     { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built lag and rolling-mean features, calendar flags, monthly weather summaries and Sharks game-day indicators. Because both archives end in 2023, the 2024–2025 rows, the test window included, have no weather and no games. No ranked model reads these features: SARIMA and the seasonal-naive baseline are univariate, Prophet uses only a US federal holiday calendar, and the Chronos-1 checkpoint cannot accept covariates.', tools:['pandas'] },
     { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline. AutoGluon fine-tuning is scaffolded but has never been run — autogluon.timeseries will not install on this Python.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
     { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations. Intervals are not yet calibrated.', tools:['WAPE','MAE'] },
-    { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station) with pre-computed outputs exported to JSON powering the website heat map.', tools:['FastAPI','React','JSON'] },
+    { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station). The website reads JSON exported from the pipeline: forecasts, actuals, station levels and the model comparison.', tools:['FastAPI','React','JSON'] },
   ];
   return (
     <section id="method">
@@ -249,6 +249,27 @@ const Dataset = () => {
   );
 };
 
+/* ── Which P10/P90 band forecasts.json carries ─────────────────────
+   Read from the records' interval_method (the leaderboard's Interval_method
+   label); exports written before the label existed carry the model's own
+   band. A split-conformal band's quantile is fit on the validation split,
+   Jan–Jun 2025 (configs/model.yaml train_end..val_end, the saved
+   calibrator's window). That window is not in the export, so it is named
+   here, and only shown under the split-conformal label. */
+const BAND_FIT_WINDOW = 'Jan–Jun 2025';
+const bandKind = records => {
+  const labels = [...new Set((Array.isArray(records) ? records : []).map(r =>
+    r && typeof r.interval_method === 'string' && r.interval_method ? r.interval_method : null))];
+  const label = labels.length === 1 ? labels[0] : null;
+  const raw = label && /^raw: (.+)$/.exec(label);
+  return {
+    label,
+    conformal: !!label && /^split-conformal \S+, fit on validation$/.test(label),
+    rawReason: raw ? raw[1] : null,
+    labelled: labels.some(l => l !== null),
+  };
+};
+
 /* ── Results ───────────────────────────────────────────────────── */
 const Results = () => {
   const [chart, setChart] = useState('roc');
@@ -260,6 +281,19 @@ const Results = () => {
   }, []);
   const cmpRows = Array.isArray(cmp) ? cmp.filter(r => r.WAPE_pct != null) : [];
   const bestRow = cmpRows.length ? cmpRows.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a)) : null;
+  // The Intervals chart (charts.jsx Calibration) draws forecasts.json's
+  // P10/P90; its subtitle names that band. Loading, an unreadable file, an
+  // unlabelled (older) export or mixed labels keep the plain subtitle.
+  const [fcRecords, setFcRecords] = React.useState(null);
+  React.useEffect(() => {
+    fetch('data/forecasts.json').then(r => r.json()).catch(() => []).then(setFcRecords);
+  }, []);
+  const chartBand = bandKind(fcRecords);
+  const chartBandNote = chartBand.conformal
+    ? ` · P10–P90 range set from the model's errors on ${BAND_FIT_WINDOW}, not a validated 80% interval`
+    : chartBand.rawReason
+      ? " · P10–P90 is the model's own band, not a validated 80% interval"
+      : '';
   return (
     <section id="results" style={{ background:'var(--bg-muted)' }}>
       <div className="wrap">
@@ -275,7 +309,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>{chart === 'roc' ? 'WAPE by model — test set' : 'Forecast intervals — Embarcadero'}</h3>
-                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : 'P10 / P50 / P90 zero-shot forecast · Jan–Jun 2024 · Embarcadero (highest-volume BART station)'}</p>
+                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : `P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders${chartBandNote} · Embarcadero (highest-volume BART station)`}</p>
               </div>
               <div className="chip-grp">
                 <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>WAPE</button>
@@ -294,7 +328,7 @@ const Results = () => {
             <div className="cm">
               <div className="cm-cell tp"><div className="v">{bestRow ? bestRow.WAPE_pct.toFixed(1) + '%' : '—'}</div><div className="l">WAPE · {bestRow ? bestRow.model : 'best model'}</div><div className="text-muted" style={{ fontSize:11 }}>{bestRow ? `best of ${cmpRows.length} models` : 'loading…'}</div></div>
               <div className="cm-cell tn"><div className="v">3.1k</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>vs 5.5k Prophet</div></div>
-              <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>46–97% vs nominal 80%</div></div>
+              <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>73–97% vs nominal 80%</div></div>
               <div className="cm-cell fn"><div className="v">50 sta.</div><div className="l">all BART stations</div><div className="text-muted" style={{ fontSize:11 }}>no station excluded</div></div>
             </div>
             <div className="text-muted" style={{ fontSize: 13 }}>
@@ -311,9 +345,9 @@ const Results = () => {
 const Demo = () => {
   const features = [
     { icon: '🗺', title: 'Real Google Maps', desc: '41 BART and 39 VTA stations plotted at true lat/lng.' },
-    { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded ridership load: green → amber → coral as demand rises.' },
-    { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to animate demand through a full 24-hour day.' },
-    { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to see how the model adjusts boardings.' },
+    { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded relative load index: green → amber → coral as the index rises.' },
+    { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to step an illustrative hour-of-day curve through a full 24-hour day.' },
+    { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to apply an illustrative adjustment. These effects are not modeled.' },
   ];
   return (
     <section id="demo">
@@ -323,9 +357,11 @@ const Demo = () => {
           <Reveal delay="1"><div className="row">
             <h2>Explore the network on a map.</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
-              An interactive Google Maps view shows expected boardings across BART and VTA.
-              Scrub through the hour, change the day, add weather or a major event — the
-              heat overlay updates in real time.
+              An interactive Google Maps view of BART and VTA. Each BART station's base level comes from
+              its measured average monthly boardings over the latest 12 months (stations_ridership.json,
+              BART Total Trips). The hour-of-day, day, weather and event effects and all VTA levels
+              are illustrative, not modeled. Scrub through the hour, change the day, add weather or
+              a major event, and the heat overlay updates as you change them.
             </p>
           </div></Reveal>
         </div>
@@ -546,29 +582,23 @@ const API_BASE = 'https://transit-api-308878596074.us-west2.run.app';
 const BARTForecasts = () => {
   const [forecasts, setForecasts] = React.useState([]);
   const [actuals, setActuals]     = React.useState([]);
-  const [station, setStation]     = React.useState('EMBR');
+  const [meta, setMeta]           = React.useState([]);
+  const [station, setStation]     = React.useState('EM');
   const [loading, setLoading]     = React.useState(true);
   const [comparison, setComparison] = React.useState([]);
   const [liveData, setLiveData]   = React.useState(null);
   const [liveFetching, setLiveFetching] = React.useState(false);
   const [liveError, setLiveError] = React.useState(null);
 
-  // `id` is the 4-letter BART code the live Cloud Run /forecast API expects
-  // (matches machine_learning_files/api.py's feature-store station_id
-  // convention). `dataId` is the short code actually used as `station_id`
-  // in the static website/data/*.json exports (forecasts.json,
-  // ridership_actuals.json) — a legacy scheme those files still carry
-  // (cross-checked against stations_meta.json's `bart_id` field, which maps
-  // these same short codes to the matching station names). The two never
-  // matched historically here, so the historical/forecast table below was
-  // always empty for every station — filter static-JSON lookups on
-  // `dataId`, keep `id` for the live API call and button identity.
+  // `id` is BART's two-letter station code, the feature store's station_id.
+  // The same code filters the static data/*.json exports and is sent to the
+  // live /forecast API.
   const KEY_STATIONS = [
-    { id:'EMBR', dataId:'EM', name:'Embarcadero' },
-    { id:'MONT', dataId:'MT', name:'Montgomery St' },
-    { id:'12TH', dataId:'12', name:'12th St Oakland' },
-    { id:'BERY', dataId:'BE', name:'Berryessa' },
-    { id:'FRMT', dataId:'FM', name:'Fremont' },
+    { id:'EM', name:'Embarcadero' },
+    { id:'MT', name:'Montgomery St' },
+    { id:'12', name:'12th St Oakland' },
+    { id:'BE', name:'Berryessa' },
+    { id:'FM', name:'Fremont' },
   ];
 
   React.useEffect(() => {
@@ -576,15 +606,21 @@ const BARTForecasts = () => {
       fetch('data/forecasts.json').then(r => r.json()).catch(() => []),
       fetch('data/ridership_actuals.json').then(r => r.json()).catch(() => []),
       fetch('data/model_comparison.json').then(r => r.json()).catch(() => []),
-    ]).then(([fc, ac, cmp]) => {
-      setForecasts(fc);
-      setActuals(ac);
-      setComparison(cmp);
+      fetch('data/stations_meta.json').then(r => r.json()).catch(() => []),
+    ]).then(([fc, ac, cmp, sm]) => {
+      setForecasts(Array.isArray(fc) ? fc : []);
+      setActuals(Array.isArray(ac) ? ac : []);
+      setComparison(Array.isArray(cmp) ? cmp : []);
+      setMeta(Array.isArray(sm) ? sm.filter(m => m && m.bart_id) : []);
       setLoading(false);
     });
   }, []);
 
+  // Each live request gets a sequence number; changing station bumps it, so a
+  // response (or error) for a previously selected station is dropped.
+  const liveReq = React.useRef(0);
   const fetchLive = () => {
+    const reqId = ++liveReq.current;
     setLiveFetching(true);
     setLiveError(null);
     fetch(`${API_BASE}/forecast`, {
@@ -594,31 +630,95 @@ const BARTForecasts = () => {
       signal: AbortSignal.timeout(15000),
     })
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail || 'API error')))
-      .then(data => { setLiveData(data); setLiveFetching(false); })
-      .catch(err => { setLiveError(String(err)); setLiveFetching(false); });
+      .then(data => { if (reqId !== liveReq.current) return; setLiveData(data); setLiveFetching(false); })
+      .catch(err => { if (reqId !== liveReq.current) return; setLiveError(String(err)); setLiveFetching(false); });
   };
 
-  React.useEffect(() => { setLiveData(null); setLiveError(null); }, [station]);
+  React.useEffect(() => {
+    liveReq.current++;
+    setLiveData(null); setLiveError(null); setLiveFetching(false);
+  }, [station]);
 
-  const stationDataId = KEY_STATIONS.find(s => s.id === station)?.dataId || station;
+  const metaById = {};
+  meta.forEach(m => { metaById[m.bart_id] = m; });
+  const nameFor = id => metaById[id]?.station_name || KEY_STATIONS.find(s => s.id === id)?.name || id;
+  const stationOptions = meta
+    .map(m => ({ id: m.bart_id, name: m.station_name || m.bart_id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const stationActuals = actuals
-    .filter(r => r.station_id === stationDataId)
+    .filter(r => r.station_id === station && r.ridership != null)
     .sort((a, b) => a.month.localeCompare(b.month));
 
   const stationForecasts = forecasts
-    .filter(r => r.station_id === stationDataId)
+    .filter(r => r.station_id === station)
     .sort((a, b) => a.month.localeCompare(b.month));
+
+  // One row per month: the 12 actual months before the first forecast month,
+  // then each forecast month with its actual (if any) beside P10/P50/P90.
+  // A station with no forecasts shows its last 12 actual months.
+  const actualByMonth = {};
+  stationActuals.forEach(r => { actualByMonth[r.month] = r.ridership; });
+  const firstFc = stationForecasts[0]?.month;
+  const tableRows = firstFc
+    ? [
+        ...stationActuals.filter(r => r.month < firstFc).slice(-12)
+          .map(r => ({ month: r.month, actual: r.ridership, fc: null })),
+        ...stationForecasts.map(f => ({ month: f.month, actual: actualByMonth[f.month] ?? null, fc: f })),
+      ]
+    : stationActuals.slice(-12).map(r => ({ month: r.month, actual: r.ridership, fc: null }));
 
   const fmt = n => n >= 1e6
     ? (n/1e6).toFixed(2)+'M'
     : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(n);
 
   const maxRiders = Math.max(
-    ...stationActuals.map(r => r.ridership),
-    ...stationForecasts.map(r => r.p90 || 0),
+    ...tableRows.map(r => r.actual || 0),
+    ...tableRows.map(r => (r.fc && r.fc.p90) || 0),
     1
   );
+
+  // The forecast months named in the copy come from forecasts.json (min/max
+  // month over all records); "through" is the month before the first one.
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const parseYM = ym => {
+    const m = /^(\d{4})-(0[1-9]|1[0-2])/.exec(typeof ym === 'string' ? ym : '');
+    return m ? { y: +m[1], m: +m[2] } : null;
+  };
+  const fcMonths = forecasts.map(r => r && parseYM(r.month)).filter(Boolean)
+    .sort((a, b) => a.y - b.y || a.m - b.m);
+  const fcFirst = fcMonths[0];
+  const fcLast = fcMonths[fcMonths.length - 1];
+  const fcRange = !fcFirst ? null
+    : fcFirst.y !== fcLast.y ? `${MON[fcFirst.m-1]} ${fcFirst.y}–${MON[fcLast.m-1]} ${fcLast.y}`
+    : fcFirst.m !== fcLast.m ? `${MON[fcFirst.m-1]}–${MON[fcLast.m-1]} ${fcFirst.y}`
+    : `${MON[fcFirst.m-1]} ${fcFirst.y}`;
+  const fcThrough = !fcFirst ? null
+    : fcFirst.m === 1 ? `Dec ${fcFirst.y - 1}` : `${MON[fcFirst.m-2]} ${fcFirst.y}`;
+  const fcCount = new Set(fcMonths.map(p => p.y * 12 + p.m)).size;
+
+  // Which band P10/P90 is (bandKind, above Results). A coverage figure is
+  // shown only when the Chronos leaderboard row carries the same label, so
+  // the number always scores the band on screen; it scores the forecast
+  // months (fcRange), and the comparison word follows the number. Without
+  // it, a split-conformal band still gets the "not validated" caveat.
+  const band = bandKind(forecasts);
+  const bandRow = band.label && comparison.find(r =>
+    r && /^Chronos/.test(r.model || '') && r.Interval_method === band.label
+    && typeof r.Coverage_pct === 'number' && isFinite(r.Coverage_pct));
+  const bandCov = bandRow ? Math.round(bandRow.Coverage_pct * 10) / 10 : null;
+  const bandCoverage = bandRow
+    ? ` Over ${fcRange} it held the actual ridership in ${bandCov.toFixed(1)}% of station-months, `
+      + `${bandCov < 80 ? 'short of' : bandCov > 80 ? 'above' : 'matching'} the 80% it aims for.`
+    : '';
+  const bandNote = band.conformal
+    ? `The P10–P90 range is set from the model's errors on ${BAND_FIT_WINDOW}`
+      + (bandCoverage ? `.${bandCoverage}` : ', but it is not a validated 80% interval.')
+    : band.rawReason
+      ? `P10/P90 is the model's own band (${band.rawReason}), not a validated 80% interval.${bandCoverage}`
+      : band.labelled
+        ? 'P10/P90 has no single recognised band label, so it is not a validated 80% interval.'
+        : "P10/P90 is the model's own band, not a validated 80% interval.";
 
   return (
     <section id="bart-data" style={{ background:'var(--bg-muted)', padding:'80px 0' }}>
@@ -626,11 +726,17 @@ const BARTForecasts = () => {
         <div className="section-h">
           <Reveal><div className="eyebrow"><span className="pip" /> Real BART Data</div></Reveal>
           <Reveal delay="1"><div className="row">
-            <h2>Model outputs — 50 stations, 6-month forecast.</h2>
+            <h2>{loading ? 'Model outputs — 50 stations.'
+              : fcCount ? `Model outputs — 50 stations, ${fcCount}-month forecast.`
+              : 'Model outputs — 50 stations, no forecasts published.'}</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
-              Static export of zero-shot Chronos forecasts (forecasts.json): P10/P50/P90 monthly ridership for Jan–Jun 2024,
-              plotted after the last exported actuals (Dec 2023). These are not the Jul–Dec 2025 test-split forecasts scored
-              under Results. The button below requests a forecast from the Cloud Run API.
+              {loading
+                ? 'Loading the static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) forecasts…'
+                : fcRange
+                  ? `Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}: the predictions scored in the model comparison below. ${bandNote}`
+                  : 'No forecasts are published in the static export (forecasts.json), so the table shows actual ridership only.'}
+              {' '}Actuals are BART monthly Total Trips boardings per entry station, 2019 and 2022–2025.
+              The button below requests a forecast from the Cloud Run API.
             </p>
           </div></Reveal>
         </div>
@@ -646,9 +752,23 @@ const BARTForecasts = () => {
                   color: station===s.id ? '#fff' : 'var(--ink)',
                   cursor:'pointer', fontSize:13, fontWeight:500,
                 }}>
-                {s.name}
+                {metaById[s.id]?.station_name || s.name}
               </button>
             ))}
+            {stationOptions.length > 0 && (
+              <select
+                aria-label="All stations"
+                value={station}
+                onChange={e => setStation(e.target.value)}
+                style={{
+                  padding:'6px 10px', borderRadius:6, border:'1.5px solid var(--line)',
+                  background:'var(--bg-elev)', color:'var(--ink)', fontSize:13, fontFamily:'inherit',
+                }}>
+                {stationOptions.map(o => (
+                  <option key={o.id} value={o.id}>{o.name} ({o.id})</option>
+                ))}
+              </select>
+            )}
             <button
               onClick={fetchLive}
               disabled={liveFetching}
@@ -670,7 +790,7 @@ const BARTForecasts = () => {
           {liveData && (
             <div style={{ marginBottom:20, padding:'14px 16px', borderRadius:8, background:'rgba(42,47,143,0.07)', border:'1px solid rgba(42,47,143,0.2)' }}>
               <div style={{ fontSize:12, color:'var(--primary)', fontWeight:700, marginBottom:8, letterSpacing:'.04em', textTransform:'uppercase' }}>
-                ⚡ Live Cloud Run Response — {KEY_STATIONS.find(s=>s.id===station)?.name || station}
+                ⚡ Live Cloud Run Response — {nameFor(station)}
               </div>
               <div style={{ display:'flex', gap:24, flexWrap:'wrap' }}>
                 {(liveData.forecasts || []).map(f => (
@@ -681,6 +801,11 @@ const BARTForecasts = () => {
                     <div><span style={{ color:'var(--accent)' }}>P90 </span><b style={{ fontFamily:'var(--mono)' }}>{f.p90 != null ? fmt(f.p90) : '—'}</b></div>
                   </div>
                 ))}
+              </div>
+              <div style={{ marginTop:10, fontSize:12, color:'var(--ink-muted)' }}>
+                {typeof liveData.interval?.description === 'string' && liveData.interval.description.trim()
+                  ? liveData.interval.description.trim()
+                  : 'P10/P90: band not labelled by this API version; not a validated 80% interval.'}
               </div>
             </div>
           )}
@@ -701,35 +826,39 @@ const BARTForecasts = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {stationActuals.slice(-12).map((row, i) => (
-                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', opacity: row.month >= '2022' ? 1 : 0.65 }}>
-                      <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12 }}>{row.month}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', fontWeight:600 }}>{fmt(row.ridership)}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
-                      <td style={{ padding:'5px 10px' }}>
-                        <div style={{ background:'var(--primary)', opacity:0.15+0.6*(row.ridership/maxRiders), height:6, borderRadius:3, width: `${Math.round(100*row.ridership/maxRiders)}%`, minWidth:4 }} />
-                      </td>
-                    </tr>
-                  ))}
-                  {stationForecasts.map((row) => (
+                  {tableRows.map(row => row.fc ? (
                     <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', background:'rgba(42,47,143,0.04)' }}>
                       <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12, color:'var(--primary)' }}>{row.month} ▶</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p10 != null ? fmt(row.p10) : '—'}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--primary)', fontWeight:700, fontFamily:'var(--mono)' }}>{row.p50 != null ? fmt(row.p50) : '—'}</td>
-                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.p90 != null ? fmt(row.p90) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', fontWeight:600, color: row.actual != null ? 'var(--ink)' : 'var(--ink-muted)' }}>{row.actual != null ? fmt(row.actual) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.fc.p10 != null ? fmt(row.fc.p10) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--primary)', fontWeight:700, fontFamily:'var(--mono)' }}>{row.fc.p50 != null ? fmt(row.fc.p50) : '—'}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.fc.p90 != null ? fmt(row.fc.p90) : '—'}</td>
                       <td style={{ padding:'5px 10px' }}>
-                        <div style={{ background:'var(--accent)', opacity:0.7, height:6, borderRadius:3, width: `${Math.round(100*(row.p50||0)/maxRiders)}%`, minWidth:4 }} />
+                        {row.actual != null && (
+                          <div style={{ background:'var(--primary)', opacity:0.15+0.6*(row.actual/maxRiders), height:6, borderRadius:3, width: `${Math.round(100*row.actual/maxRiders)}%`, minWidth:4, marginBottom:2 }} />
+                        )}
+                        <div style={{ background:'var(--accent)', opacity:0.7, height:6, borderRadius:3, width: `${Math.round(100*(row.fc.p50||0)/maxRiders)}%`, minWidth:4 }} />
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', opacity: row.month >= '2022' ? 1 : 0.65 }}>
+                      <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12 }}>{row.month}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', fontWeight:600 }}>{fmt(row.actual)}</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--ink-muted)' }}>—</td>
+                      <td style={{ padding:'5px 10px' }}>
+                        <div style={{ background:'var(--primary)', opacity:0.15+0.6*(row.actual/maxRiders), height:6, borderRadius:3, width: `${Math.round(100*row.actual/maxRiders)}%`, minWidth:4 }} />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div style={{ marginTop:12, fontSize:12, color:'var(--ink-muted)' }}>
-                ▶ Forecast months (Jan–Jun 2024) shown in blue. Bars sized by ridership volume.
-                Actuals shown are the exported ridership_actuals.json (BART OD monthly: 2019, 2022, 2023); it does not contain the 2025 test months scored in the table below.
+                {fcRange
+                  ? `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue, each with its actual riders beside P10/P50/P90. Bars sized by ridership volume: blue = actual, coral = P50.`
+                  : 'No forecasts are published, so the table shows the last 12 actual months. Bars sized by ridership volume.'}
+                {' '}Actuals are BART monthly Total Trips boardings per entry station (ridership_actuals.json: 2019 and 2022–2025).
               </div>
             </div>
           )}

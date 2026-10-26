@@ -66,6 +66,7 @@ Two vintages, both handled:
 Rows are exit stations, columns entry stations, cells are riders. Station codes
 are two letters, plus the numeric `12`, `16`, `19`, `24` (12th St, 16th St
 Mission, 19th St, 24th St Mission) — **50 stations** throughout.
+`machine_learning_files/bart_stations.py` maps each code to its station name.
 
 ## Verified sheet semantics
 
