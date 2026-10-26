@@ -42,6 +42,7 @@ from evaluation.calibration import (  # noqa: E402
     load_calibrator,
     save_calibrator,
     serve_band,
+    with_origin_horizon,
 )
 from models.baselines import benchmarks  # noqa: E402
 from models.baselines.benchmarks import (  # noqa: E402
@@ -844,3 +845,63 @@ class UnsearchableCalibratorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── Horizons counted from the forecast origin (Sprint 6 follow-up) ───────────
+
+class ForecastOriginTest(unittest.TestCase):
+    """serve_band(..., forecast_origin=T) counts each row's month ahead from T,
+    as benchmarks.py does when it scores the band (with_origin_horizon).
+    Without it, horizons are each station's dense rank, which shifts every
+    month of a station whose first forecast month is missing."""
+
+    ORIGIN = "2025-06-30"
+
+    def setUp(self):
+        self.val = _preds("2025-01-01", seed=1)
+        self.test = _preds("2025-07-01", seed=2)[BAND]
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "Prophet.json"
+        self.cfg = _cfg(Prophet={"method": "scaled", "group": "horizon"})
+        self.cal = fit_conformal(add_horizon(self.val), method="scaled", group="horizon", level=0.8)
+        save_calibrator(self.cal, self.path, model_key="Prophet", fit_end=FIT_END)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _serve(self, preds, **kw):
+        return serve_band(preds, "Prophet", self.cfg, calibrator_path=self.path, **kw)[0]
+
+    def test_complete_blocks_serve_the_same_band_either_way(self):
+        by_rank = self._serve(self.test)
+        by_origin = self._serve(self.test, forecast_origin=self.ORIGIN)
+        for col in ("p10", "p50", "p90", "p10_raw", "p90_raw"):
+            np.testing.assert_array_equal(by_origin[col].to_numpy(), by_rank[col].to_numpy())
+        self.assertEqual(list(by_origin.columns), list(by_rank.columns))
+
+    def test_a_station_missing_its_first_month_keeps_its_horizons(self):
+        gap = self.test[~((self.test["station_id"] == "S0")
+                          & (self.test["timestamp"] == pd.Timestamp("2025-07-01")))].reset_index(drop=True)
+        served = self._serve(gap, forecast_origin=self.ORIGIN)
+        expected = apply_conformal(with_origin_horizon(gap, self.ORIGIN), self.cal)
+        for col in ("p10", "p90"):
+            np.testing.assert_array_equal(served[col].to_numpy(), expected[col].to_numpy())
+        # Dense rank would have served S0's August as horizon 1: a different band.
+        s0 = (gap["station_id"] == "S0").to_numpy()
+        by_rank = self._serve(gap)
+        self.assertFalse(np.array_equal(served.loc[s0, "p10"].to_numpy(), by_rank.loc[s0, "p10"].to_numpy()))
+
+    def test_p50_is_untouched_and_no_columns_are_added(self):
+        served = self._serve(self.test, forecast_origin=self.ORIGIN)
+        np.testing.assert_array_equal(served["p50"].to_numpy(), self.test["p50"].to_numpy())
+        self.assertNotIn("origin", served.columns)
+        self.assertNotIn("horizon", served.columns)
+
+    def test_a_row_at_or_before_the_origin_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "at or before the forecast origin"):
+            self._serve(self.test, forecast_origin="2025-07-31")
+
+    def test_a_raw_band_ignores_the_origin(self):
+        cfg = _cfg(SARIMA={"method": "none", "reason": "x"})
+        out, _ = serve_band(self.test, "SARIMA", cfg, calibrator_path=None, forecast_origin="2025-07-31")
+        np.testing.assert_array_equal(out["p10"].to_numpy(), self.test["p10"].to_numpy())
