@@ -189,6 +189,61 @@ existing candidate row and an identical `adaptive_decision.yaml`.
 - `/tmp/tdf-venv` should be rebuilt, or moved out of `/tmp`; anything there
   is removed after 3 days without access.
 
+## Sprint 4e — EDA section rebuilt from the current store (opened 2026-10-24)
+
+(4e because the reconcile session uses 4d.)
+
+**Goal.** Close Sprint 4c's follow-up "Regenerate the EDA plots from the current store": rewrite
+`transit_eda/notebooks/eda_complete.ipynb` for monthly station rows, regenerate the PNGs, and
+restore the site's EDA section with captions that state only what each plot shows.
+
+**Branch.** `fix/eda-from-store`, cut from `origin/fix/site-model-claims` @ `0938526` (#141, the
+only branch without `EDAViz`). PR targets it. None of #139/#140/#141 had merged.
+
+**Store.** Rebuilt with #139's pipeline (`origin/fix/bart-station-table` @ `7598107`) from the 60
+hand-downloaded workbooks plus the weather and Sharks-schedule files used by the gate runs:
+`feature_store.parquet` sha256 `9a7771080c592a1206c4d7553d78012157df958d3a6bda279895a2151a323cea`,
+byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, matplotlib 3.11.2).
+
+**Rebased onto the merged backlog (2026-10-26).** #141 merged and the PR now targets
+`sprint3/pr-backlog`, where #147 tracks a store rebuilt with 2024–25 weather and Sharks games
+(`aa02436d…`, see `data/MANIFEST.md`). `ridership` and `station_name` are identical to `9a777108…`,
+so plots 01–03 and their captions are unchanged. The notebook was rerun on `aa02436d…`: plot 04
+and its caption now show weather in every month and the schedule from 2019-09-17 to 2025-12-31,
+and section 5 now covers three year pairs. `sections.jsx?v=13` (the base has 12).
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4e.1 | Rebuild the store | orchestrator | — | sha256 equals #139's gate2 store | done — `9a777108…` |
+| S4e.2 | Rewrite the notebook; regenerate PNGs | orchestrator | S4e.1 | Executes with 0 errors; every caption claim asserted; image outputs byte-identical to the PNGs; rerun gives identical PNGs | done (13f265f; caption fixes 41b712a, 828ffa5) |
+| S4e.3 | Restore `EDAViz`, nav link, mount; `?v=13` (12 at first; #142 also took 12) | orchestrator | S4e.2 | Notebook's site check passes; local render: 4 tabs, every image loads, 0 console errors | done (3cb7a1d; 41b712a, 828ffa5; v=13 in 23766b4). Sprint-boundary delivery audit pending: skipped at 93% of the 5-hour plan window |
+| S4e.4 | Review the diff | code-reviewer | S4e.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 3 MAJOR (games claim overreached; seasonality range driven by 2022; this board lost the Sprint 4c heading), 7 MINOR. Fix round 41b712a: all fixed except MINOR 7's no-CI point, which is now documented in the notebook and the code comment. Scoped re-review R2: spec PASS, quality PASS; its two optional MINORs (ambiguous growth sentence, this row's wording) fixed in the next commit |
+| S4e.5 | Push; open PR (no merge) | orchestrator | S4e.4 | PR open with claim → evidence table | done — PR #143 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/143), base `fix/site-model-claims`, not merged (the user's call) |
+
+### Rulings (Sprint 4e)
+
+- **Kept:** network level (with the 2020–21 gap drawn as missing, not a crash), seasonality,
+  station ranking, coverage map. **Dropped:** hour-of-day, day-of-week, game-night spike, rain
+  scatter, hourly decomposition, event proximity, correlation heatmap: they need daily or hourly
+  rows (notebook section 6).
+- **Weather and games vs YoY not plotted.** On the 2019–23 store only 2022→23 had both:
+  rain r = 0.82 over 12 months, confounded with the recovery (YoY +51.4% in January, +9.8% in
+  December); games r = −0.05. On `aa02436d…` there are three pairs (2022→23, 2023→24, 2024→25):
+  rain r = +0.82, −0.27, +0.26; games r = −0.05, +0.41, +0.20. Neither keeps one sign, which the
+  notebook asserts. Printed in notebook section 5, not published as a plot.
+- **Sharks schedule window comes from the raw files** (2019-09-17 to 2025-12-31 on `aa02436d…`), because the
+  store's game flags are `False` both for no game and for no data.
+- **The seven old PNGs are deleted** (Sprint 4c kept them only so this regeneration could diff
+  against them; they stay in git history at `0938526`). New filenames, so no cached old image
+  is served at a reused URL.
+- **Review R1 fixes (S4e.4):** the games result is reported as "cannot be separated", not "no
+  relationship"; the seasonality range is quoted without 2022, whose wider row is attributed in
+  part to growth within 2022 (Jan vs Dec YoY, asserted "widest"); a like-for-like 48-station share
+  is added to plot 01; unasserted trend words ("climbs", "fell") replaced by endpoint values; the
+  site check pairs each caption with its file instead of a substring search; legend "No source
+  data"; the lede's notebook path wraps at 375 px.
+
+
 ## Sprint 4d — Reconcile what #137, #138 and #139 publish together (opened 2026-10-24)
 
 (Named 4d, ids S4d.x. S4, S4b, S4c and Sprint 5, the adaptive-calibration branch, are taken.)
@@ -396,7 +451,7 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
 
 - Make the covariate path real: a covariate-capable checkpoint (Chronos-2) plus 2024–25
   weather and an event source beyond 2023. Changes the leaderboard; the user's call.
-- Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
+- (Addressed by Sprint 4e.) Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
   and hour (`hour_of_day` is constant 0), so several plots need rewriting, not just rerunning.
 - Lag and rolling features are row shifts per station (`feature_engineering.py:497-500`), so
   early-2022 rows lag into 2019 across the 2020–21 gap. No ranked model reads them today;
@@ -486,7 +541,7 @@ to a separate experiment table, not the leaderboard, so the export and the site'
 stay as they are; stack on PR #139 (`fix/bart-station-table`); the lag-gap fix ships as its own
 small PR (Sprint 4f, branch `fix/lag-calendar-months`, stacked on #141).
 
-**Branch.** `feat/covariate-benchmark`, cut from `origin/fix/bart-station-table` @ `7598107`.
+**Branch.** `feat/covariate-benchmark`, cut from `origin/fix/bart-station-table` @ `7598107`. PR #146 (base `fix/bart-station-table`).
 Pinned env rebuilt outside `/tmp`: `~/.venvs/tdf-py314` (the gate env's 66 pins + pip 26.2.1 /
 setuptools 84.2.1, plus pytest for the unit tests).
 
@@ -498,10 +553,11 @@ otherwise); `model_comparison.json` unchanged; unit tests pass; `py_compile` pas
 |---|---|---|---|---|---|
 | S4e.0 | Baseline: rebuild store and run benchmarks on unmodified `7598107` | orchestrator | — | Leaderboard 3.21 / 5.75 / 9.70 / 10.75, n = 300 | done — run0: leaderboard CSV byte-identical to #139's gate2; base store SHA-256 `9a7771080c59…a323cea`, byte-identical to gate2's and to Sprint 4d's rebuilt store |
 | S4e.1 | Fetch weather and Sharks games for 2024–25; record hashes in `data/MANIFEST.md`; rebuild; compare | orchestrator | S4e.0 | 2024–25 weather and game months non-null; leaderboard overall rows unchanged or each delta named | done — fetched 2026-10-24T11:06:49Z: 7 × 17,544 hourly rows, no nulls; 93 Sharks home games; copied (new filenames only) into the canonical `~/Desktop/transit-demand-forecasting/data/raw/`; hashes in `data/MANIFEST.md`. run1 vs run0: leaderboard CSV byte-identical; the 8 existing `benchmark_results.csv` rows identical; 12 new slice rows (`game_day`, `sharks_game` n=200, `rainy_day` n=100, per model). Store (SHA-256 `aa02436d44b5…f241`): weather columns filled for 1,200 rows (2024–25), event columns for 800 (16 game months × 50); 2019–23 `precip_mm`/`precip_in` differ by ≤ 2.6e-16 relative (summation order), every other 2019–23 cell identical |
-| S4e.2 | SARIMAX `exog` in `arima.py` (default path unchanged) + `models/baselines/covariate_experiment.py` (control + 3 arms, test and validation windows, station-clustered test, row-level DM, per-station wins, decision) | implementer | plan | Unit tests pass; with no exog the SARIMA forecasts are identical to before | in progress |
-| S4e.3 | Scored run; evidence `docs/covariate-experiment.md`; README result | orchestrator | S4e.1, S4e.2 | Every number in the doc traces to the run's CSV/log | todo |
-| S4e.4 | Review the branch diff | code-reviewer | S4e.2 | No BLOCKER open | todo |
-| S4e.5 | Delivery audit at sprint close | delivery-auditor | S4e.3, S4e.4 | Board matches git | todo |
+| S4e.2 | SARIMAX `exog` in `arima.py` (default path unchanged) + `models/baselines/covariate_experiment.py` (control + 3 arms, test and validation windows, station-clustered test, row-level DM, per-station wins, decision) | implementer | plan | Unit tests pass; with no exog the SARIMA forecasts are identical to before | done (0263048, 8586b62, d39e2fb) — built in a scratch copy: a hook blocked the implementer's writes here, because the orchestrator's shell had moved its primary directory to the 4f worktree at dispatch; the orchestrator read and applied its patch (SHA-256 `19a5341f…cd903`). 48 tests pass. No-exog control forecasts equal the unmodified code's exactly on both windows (300 rows each); smoke run on the gate2 store: control 3.21 % test / 4.27 % validation, both weather arms rejected loudly (NaN 2024–25 exog). Orchestrator added the `not scored` verdict for rejected arms (d39e2fb) |
+| S4e.3 | Scored run; evidence `docs/covariate-experiment.md`; README result | orchestrator | S4e.1, S4e.2 | Every number in the doc traces to the run's CSV/log | done — run2 on d39e2fb (started 11:29:42Z, after the rule 81b2089 and the code): **no arm improves.** Test WAPE: SARIMA 3.21, +weather 3.79 (paired p 0.0005, 42/50 stations worse), +Sharks 3.19 (p 0.54), +both 4.12; validation 4.27 / 4.67 / 4.63 / 5.27. Control's 300 forecasts equal the leaderboard SARIMA's exactly; leaderboard CSV byte-identical to run0/run1; rerun of the experiment byte-identical (CSV SHA-256 `0bf4ab0c…0a19`). Evidence `docs/covariate-experiment.md`; README paragraph |
+| S4e.4 | Review the branch diff | code-reviewer | S4e.2 | No BLOCKER open | done — R1 on dc9069e (whole diff, numbers re-derived from run2): spec PASS, quality PASS; 0 BLOCKER, 1 MAJOR (doc called Jul–Dec dry and Jan–Jun wet; the store shows 0.35 vs 0.39 summed mean hourly mm, Nov–Dec as wet as Feb–Mar), 6 MINOR (direction clause d > 0 not in the plan's text; smoke run not disclosed in the doc; "measurably worse" unqualified for validation; "would do no better" too strong; WAPE compared at 2 dp; zero-filled event counts look like data), hygiene (`evaluation/outputs/` neither tracked nor ignored; DM "0.0000"). Leakage, decision code, every number, hashes, commit times, control = leaderboard, default path, no site writes: checked correct. Fix round in the doc and README (this commit); zero-fill guard and `evaluation/outputs/` ignore are follow-ups |
+| S4e.5 | Delivery audit at sprint close (joint with S4f.3) | delivery-auditor | S4e.3, S4e.4 | Board matches git |todo — deferred: 5-hour usage at 96 % when PR #146 opened |
+| S4e.6 | Site copy on #141's text: archives now through 2025; Method 01/02, catalog footnote, Rec 01 answered by this run | orchestrator | S4e.3, #142 | Copy traces to `docs/covariate-experiment.md`; JSX parses | todo — stack on #142 (same footnote line) |
 
 
 ## Sprint 4b — One BART station table (opened 2026-10-22)
@@ -611,20 +667,35 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
   univariate (50 "Falling back to univariate mode" lines per run). No ranked
   model reads weather, events or `is_hub_station`.
 - `models/baselines/fetch_pems_roads.py:49-52` `near` values are four-letter (module unwired).
-- `website/data/*.json` fetches carry no cache-buster (`app.yaml` caches 1 day).
-- Hard-coded years that go stale on the next refresh: "2019 and 2022–2025" for
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): `website/data/*.json` fetches carry no cache-buster (`app.yaml` caches 1 day).
+  Now every data fetch uses `cache: 'no-cache'` (one shared loader in
+  `charts.jsx` for the index page), and `app.yaml` serves `data/*.json` with
+  `expiration: "0s"`.
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): Hard-coded years that go stale on the next refresh: "2019 and 2022–2025" for
   actuals; "Jul–Dec 2025 test split" labels beside `model_comparison.json`.
-- Dark mode: `index.html` sets `--primary` inline, so P50 values and forecast
-  month labels render navy on the dark background.
-- R2 N1: `website/app.yaml`'s `url: /` handler sets no expiration, so `index.html`
+  The actuals' years come from `ridership_actuals.json`. The split name comes
+  from `scored_split`, and the window comes from the `forecasts.json` months,
+  but only when those forecasts are the scored Chronos run. Sentences that also
+  carry hard-coded metrics were left alone (see below).
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): Dark mode: `index.html` sets `--primary` inline, so P50 values and forecast
+  month labels render navy on the dark background. `--primary`/`--accent` are
+  set inline only for a colour picked in the Tweaks panel. Text on
+  primary/accent buttons is `var(--bg)`, so it keeps contrast on the lighter
+  dark-theme colours.
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): R2 N1: `website/app.yaml`'s `url: /` handler sets no expiration, so `index.html`
   is cached for a day and returning visitors keep the old `?v=` cache-busters
-  until a reload.
-- R2 N2: when the `forecasts.json` fetch fails (network error, 5xx), the
+  until a reload. `/` and `/*.html` now use `expiration: "0s"`. This is unverified
+  until deploy: check with `curl -I`.
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): R2 N2: when the `forecasts.json` fetch fails (network error, 5xx), the
   forecast section says "No forecasts are published" (`sections.jsx` ~:687,
-  ~:787-795, ~:911-913).
-- The lede says the forecasts are "the predictions scored in the model
+  ~:787-795, ~:911-913). A failed load (network, non-2xx, bad JSON, non-array)
+  now has its own copy in the forecast section, the Intervals chart, the WAPE
+  chart, the Results tile and the Benchmarks table, separate from an empty file.
+- **Addressed on `fix/website-followups`** (PR #140, stacked on #139; not merged): The lede says the forecasts are "the predictions scored in the model
   comparison below" without checking that `model_comparison.json` has the
-  Chronos row (the export now refuses to publish forecasts in that case).
+  Chronos row (the export now refuses to publish forecasts in that case). The
+  clause now appears only when the comparison has exactly one Chronos row and
+  its `n_predictions` equals the number of published forecasts.
 - F1 concern 5 (pre-existing): with `--allow-val-fallback` and no validation
   split, `export_model_comparison` raises `SystemExit(1)` after the station and
   actuals files were written.
@@ -639,6 +710,22 @@ S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
   watermark). That is a billing setting on the Maps project; whether the
   deployed page is affected is unverified.
 
+### Follow-ups found on `fix/website-followups` (not fixed there)
+
+- Headline metrics and their windows are still hard-coded and will go stale on the
+  next refresh: Hero float cards (3.2%, MAE 3,086, "Jul–Dec 2025 holdout"),
+  `HeroOrbit`'s 3.2% (`charts.jsx`), AtAGlance (3.2% vs 5.8%, 300
+  station-months, "2019 + 2022–2025"), Method's "2019 + 2022–2025", the Dataset
+  split labels, the Results lede, the error-band tiles (3.1k / 5.5k / 46–97% /
+  "test period Jul–Dec 2025") and their SARIMA line, the Benchmarks lede, and
+  Rec 02 (9.7% / 10.8%). Each sentence mixes a year with a metric, so deriving
+  only the year could produce a false sentence; they belong with the
+  published-claims audit.
+- `styles.css` has no `?v=` and is cached for `default_expiration` (1 day).
+- Coral buttons ("Fetch Live from API", the active EDA tab) put light text on
+  `--accent`, about 3:1 contrast in the light theme. This predates the branch.
+- Every page load requests `/favicon.ico`, which does not exist (a 404 in the
+  console).
 
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
