@@ -152,21 +152,30 @@ The merge pipeline aggregates BART OD records to origin station-month totals, jo
 
 ## Setup
 
-**Prerequisites:** Python 3.11, Git. AutoGluon needs Python below 3.14; the published benchmark (SARIMA, Prophet, Chronos-1) ran on Python 3.14 without it.
+**Prerequisites:** Python 3.14.0, Git. The published benchmark (SARIMA, Prophet, Chronos-1) is reproduced on the pinned environment in `requirements-lock.txt` (every package `==`-pinned, frozen on macOS arm64).
 
 ```bash
 # Clone
 git clone https://github.com/Dhruv-cs50/transit-demand-forecasting.git
 cd transit-demand-forecasting
 
-# Create virtual environment with Python 3.11
-python3.11 -m venv .venv311
-source .venv311/bin/activate        # Windows: .venv311\Scripts\activate
+# Create the virtual environment with Python 3.14.0, outside /tmp
+python3.14 -m venv ~/.venvs/tdf-py314
+source ~/.venvs/tdf-py314/bin/activate
 
-# Install dependencies
-pip install --upgrade pip
-pip install -r machine_learning_files/requirements.txt
+# Install the pinned dependencies
+pip install -r requirements-lock.txt
 ```
+
+Do not put the venv under `/tmp`: macOS cleanup deletes files there and leaves
+a half-broken environment behind. A path outside the repo also keeps it out of
+git (`.gitignore` only covers `.venv/` and `.venv311/`).
+
+AutoGluon is not in the lock: `autogluon.timeseries` needs Python below 3.14,
+so it cannot be installed on this environment, and its scaffolding is scheduled
+for removal. `machine_learning_files/requirements.txt` (unpinned) still lists it
+until then. The lock also omits the serving stack; the API tests use the
+separate install under [Forecast API](#forecast-api).
 
 **API keys** — before running source fetchers, edit `configs/sources.yaml`:
 
