@@ -19,7 +19,7 @@ The current production path models BART origin-destination ridership at a month-
 ## Highlights
 
 - Monthly station-level BART ridership forecasting with chronological train, validation, and test splits.
-- Weather (Open-Meteo) and San Jose Sharks home-game columns in the feature store, 2019–2023 only. No ranked model uses them yet (see the Chronos caveat below); Ticketmaster ingestion exists but needs a key.
+- Weather (Open-Meteo) and San Jose Sharks home-game columns in the feature store: weather for every store month (2019, 2022–2025), Sharks games from September 2019 (see `data/MANIFEST.md`). No ranked model uses them yet (see the Chronos caveat below); Ticketmaster ingestion exists but needs a key.
 - Baselines and model comparison across seasonal naive, SARIMA, Prophet and Chronos-1 zero-shot. AutoGluon fine-tuning code exists but has never produced a result (see below).
 - Data validation for required columns, missing windows, station coverage, and ridership anomalies.
 - Static website export that turns feature stores and model outputs into JSON consumed by the frontend.
@@ -491,7 +491,7 @@ Additional project documentation:
 ## Known Limitations
 
 - The active modeled target is monthly BART OD ridership. Some files describe future higher-frequency transit support, but the current reliable pipeline is monthly.
-- Weather and event data are aggregated to the monthly modeling cadence, and both raw archives end in December 2023, so 2024–2025 rows (the test window included) have no weather and no games. No ranked model reads these columns.
+- Weather and event data are aggregated to the monthly modeling cadence. Weather covers every store month, but it is observed weather, so for the Jul–Dec 2025 test window it is hindsight, not a forecast. The Sharks schedule starts on 2019-09-17, so the January–May 2019 games are missing and those months read as months without a game. No ranked model reads these columns.
 - `scripts/run_pipeline.sh` assumes `.venv311/bin/python` exists.
 - Chronos (benchmarks only; the API does not run it) defaults to `cpu` in `configs/model.yaml`; change it to `mps` on Apple Silicon or `cuda` on a GPU machine for faster inference.
 - Some source fetchers require external credentials or manual data access.
