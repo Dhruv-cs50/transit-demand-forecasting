@@ -284,6 +284,37 @@ byte-identical; unit tests pass; `py_compile` and JSX parse pass.
 - Tests: `tests/test_benchmark_calibration.py` added (3dff990).
 - Not changed: `accept_model_rows` does not reject a model with missing interval bounds (NaN coverage, still ranked). That is `main`'s behaviour; left as a question for the user. The study's private `_store` swap is kept, restored in `finally`.
 
+## Sprint 4e — Do weather and event covariates help? (opened 2026-10-24)
+
+(Named 4e: 4, 4b, 4c and 4d are taken by sibling branches.)
+
+**Goal.** Answer, with a scored run, whether weather and Sharks-game covariates improve the
+monthly forecast. Plan and decision rule: `docs/covariate-experiment-plan.md`, committed
+(81b2089) before any covariate arm was scored.
+
+**User decisions (2026-10-24).** SARIMAX arms only (no Chronos-2, no Prophet regressors); arms go
+to a separate experiment table, not the leaderboard, so the export and the site's best-model pick
+stay as they are; stack on PR #139 (`fix/bart-station-table`); the lag-gap fix ships as its own
+small PR (Sprint 4f, branch `fix/lag-calendar-months`, stacked on #141).
+
+**Branch.** `feat/covariate-benchmark`, cut from `origin/fix/bart-station-table` @ `7598107`.
+Pinned env rebuilt outside `/tmp`: `~/.venvs/tdf-py314` (the gate env's 66 pins + pip 26.2.1 /
+setuptools 84.2.1, plus pytest for the unit tests).
+
+**Gates.** Control SARIMA reproduces 3.21 % (n = 300) and equals the leaderboard's SARIMA row on the
+same run; the four leaderboard overall rows are unchanged by the 2024–25 data (each delta named
+otherwise); `model_comparison.json` unchanged; unit tests pass; `py_compile` passes.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4e.0 | Baseline: rebuild store and run benchmarks on unmodified `7598107` | orchestrator | — | Leaderboard 3.21 / 5.75 / 9.70 / 10.75, n = 300 | done — run0: leaderboard CSV byte-identical to #139's gate2; base store SHA-256 `9a7771080c59…a323cea`, byte-identical to gate2's and to Sprint 4d's rebuilt store |
+| S4e.1 | Fetch weather and Sharks games for 2024–25; record hashes in `data/MANIFEST.md`; rebuild; compare | orchestrator | S4e.0 | 2024–25 weather and game months non-null; leaderboard overall rows unchanged or each delta named | done — fetched 2026-10-24T11:06:49Z: 7 × 17,544 hourly rows, no nulls; 93 Sharks home games; copied (new filenames only) into the canonical `~/Desktop/transit-demand-forecasting/data/raw/`; hashes in `data/MANIFEST.md`. run1 vs run0: leaderboard CSV byte-identical; the 8 existing `benchmark_results.csv` rows identical; 12 new slice rows (`game_day`, `sharks_game` n=200, `rainy_day` n=100, per model). Store (SHA-256 `aa02436d44b5…f241`): weather columns filled for 1,200 rows (2024–25), event columns for 800 (16 game months × 50); 2019–23 `precip_mm`/`precip_in` differ by ≤ 2.6e-16 relative (summation order), every other 2019–23 cell identical |
+| S4e.2 | SARIMAX `exog` in `arima.py` (default path unchanged) + `models/baselines/covariate_experiment.py` (control + 3 arms, test and validation windows, station-clustered test, row-level DM, per-station wins, decision) | implementer | plan | Unit tests pass; with no exog the SARIMA forecasts are identical to before | in progress |
+| S4e.3 | Scored run; evidence `docs/covariate-experiment.md`; README result | orchestrator | S4e.1, S4e.2 | Every number in the doc traces to the run's CSV/log | todo |
+| S4e.4 | Review the branch diff | code-reviewer | S4e.2 | No BLOCKER open | todo |
+| S4e.5 | Delivery audit at sprint close | delivery-auditor | S4e.3, S4e.4 | Board matches git | todo |
+
+
 ## Sprint 4b — One BART station table (opened 2026-10-22)
 
 (Named 4b, with ids S4b.x, because the parallel interval-calibration branch, PR #138, also adds a "Sprint 4" with S4.x ids. Board-only commit messages on this branch say "S4.x"; they mean these stories.)

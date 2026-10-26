@@ -134,6 +134,28 @@ on 2026-10-24.
 | `events_2019-01-01_2023-12-31.parquet` | 174 San Jose Sharks home games at SAP Center, Sep 2019 → Dec 2023 (Jan–May 2019 missing, see above), from the NHL API (`fetch_events.py`) | `23748ca287ec18900a44b0cc6b1ad5dcc392a15afe140f5bd7b1bb3637c8ca27` |
 | `events_2024-01-01_2025-12-31.parquet` | 93 Sharks home games, Jan 2024 → Dec 2025, from the NHL API | `4c8203738470dc1dcf417a368726530f06338241a336f08619c6c057c0e87c08` |
 
+### How the archives were fetched
+
+Also gitignored, under `data/raw/weather/` and `data/raw/events/`. `merge_pipeline.py` loads
+every `weather_all_stations_*.parquet` and every `events_*.parquet`, so the two date ranges below
+are read together; they do not overlap.
+
+| Range | Fetched | Command |
+|---|---|---|
+| 2019-01-01 → 2023-12-31 | before this manifest (file dates 2026-05-07) | `fetch_weather_openmeteo.py` / `fetch_events.py` defaults of that time |
+| 2024-01-01 → 2025-12-31 | **2026-10-24T11:06:49Z** | `fetch_weather_openmeteo.py --start 2024-01-01 --end 2025-12-31`, `fetch_events.py --start 2024-01-01 --end 2025-12-31` |
+
+Weather: Open-Meteo archive API, hourly, 7 locations (`configs/sources.yaml`
+`weather.station_coords`), no key. 2024–25: 17,544 hourly rows per location (731 days × 24), no
+missing values; same columns and dtypes as the 2019–2023 file. Events: San Jose Sharks home games
+from the NHL API (`api-web.nhle.com`), no key. 2019–2023: 174 games (163 regular season, 11
+preseason); 2024–25: 93 games (86 regular season, 7 preseason). Ticketmaster (concerts, other
+venues) needs a key, which this project does not have, so no other events are in either archive.
+
+The per-location `weather_<location>_<range>.parquet` files are the fetcher's intermediate
+outputs; the pipeline reads only the `weather_all_stations_*` files. Open-Meteo's archive is a
+reanalysis that can be revised, so a re-fetch may not match these hashes byte for byte.
+
 ## Rebuilding
 
 ```bash
@@ -153,7 +175,7 @@ the three `Avg` sheets, so it **cannot** define the `Total Trips` target;
 
 | Source | Key needed | Notes |
 |---|---|---|
-| Open-Meteo weather | none | `fetch_weather_openmeteo.py`; 7 station locations, hourly |
-| NHL events | none | Sharks home games, archived for Sep 2019 → Dec 2025 (above) |
-| Ticketmaster events | free Ticketmaster key | absent here; no concerts or other venues in the store |
+| Open-Meteo weather | none | `fetch_weather_openmeteo.py`; 7 station locations, hourly; archived 2019–2025 (above) |
+| NHL schedule (Sharks) | none | `fetch_events.py`; home games at SAP Center, archived Sep 2019 → Dec 2025 (above) |
+| Ticketmaster events | free Ticketmaster key | not set, so `fetch_events.py` skips it; no concerts or other venues in the store |
 | 511 SF Bay transit | free 511 key | **not currently used** — `merge_pipeline.py:95` is a placeholder |
