@@ -130,7 +130,7 @@ unit tests pass; `py_compile` passes.
 | S6.5 | Run the study; apply the rule; write-up; commit the choice before any test run | orchestrator | S6.1, S6.4 | Commit precedes S6.6's run | done (this commit) — Chronos-1 `shift_hl1 relative/horizon`; SARIMA no qualifier, own band kept. See S6.5 notes below |
 | S6.6a | `shift_relative` through #144's path: `interval_plan` label and `band_method`, `calibrate_intervals` fit + save (provenance `method_config`, `bias_half_life`, `bias_at`), `serve_band` checks; Chronos-1 rolling pool in `run_benchmarks`; tests first; the implementer runs no benchmark, export or API | implementer | S6.5, merge ea6bde4 | 229+ tests pass; saved calibrator served identically | done — tests 5fca039 (committed failing: 28 failed), implementation f426445; 257 tests pass. Pre-scoring parity (data to `val_end` only, no test band fit): Chronos-1's deployed pool built by `benchmarks.py`'s own `_rolling_origin_pool` + `_forecast_checked` (4,650 rows, 18 origins) gives n, n_by_group, bias, width, q and clipped_groups identical at full precision to the study's |
 | S6.6b | `scripts/interval_test_breakdown.py` describes Chronos-1's band too (reproduces the leaderboard's coverage and Sprint 4's 72.67); not run by the implementer | implementer | S6.5 | py_compile; SN/Prophet output unchanged by reading | done — 8fa116d (+ 6 synthetic tests for `fit_band` / `by_group`); not run; also stops unless every Chronos test row is `model_mode == zeroshot` |
-| S6.6c | Score the test split once; determinism rerun; gates; breakdown; export `model_comparison.json` + `forecasts.json`; README and write-up | orchestrator | S6.6a, S6.6b, the merged study re-verification | All gates green; logged calibrator equals the study's deployed one at full precision | in progress |
+| S6.6c | Score the test split once; determinism rerun; gates; breakdown; export `model_comparison.json` + `forecasts.json`; README and write-up | orchestrator | S6.6a, S6.6b, the merged study re-verification | All gates green; logged calibrator equals the study's deployed one at full precision | done — scored once at 5818932: Chronos-1 72.67% → **84.67%** (5.33% / 10.00%); other models unchanged. Gates and test-split access below |
 | S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | todo |
 | S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | todo |
 
@@ -162,6 +162,33 @@ unit tests pass; `py_compile` passes.
   gate): n = 4,650; bias by horizon 1–6 = 0.034851, 0.100458, 0.096520,
   0.103179, 0.090771, 0.089513; width = 0.086624, 0.111627, 0.106900,
   0.110687, 0.111075, 0.114898; no clipped horizon.
+
+**Gate results (S6.6c, 2026-10-25, pinned env, code at 5818932).**
+
+| Gate | Result |
+|---|---|
+| Parity | The calibrator `benchmarks.py` logged for Chronos-1 (`interval calibrator (full)`: n 4,650, rows per horizon, bias, width, q, no clipped horizon) is identical at full precision to the study's deployed one (S6.5 notes), in both runs |
+| Point metrics | WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected and `Coverage_raw_%` identical to PR #145's post-merge leaderboard and results CSV on every slice (`assert_frame_equal`); column and row order unchanged |
+| Other models | SARIMA, Prophet, SeasonalNaive `Coverage_%` (96.67 / 74.00 / 83.67) and `Interval_method` unchanged; SeasonalNaive's and Prophet's saved calibrators byte-identical to the Sprint 5 post-merge run's |
+| Determinism | Run 2, from a clean `git archive` of 5818932 with the enriched store rebuilt from the tracked `aa02436d…` (`60df3541…`): leaderboard, results CSV, LaTeX and all three saved calibrators byte-identical to run 1; Chronos-1 test forecasts identical apart from `generated_at` |
+| Calibrated test coverage (scored once) | Chronos-1 84.67% (5.33% below / 10.00% above; width 30.78 → 21.39% of P50; interval score 43.05 → 26.23; by month 96 98 90 56 80 88). `scripts/interval_test_breakdown.py` reproduces it and Sprint 4's 72.67% exactly |
+| Website rule | Not every model in 75–85% (Prophet 74.0, SARIMA 96.7): "not calibrated" stays; the coverage range on the site moves 73–97% → 74–97% |
+| Export | `scripts/export_website_data.py` (its served-band coverage check passed): only `forecasts.json` (P10/P90 and `interval_method`; P50 and `p10_raw`/`p90_raw` unchanged on all 300 records) and `model_comparison.json` (Chronos-1 `Coverage_pct` 72.7 → 84.7 and `Interval_method`) changed; the other three files byte-identical |
+| Site | Served locally (built-in browser): the forecast section says "re-centred on the model's recent errors (forecasts made Dec 2023 – May 2025, …) … 84.7% of station-months, above the 80% it aims for"; the Intervals chart subtitle names the band; the tile shows 74–97%; `sections.jsx?v=13` loaded; no console errors |
+| Tests / compile | 257 tests pass (pinned env + pytest/fastapi/httpx); `py_compile` on every touched .py |
+
+**Test-split access (Sprint 6).**
+- Before scoring, none: the study cuts the store at `val_end` on read; the
+  pre-scoring parity script loaded the Predictor's full store but cut the
+  history at `val_end` and every forecast's store at ≤ `val_end`, fitting no
+  test-window band.
+- Run 1, scored: `benchmarks.py` at 5818932, 20:53:53–20:58:33.
+- Run 2, its determinism check: clean export of 5818932, 20:58:57–21:03:04.
+- `scripts/interval_test_breakdown.py`, 20:58:57: describes the result,
+  chooses nothing.
+- `scripts/export_website_data.py`, 21:03:23: loads the full store for the
+  station JSONs and checks the served band's coverage against the
+  leaderboard; chooses nothing.
 
 **Merge of PR #145's moved base (ea6bde4, after S6.5, before any test-split access).**
 - The Sprint 5 session moved `feat/adaptive-interval-calibration` to

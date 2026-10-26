@@ -9,8 +9,11 @@ numbers existed.
   two-window rule.
 - **SARIMA keeps its own band:** none of the six candidates qualified.
 - **Point metrics are unchanged.** P50 is never read for writing.
-- **Test result:** not scored yet. The choice is committed first; see
-  [Sprint 6](#sprint-6--bias-shifted-bands-for-sarima-and-chronos-1).
+- **Test result (scored once):** Chronos-1 72.7% → **84.7%**, tails
+  5.3% / 10.0%, inside 75–85%; the band is 30% narrower and its interval
+  score falls from 43.05 to 26.23. SARIMA, Prophet and SeasonalNaive are
+  unchanged at 96.7%, 74.0% and 83.7%. Details in
+  [Test result, Sprint 6](#test-result-sprint-6-scored-once).
 
 **Status (Sprint 5).** Calibrations that weight recent errors were measured
 on data up to `val_end`, under a rule fixed on the sprint board (6daa610)
@@ -188,6 +191,53 @@ The SARIMA and Chronos-1 incumbent rows equal Sprint 5's exactly.
   the bias known at its own origin adds the bias's drift over the following
   months to the width.
 
+### Test result, Sprint 6 (scored once)
+
+**Run.** `models/baselines/benchmarks.py` at 5818932, started 2026-10-25
+20:53:53, after the choice was committed (0c3dc56, 20:26:48) and after the
+wiring reproduced the study's deployed calibrator from data up to `val_end`.
+Scored on the 2025-H2 holdout, n = 300 per model.
+
+**Gates:**
+- The calibrator `benchmarks.py` logged for Chronos-1 (n, rows per horizon,
+  bias, width, q, clipped horizons) is identical at full precision to the
+  one the study computed before the run.
+- WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected and `Coverage_raw_%` are
+  identical to PR #145's post-merge leaderboard and results on every slice;
+  SARIMA's, Prophet's and SeasonalNaive's `Coverage_%` and `Interval_method`
+  are unchanged.
+- A second run, from a clean export of the same commit with the enriched
+  store rebuilt from the tracked one, gave byte-identical leaderboard,
+  results, LaTeX and saved calibrators.
+
+| Model | Interval now | Own band | Before (Sprint 5) | **Now** | Below P10 / above P90 | Width, % of P50 (before → now) | Interval score % (before → now) | Coverage by month, Jul–Dec (before → now) | Validation (2024-H2 / 2025-H1) |
+|---|---|---:|---:|---:|---|---|---|---|---|
+| Chronos-1 zero-shot | `shift_hl1 relative/horizon` | 51.00% | 72.67% | **84.67%** | 5.33% / 10.00% (before 0.00% / 27.33%) | 30.78 → 21.39 | 43.05 → 26.23 | 98 82 62 10 96 88 → 96 98 90 56 80 88 | 82.3% / 83.3% |
+| SARIMA | own band (unchanged) | 96.67% | 96.67% | 96.67% | 1.0% / 2.3% | — | — | — | — |
+| Prophet | Sprint 5 (unchanged) | 46.00% | 74.00% | 74.00% | 13.0% / 13.0% | — | — | — | — |
+| SeasonalNaive | Sprint 5 (unchanged) | 94.33% | 83.67% | 83.67% | 3.3% / 13.0% | — | — | — | — |
+
+The Chronos-1 columns come from `scripts/interval_test_breakdown.py`, which
+rebuilds the band with `evaluation/calibration.py` from the forecasts the
+study cached and stops unless it reproduces the leaderboard's 84.67% and
+Sprint 4's 72.67%. It fits no model and chooses nothing.
+
+**Chronos-1 works on test.**
+- It covers 84.67%, with 5.33% below P10 and 10.00% above P90, inside every
+  limit of the rule. The validation windows had predicted 82–83%.
+- The upper-tail misses fall from 27.33% to 10.00%. The shift buys most of
+  that: the band is narrower than Sprint 4's, not wider.
+- October 2025 still covered only 56% (Sprint 4's band: 10%). One bad month
+  in six moves a 300-row window by several points, so 84.67% is one draw,
+  not a rate.
+
+**The website wording stays "not calibrated".** Sprint 4's rule changes it
+only if every model's test coverage is 75–85%, and Prophet's 74.0% and
+SARIMA's 96.7% are not. The site's coverage range moves from 73–97% to
+74–97%, because Chronos-1 is no longer the lowest.
+`website/data/model_comparison.json` and `forecasts.json` carry the new
+Chronos-1 band, coverage and label.
+
 ### Not covered
 
 - **SARIMA is still not calibrated to the rule.** No band fit on recent
@@ -200,9 +250,10 @@ The SARIMA and Chronos-1 incumbent rows equal Sprint 5's exactly.
   from ages counted to T by a unit test: within one origin, both rescale every
   weight by the same factor, so the weighted median is the same. The code
   uses the origin, as the board specifies.
-- **Serving.** PR #144 publishes Chronos-1's Sprint 4 split band
-  (q = 0.15389) in `forecasts.json`; that band is now stale, and its
-  `serve_band` will refuse `shift_relative` by design.
+- **Serving** now carries `shift_relative` (`interval_plan`, the saved
+  calibrator's provenance and `serve_band`'s checks), so `forecasts.json`
+  publishes the band the leaderboard scores. No surface serves SARIMA's,
+  SeasonalNaive's or Prophet's calibrated band beyond what Sprint 5 did.
 
 ### Reproduce
 
@@ -602,8 +653,8 @@ any of them.
 
 | Surface | Model | P10/P90 served | Label |
 |---|---|---|---|
-| Leaderboard (`model_comparison.json`) | all four | Per model, as in Sprint 5's [Decision](#decision) table: rolling-origin conformal band for SeasonalNaive and Prophet, split-conformal band for Chronos-1, own band for SARIMA. `Coverage_pct` scores that band; `Coverage_raw_pct` scores the model's own band | `Interval_method` |
-| `website/data/forecasts.json` | Chronos-1 zero-shot, Jul–Dec 2025 | The split-conformal `relative/pooled` band, the one the leaderboard scores (72.7%). The model's own bounds stay as `p10_raw`/`p90_raw` | `interval_method` on every record |
+| Leaderboard (`model_comparison.json`) | all four | Per model: rolling-origin conformal band for SeasonalNaive and Prophet (Sprint 5), bias-shifted rolling-origin band for Chronos-1 (Sprint 6), own band for SARIMA. `Coverage_pct` scores that band; `Coverage_raw_pct` scores the model's own band | `Interval_method` |
+| `website/data/forecasts.json` | Chronos-1 zero-shot, Jul–Dec 2025 | The bias-shifted `shift_hl1 relative/horizon` band (config method `shift_relative`), the one the leaderboard scores (84.7%). The model's own bounds stay as `p10_raw`/`p90_raw` | `interval_method` on every record |
 | API `POST /forecast` | SARIMA, fit per request | SARIMA's own band (nominal 80%), not calibrated: no method passed validation | `interval` (`calibrated`, `method`, `nominal_level`, `label`, `description`) |
 
 The `label` and `interval_method` strings are the leaderboard's
@@ -612,15 +663,17 @@ that scored it.
 
 Where the calibrator comes from:
 - `models/baselines/benchmarks.py` fits it, and nothing else does.
-  - `scheme: split` (Chronos-1): from the 2025-H1 validation forecasts, made
-    by a fit ending 2024-12-31 (`train_end`).
-  - `scheme: rolling` (SeasonalNaive, Prophet): from forecasts made at
-    monthly origins 2023-12-31 … 2025-05-31, with targets up to 2025-06-30
-    (`val_end`).
+  - `scheme: split` (no model today): from the 2025-H1 validation
+    forecasts, made by a fit ending 2024-12-31 (`train_end`).
+  - `scheme: rolling` (SeasonalNaive, Prophet, and Chronos-1 with method
+    `shift_relative`): from forecasts made at monthly origins 2023-12-31 …
+    2025-05-31, with targets up to 2025-06-30 (`val_end`).
 - It saves it to `evaluation/outputs/calibration/calibrators/<model_key>.json`
   with the model key, model, checkpoint, label, fit end and calibration
   window. A rolling calibrator also records its scheme, half-life and first
-  origin.
+  origin; a bias-shifted one also `method_config: shift_relative`, its bias
+  half-life and `bias_at`. Its file's `method` is `asym_relative`, the form
+  the band is stored in.
   Each run first removes every saved calibrator, so any file present
   afterwards was fitted by the latest run. A model left on its own band, or
   whose calibration fails or cannot be saved, has no file.
@@ -629,6 +682,9 @@ Where the calibrator comes from:
   against `configs/model.yaml` and the forecasts being served:
   - method, group, level, scheme, model key and checkpoint;
   - for a rolling calibrator, its half-life and first origin;
+  - for a `shift_relative` entry, `method_config`, bias half-life and
+    `bias_at`; a Sprint 5 `asym_relative` file is never served under a
+    `shift_relative` entry, nor the reverse;
   - its fit end: `train_end` for split, `val_end` for rolling.
 - A model whose method is `none` keeps its own band, and no calibrator file
   is read. That is SARIMA today, so the API image carries no calibrator.
@@ -658,12 +714,11 @@ Refusals. Nothing is served under a label it has not earned:
   consistency check, not tuning: nothing is chosen from it.
 
 Caveats:
-- The Chronos quantile was fit on forecasts from a 2024-12-31 origin and is
-  applied to forecasts from a 2025-06-30 origin. That transfer rests on the
-  usual split-conformal assumption: errors at the later origin are
-  exchangeable with the validation errors. It was scored only on the 2025-H2
-  window, where it fell short of 80%. A band from any other origin is
-  unscored.
+- The Chronos-1 band was fit on forecasts from origins up to 2025-05-31 and
+  is applied to forecasts from the 2025-06-30 origin, re-centred on the bias
+  of the months just before it. That assumes the bias of the next six months
+  stays near the recent one. It was scored only on the 2025-H2 window, where
+  it covered 84.7%. A band from any other origin is unscored.
 - The API's default forecast (refit through Dec 2025) has no actuals yet.
   SARIMA's 96.7% is the coverage of its Jul–Dec 2025 holdout forecasts.
 
