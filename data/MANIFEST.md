@@ -1,13 +1,28 @@
 # Input data manifest
 
-The raw BART ridership data is **not in git** (`data/raw/` and
-`data/processed/` are gitignored, and the workbooks are large). It also cannot
-be re-fetched automatically: bart.gov sits behind a Cloudflare bot challenge
-and answers automated requests with HTTP 403. See
+The raw BART ridership data is **not in git** (`data/raw/` is gitignored, and
+the workbooks are large). It also cannot be re-fetched automatically: bart.gov
+sits behind a Cloudflare bot challenge and answers automated requests with
+HTTP 403. See
 [`machine_learning_files/bart_od_from_xlsx.py`](../machine_learning_files/bart_od_from_xlsx.py).
 
 This manifest exists so anyone can confirm they hold the same inputs that
 produced the published numbers.
+
+## Committed feature store
+
+`data/processed/feature_store.parquet` **is in git** (the rest of
+`data/processed/` is not). `Dockerfile.api` bakes it into the serving image, and
+without it neither the image nor the API can be built from a clean clone.
+
+| File | Rows | Months | SHA-256 |
+|---|---|---|---|
+| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `d9135f03f1bd77093353ff39e11185e59dfed50e296fcddedf9dfabf3763c238` |
+
+Its `ridership` column is identical, row for row, to the stores behind the
+published leaderboard; SARIMA trained on it through `val_end` scores the
+published 3.21% WAPE (`tests/test_api.py` checks this). Rebuilding with the steps
+below overwrites it — commit the result only when the change is intended.
 
 ## Source archives
 
