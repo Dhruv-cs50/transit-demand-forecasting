@@ -13,8 +13,8 @@ store say. No model or number change.
 
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
-| S4g.1 | Correct every "ends 2023" claim in `website/` and `README.md` | orchestrator | — | grep finds none; each new sentence traces to `data/MANIFEST.md`, the store or model code; render shows 0 console errors | done |
-| S4g.2 | Push; open PR (no merge) | orchestrator | S4g.1 | PR open with claim → evidence table | todo |
+| S4g.1 | Correct every "ends 2023" claim in `website/` and `README.md` | orchestrator | — | grep finds none; each new sentence traces to `data/MANIFEST.md`, the store or model code; render shows 0 console errors | done (f5db1eb) |
+| S4g.2 | Push; open PR (no merge) | orchestrator | S4g.1 | PR open with claim → evidence table | done — PR #154 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/154), not merged |
 
 ## Sprint 4d — Reconcile what #137, #138 and #139 publish together (opened 2026-10-24)
 
