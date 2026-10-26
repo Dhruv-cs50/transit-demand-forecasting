@@ -50,7 +50,8 @@ Schema:
     is_pm_peak      bool     (only present when timestamps carry sub-daily resolution)
     period          datetime64[ns]  (carried through from load_transit(); same
                                       month-start value as timestamp)
-    station_name    str      (from BART's origin_name)
+    station_name    str      (BART station name for station_id, from
+                              machine_learning_files/bart_stations.py)
     ridership_daily_est float64  (ridership ÷ 22 weekdays; read by
                                    scripts/export_website_data.py)
 
@@ -67,6 +68,11 @@ import pandas as pd
 import yaml
 from pandas.tseries.holiday import USFederalHolidayCalendar
 
+try:
+    from machine_learning_files.bart_stations import CODE_TO_NAME, CODE_TO_WEATHER_STATION
+except ImportError:  # run as a script from machine_learning_files/
+    from bart_stations import CODE_TO_NAME, CODE_TO_WEATHER_STATION
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -78,19 +84,12 @@ PROCESSED_DIR = Path("data/processed")
 CONFIG_PATH = Path("configs/sources.yaml")
 MODEL_CONFIG_PATH = Path("configs/model.yaml")
 
-# Direct name correspondence between the 7 weather-monitoring locations in
-# configs/sources.yaml (weather.station_coords) and real BART station codes
-# (cross-checked against fetch_bart_od.py's STATION_NAMES). "diridon" has no
-# BART equivalent -- it's a Caltrain/VTA hub -- so it's intentionally left
-# unmapped here; it still contributes to the regional fallback average below.
-STATION_TO_WEATHER_STATION = {
-    "EMBR": "embarcadero",
-    "MLBR": "millbrae",
-    "FRMT": "fremont_bart",
-    "BERY": "berryessa",
-    "SFIA": "sfo",
-    "19TH": "oakland_19th",
-}
+# The six weather-monitoring locations in configs/sources.yaml
+# (weather.station_coords) that name-match a BART station, keyed by the
+# store's two-letter station_id, from the station table. "diridon" has no
+# BART station -- it's a Caltrain/VTA hub -- so it stays unmapped and only
+# contributes to the regional fallback average below.
+STATION_TO_WEATHER_STATION = CODE_TO_WEATHER_STATION
 
 
 def load_configs() -> tuple[dict, dict]:
@@ -217,6 +216,17 @@ def load_transit(freq: str) -> pd.DataFrame:
     )
     # Drop system-wide aggregate rows (e.g. "Exits") — not real station codes
     station_monthly = station_monthly[station_monthly["station_id"].str.len() <= 4]
+
+    # Names come from the station table, whatever the raw parquets carry:
+    # parquets built before it hold the code as origin_name. A station_id
+    # missing from the table keeps its parquet name.
+    unknown = sorted(set(station_monthly["station_id"]) - set(CODE_TO_NAME))
+    if unknown:
+        log.warning(f"  {len(unknown)} station_id(s) not in bart_stations.py, "
+                    f"keeping the parquet's name: {unknown}")
+    station_monthly["station_name"] = (
+        station_monthly["station_id"].map(CODE_TO_NAME).fillna(station_monthly["station_name"])
+    )
 
     # Convert monthly → daily approximation (÷ 22 weekdays) and set to timestamp
     station_monthly["timestamp"] = pd.to_datetime(station_monthly["period"])

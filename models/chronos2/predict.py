@@ -22,7 +22,7 @@ It handles:
 Usage:
     from models.chronos2.predict import Predictor
     predictor = Predictor()
-    result = predictor.forecast(station_id="DIRIDON", horizon_hours=24)
+    result = predictor.forecast(station_id="EM", horizon_hours=24)
 """
 
 from __future__ import annotations
@@ -316,7 +316,7 @@ class Predictor:
         Generate a forecast for a single station.
 
         Args:
-            station_id     : transit station code (e.g. "DIRIDON", "EMBR")
+            station_id     : transit station code (e.g. "EM", "12")
             horizon_hours  : legacy knob, only consulted when neither
                               data.forecast_horizon_steps nor
                               chronos2.prediction_length_steps is set in
@@ -650,7 +650,7 @@ def main():
     )
 
     parser = argparse.ArgumentParser(description="Run production forecast")
-    parser.add_argument("--station",  default="EMBR",  help="Station ID")
+    parser.add_argument("--station",  default="EM",  help="Station ID")
     parser.add_argument("--horizon",  type=int, default=None, help="Forecast horizon (hours). Default: from config.")
     parser.add_argument("--all",      action="store_true", help="Forecast all stations")
     parser.add_argument("--output",   default=None, help="Output parquet path")

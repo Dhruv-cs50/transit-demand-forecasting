@@ -16,6 +16,13 @@ hand-downloaded workbooks plus the weather and Sharks-schedule files used by the
 `feature_store.parquet` sha256 `9a7771080c592a1206c4d7553d78012157df958d3a6bda279895a2151a323cea`,
 byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, matplotlib 3.11.2).
 
+**Rebased onto the merged backlog (2026-10-26).** #141 merged and the PR now targets
+`sprint3/pr-backlog`, where #147 tracks a store rebuilt with 2024–25 weather and Sharks games
+(`aa02436d…`, see `data/MANIFEST.md`). `ridership` and `station_name` are identical to `9a777108…`,
+so plots 01–03 and their captions are unchanged. The notebook was rerun on `aa02436d…`: plot 04
+and its caption now show weather in every month and the schedule from 2019-09-17 to 2025-12-31,
+and section 5 now covers three year pairs. `sections.jsx?v=13` (the base has 12).
+
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
 | S4e.1 | Rebuild the store | orchestrator | — | sha256 equals #139's gate2 store | done — `9a777108…` |
@@ -30,11 +37,12 @@ byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, m
   station ranking, coverage map. **Dropped:** hour-of-day, day-of-week, game-night spike, rain
   scatter, hourly decomposition, event proximity, correlation heatmap: they need daily or hourly
   rows (notebook section 6).
-- **Weather and games vs 2022→23 YoY not plotted.** r(YoY, extra rain) = 0.82 over 12 months, but
-  the wettest 2023 months (Jan–Mar) are also the months that grew most, and YoY growth was
-  +51.4% in January but +9.8% in December; games (r = −0.05) cannot be separated either. Printed
-  in notebook section 5, not published as a plot.
-- **Sharks schedule window comes from the raw file** (2019-09-17 to 2023-12-28), because the
+- **Weather and games vs YoY not plotted.** On the 2019–23 store only 2022→23 had both:
+  rain r = 0.82 over 12 months, confounded with the recovery (YoY +51.4% in January, +9.8% in
+  December); games r = −0.05. On `aa02436d…` there are three pairs (2022→23, 2023→24, 2024→25):
+  rain r = +0.82, −0.27, +0.26; games r = −0.05, +0.41, +0.20. Neither keeps one sign, which the
+  notebook asserts. Printed in notebook section 5, not published as a plot.
+- **Sharks schedule window comes from the raw files** (2019-09-17 to 2025-12-31 on `aa02436d…`), because the
   store's game flags are `False` both for no game and for no data.
 - **The seven old PNGs are deleted** (Sprint 4c kept them only so this regeneration could diff
   against them; they stay in git history at `0938526`). New filenames, so no cached old image
@@ -45,6 +53,171 @@ byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, m
   is added to plot 01; unasserted trend words ("climbs", "fell") replaced by endpoint values; the
   site check pairs each caption with its file instead of a substring search; legend "No source
   data"; the lede's notebook path wraps at 375 px.
+
+## Sprint 4d — Reconcile what #137, #138 and #139 publish together (opened 2026-10-24)
+
+(Named 4d, ids S4d.x. S4, S4b, S4c and Sprint 5, the adaptive-calibration branch, are taken.)
+
+**Goal.** One tracked feature store that carries #139's station names, per-station
+weather and the event features #137's store lacked. One published P10/P90 band
+whose coverage is the one `model_comparison.json` reports. `website/data/`
+regenerated from that state, with gate evidence.
+
+**Branch.** `sprint4d/store-rebuild`, stacked on `feat/serve-interval-bands`
+(Sprint 4c, PR #144) @ 9674f2d. The PR targets that branch.
+
+**User's decisions, 2026-10-24.**
+- #137, #138 and #139 were still open on GitHub, so they are merged locally rather
+  than waiting for the GitHub merges.
+- The published band was already decided in Sprint 4c: `forecasts.json` carries
+  the calibrated band, with the raw bounds alongside. This sprint does not build
+  a second export. It stacks on Sprint 4c instead.
+- The store is built from everything in the canonical raw folder
+  (`~/Desktop/transit-demand-forecasting/data/raw`). At 04:07 that folder gained
+  2024–2025 weather and Sharks-game files, fetched by the covariate-experiment
+  session. Asked after the final gate run showed the rebuild no longer matched
+  the 2019–2023 store committed in S4d.1. The alternative was to keep that store
+  and tell rebuilders to leave the new files out; it was turned down.
+
+**Gates** (Sprint 4b method: scratch copy of the commit, workbooks via
+`bart_od_from_xlsx.py --dir`, the raw weather/events folder, then
+`merge_pipeline`, `feature_engineering`, `benchmarks`, export):
+- Leaderboard: WAPE 3.21/5.75/9.70/10.75; `Coverage_%` 96.67/74.67/72.67/94.33;
+  `Coverage_raw_%` 96.67/46.0/51.0/94.33; n=300.
+- Export: 50/50/3,000/300.
+- `forecasts.json`: P50 identical to 087adcb; the exported band's coverage equals
+  the Chronos row's `Coverage_%` (72.67).
+- Two runs byte-identical.
+- Tracked store equals the rebuild.
+- Site renders.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4d.0 | Merge #137, #138 and #139 locally | orchestrator | — | Tree matches Sprint 4c's merged base | done — `reconcile/store-intervals` 8ce9c97 (conflicts resolved as Sprint 4c did: both board sections kept, #137's `api.py`). Its tree differs from `feat/serve-interval-bands` @ f1af3c7 only in Sprint 4c's own files. The branch was then re-cut onto Sprint 4c at the user's choice |
+| S4d.1 | Rebuild `data/processed/feature_store.parquet` with the merged code from the full raw inputs; commit it; update `data/MANIFEST.md` | orchestrator | S4d.0 | Target identical to #137's store; every other delta named; `tests/` pass | done — first from the 2019–2023 archives (5dbd586, run A), then from the full 2019–2025 folder (3fa3d80; runs D–G) |
+| S4d.2 | Rebase onto Sprint 4c's final tip | orchestrator | Sprint 4c S4c.5–S4c.6 | Clean rebase; `tests/` pass | done — 9674f2d, no conflicts; 116 tests pass |
+| S4d.3 | Two full gate runs on the stacked tip; regenerate `website/data/` | orchestrator | S4d.2 | Gates above | done — runs D and E on e847db3: every gate passes except "tracked store equals the rebuild", which is what led to the input decision above. Runs F and G on 3fa3d80 (the store commit): ALL PASS, including the tracked store. The export is byte-identical to the committed `website/data/`, so no data file changes |
+| S4d.4 | Serve the site locally; check the forecast table, calibration chart, map and model comparison render | orchestrator | S4d.3 | Screens recorded | done — see "Site check" below |
+| S4d.5 | Review the diff; open PR against `feat/serve-interval-bands` (not merged) | code-reviewer, orchestrator | S4d.4 | No BLOCKER; PR open | done — PR #147 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/147) against `feat/serve-interval-bands`, mergeable, not merged; the merge is the user's. scoped re-review of 07b6c3e: spec PASS, quality PASS; findings 1, 2 and 5–7 closed, 3, 4 and 9 correctly deferred. Two new MINOR fixed in the commit that marks this done: the 2019 gap runs to May (playoffs), and two "this commit" references now name 3fa3d80. 116 tests pass on 07b6c3e (pytest, pinned env). R1: review of 9674f2d..3fa3d80: spec FAIL on two MANIFEST statements, quality PASS; 0 BLOCKER, 3 MAJOR, 6 MINOR. Fixed in 07b6c3e: the MANIFEST claimed events covered every store month (Jan–May 2019 is a gap) and same bytes in any environment (now pinned to the build environment); its inputs now include `weather_forecast_*`; this board's drift and float-noise wording; F/G recorded. Not fixed here (other PRs' files, listed under follow-ups): the stale site copy (MAJOR) and the hindsight-weather wording (MINOR) in `sections.jsx`, and the zip name in the MANIFEST's verify command (MINOR, pre-existing) |
+| S4d.6 | Audit board against git | delivery-auditor | S4d.5 | No unresolved disagreement | blocked (audit started, then stopped unfinished when the usage limit was reached; rerun it before closing the sprint) |
+
+**Final store (3fa3d80), SHA-256 `aa02436d…`, vs #137's committed store (`d9135f03…`).**
+- Same 3,000 keys; `ridership` identical; same 27 columns in order.
+- `station_name`: set on every row.
+- Weather:
+  - every column is filled on all 3,000 station-months (#137: NaN on all 1,200 in 2024–2025);
+  - EM, MB, FM, BE, SO and 19 get their own location's weather;
+  - the other 44 stations' 2019–2023 regional weather differs slightly (`temp_f` on 1,584 rows, at most 0.0034 °F; `is_raining` on 176 rows, at most 0.0047; `precip_*` float noise), as #139 recorded.
+- Events:
+  - `is_game_day` and `is_sharks_game` are true on 1,800 rows (#137: 0): 200 in 2019, 400 in each later year. The events archive starts 2019-09-17, so the 2018–19 season's home games (Jan–Apr 2019, plus playoff games in May 2019) are missing and read as no game;
+  - `game_start_hour` is set on those 1,800;
+  - `hours_to_event` is set on all 3,000 (#137: all NaN).
+- The earlier 2019–2023 build (`9a777108…`) is byte-identical to #139's gate2 store. That was checked by SHA-256 against `gate2/data/processed/feature_store.parquet` in the #139 session's scratchpad (`…/d23f3905-…/scratchpad/gate2`, may be cleaned); runs A and B reproduce it. It differs from this one in 2024–2025 (the weather columns and the 800 new game-day rows) and in float noise in 2019–2023: `precip_mm` on 3 rows and `precip_in` on 47, at most 2.8e-17.
+
+**Gate runs (2026-10-24; pinned env rebuilt from the 66 pins, plus pytest, fastapi 0.162 and httpx for tests).**
+
+| Run | Code | Raw weather/events | Result |
+|---|---|---|---|
+| A | 8ce9c97 (merge only, no Sprint 4c) | 2019–2023 | Leaderboard as the gates; export byte-identical to the merged branch's `website/data/`, where `forecasts.json` still held Chronos-1's raw band (51.0% coverage) beside `Coverage_pct` 72.67. That mismatch is what Sprint 4c fixes |
+| B, C | 12a440a (Sprint 4c f1af3c7 + store) | 2019–2023 | All gates pass. Export byte-identical to Sprint 4c's `website/data/` at 4ead3f0 |
+| D, E | e847db3 (Sprint 4c 9674f2d + store) | 2019–2025 | All gates pass except "tracked store equals the rebuild" (`aa02436d…` vs the committed `9a777108…`). Leaderboard, results, LaTeX, both stores, both calibrators, Chronos preds (ignoring `generated_at`) and all five exports are byte-identical across the two runs. Export: 50/50/3,000/300, byte-identical to the committed `website/data/`. `forecasts.json`: P50 and `p10_raw`/`p90_raw` equal 087adcb's P50 and raw band; coverage computed from the published file is 72.67 for the band (= `Coverage_%`) and 51.0 for the raw band (= `Coverage_raw_%`) |
+
+**Site check (S4d.4, served from `website/` at e847db3, built-in browser).**
+- The forecast table shows the calibrated band: EM Jul 2025 is 367k / 434k / 501k, matching `forecasts.json` (raw 382k–462k kept as `p10_raw`/`p90_raw`).
+- The section copy says the band held 72.7% of station-months, matching `model_comparison.json`.
+- The Results "Intervals" chart draws the same band, labelled "not a validated 80% interval".
+- The Model comparison and Benchmarks tables render the 4 scored models, and the comparison shows n=300.
+- The station picker lists 50 stations.
+- The map page reads `stations_ridership.json` and lists 41 BART stations. Its Google base map fails with `BillingNotEnabledMapError`, as already recorded in Sprint 4b.
+- No console errors on the index page.
+
+**Follow-ups (not this sprint's files).**
+- Stale site copy now that the store has 2019–2025 weather and events (owner: the #141 copy update, which the covariate-experiment session plans):
+  - `website/sections.jsx:160` (Method 02) and `:487` (Rec 01) say the event covariates are "currently constant zero";
+  - #141's "available for 2019–2023 only";
+  - #143's EDA hand-over (built on `9a777108…`).
+- `website/sections.jsx:233` ("covariates rely only on data observable at prediction time") and `:160` ("known-future inputs"): the store's weather in the test window is observed, i.e. hindsight. No ranked model reads it, so no published number leaks.
+- Refetch the Sharks 2018–19 season (regular season and playoffs) so Jan–May 2019 game days stop reading as "no game". This changes the raw inputs and the store again.
+- The gate environment's 66 pins live outside git (`~/.venvs/tdf-py314-req.txt`, the side-session notes); the MANIFEST names the four versions that decide the bytes.
+- `data/MANIFEST.md` verify command names "Ridership Report 2025 (1).zip", while its table names "Ridership 2025 (1).zip" (pre-existing, bcd3b76; the store here was built with `--dir`).
+- #142 changes `Processing/feature_engineering.py`, which writes the untracked enriched store. The tracked store is unaffected.
+- #145 (adaptive calibration) adds `scheme: rolling`, which #144's `calibrate_intervals`/`serve_band` do not read. Whichever of the two lands second must carry it through.
+
+## Sprint 4c — Label the bands the serving path publishes (opened 2026-10-24)
+
+(Named 4c, ids S4c.x: Sprint 4 (#138) and Sprint 4b (#139) ids are taken. PR #141, branch `fix/site-model-claims`, also calls its sprint "Sprint 4c" with ids S4c.1–S4c.5. Both branches were pushed before this was noticed, so commit messages keep the ids: S4c.x on `feat/serve-interval-bands` means this section.)
+
+**Status: closed 2026-10-24, PR #144 open (not merged).**
+
+**Goal.** The API and `website/data/forecasts.json` each say which P10/P90 band
+they return, and neither calls a raw band an 80% interval. Branch
+`feat/serve-interval-bands`: `feat/interval-calibration` (#138) with
+`fix/api-serve-forecasts` (#137) and `fix/bart-station-table` (#139) merged in.
+Conflicts resolved as the hand-over notes say: both board sections kept, #137's
+`api.py` taken.
+
+**User's decisions, 2026-10-24** (on the plan, before any code):
+- The API keeps serving SARIMA. SARIMA's `calibration.models` method is `none`,
+  so the API returns SARIMA's own band, labelled as not calibrated.
+- `forecasts.json` (Chronos-1 zero-shot, Jul–Dec 2025) publishes the calibrated
+  band. That is the band `model_comparison.json`'s `Coverage_pct` scores. The
+  model's own bounds stay alongside as `p10_raw`/`p90_raw`.
+- The branch stacks on all three open PRs.
+
+**Rules.**
+- P50 is never changed.
+- Calibrators are fitted only where `benchmarks.py` fits them: on the
+  validation split, from a fit ending at `train_end`.
+- The test split is read for one thing only, a consistency check: the exported
+  band's coverage must equal the leaderboard's. Nothing is tuned on it.
+
+**Gates.**
+- Leaderboard unchanged: WAPE 3.21/5.75/9.70/10.75, `Coverage_%`
+  96.67/74.67/72.67/94.33, n=300.
+- `forecasts.json` P50 byte-identical to #139's (087adcb).
+- Exported coverage equals the leaderboard's.
+- Unit tests pass; `py_compile` and JSX parse pass.
+
+**Environment.** `/tmp/tdf-venv` was damaged by the macOS /tmp cleanup:
+`pyvenv.cfg` and package files are gone. This sprint uses a private rebuild
+with the same 66 pins, plus pytest, fastapi 0.162 and httpx for the tests. The
+pins come from the adaptive-calibration session's freeze list.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4c.0 | Integration base: merge #137 and #139 into #138 | orchestrator | — | 40 tests pass on the merged base | done (ef43cca, 9f3c132) — 40 passed |
+| S4c.1 | `evaluation/calibration.py`: save/load a calibrator losslessly, plus `serve_band` (config → band + label). `benchmarks.py` persists each fitted calibrator | systems-architect (orchestrator) | S4c.0 | fit → save → load → apply is bit-identical for scaled/horizon, relative/pooled and asym_relative/station. P50 unchanged. Method `none` → raw + label. Method configured but no file → refused | done (4044162) — `tests/test_serve_band.py` 21 tests; 49 calibration tests pass |
+| S4c.2 | `export_forecasts`: apply the saved Chronos calibrator; records carry `p10_raw`/`p90_raw`/`interval_method`; refuse on a label, checkpoint or coverage mismatch with the leaderboard | implementer | S4c.1 | New export tests pass; records stay a list | done (f1af3c7) — 21 new tests (fail before, pass after); suite 87 pass. Real export into scratch: 300 records, coverage 72.67 calibrated / 51.0 raw = leaderboard; P50 and raw bounds equal #139's file. Extra refusal kept (orchestrator ruling): an exported (station, month) matching more than one store row |
+| S4c.3 | API: `model` and `interval` fields in `/forecast`, band from `serve_band`; 503 when a configured calibrator is missing; `Dockerfile.api` copies `evaluation/calibration.py` | implementer | S4c.1 | `tests/test_api.py` passes, including the existing P50 checks and new interval checks | done (9dec6c3) — `tests/test_api.py` 17 pass (5 new; existing P50 checks 415137/487928 intact); suite 87 pass. `/health` also carries the label. Not built in Docker (disk 96%); `evaluation/calibration.py` checked on Python 3.11 + pandas 2.2.3 |
+| S4c.4 | Wording: `api-demo.html` shows the API's label; README, `machine_learning_files/README.md`, `sections.jsx`/`charts.jsx` copy, and a serving section in `docs/interval-calibration.md` | implementer | S4c.1 (field names) | No raw band called an 80% interval; JSX parses | done (416b866, ec7ad2e; cache-bust bump by orchestrator in 1b1c8db, raised to v=12 in the audit fix) — 416b866 also edits `docs/ARCHITECTURE.md` (API/Dockerfile rows), outside the brief's file list; accurate and covered by both copy reviews.  esbuild parses both JSX files; `node --check` on api-demo's script; text rendered in node with old and new forecasts.json. Orchestrator rulings: keep the added label under sections.jsx's live-API card; keep the replacement of two #138 sentences that became false (README "still serve the models' own bands", interval-calibration.md "Not covered" bullets) |
+| S4c.5 | Regenerate `forecasts.json` from a full benchmark run + export | orchestrator | S4c.2 | Gates above | done (c1d3097) — benchmark on 8c05ddd reproduced the leaderboard exactly (WAPE 3.21/5.75/9.70/10.75; Coverage_% 96.67/74.67/72.67/94.33; raw 96.67/46.00/51.00/94.33; n=300); Chronos q=0.15389. Export: forecasts.json P50 identical to 087adcb for all 300 records; p10_raw/p90_raw = old p10/p90; band = P50×(1∓q); coverage from the file 72.67 / raw 51.00. Other four website/data files byte-identical |
+| S4c.6 | Review, audit, PR (not merged) | code-reviewer, delivery-auditor, orchestrator | S4c.5 | No BLOCKER open; audit clean; PR open | done — R1 code: 0 BLOCKER, 1 MAJOR, 7 MINOR (spec pass, quality approve-with-changes; leaderboard and website/data reproduced byte for byte). R1 copy: 1 BLOCKER, 2 MAJOR, 8 MINOR (spec not met until F1). Fix round S4c.6a/S4c.6b done; updated #138 (626b829) merged in 80c1314 (docs only). R2 code: spec PASS, quality APPROVE, 0 BLOCKER/MAJOR, 3 MINOR (N1–N3) + 4 nits (N4–N7); 29/33 mutants killed. R2 copy: spec MET, quality APPROVED WITH MINORS, 2 MINOR + 4 nits. Orchestrator closed R2 copy N1–N6 (1885366) and R2 code N1–N4 (ebed3df; 3 new tests fail on the previous code); R2 code N5–N7 nits left (N4 closed with N1–N3). Suite 116 pass. Rerun at ebed3df: leaderboard CSV and both calibrators byte-identical to the first run; export byte-identical in all five website/data files. Delivery audit: 0 HIGH, 1 MEDIUM, 7 LOW — M1 cache-bust raised to `sections.jsx?v=12` (above #140's v=10 and #141's v=11; at merge, the highest version wins); L7 `__main__` guard moved to the end of `tests/test_serve_band.py`; L1–L6 board corrections, all in 2619609. Done: PR #144 opened against `feat/interval-calibration` (not merged; retarget to `main` after #136–#139 merge). Push and PR were authorized by the task brief ("branch + PR, not merged") |
+| S4c.6a | Code fix round: code F1 (`reason: ~` must stay raw; boolean decision), F2 (any unreadable calibrator → CalibratorUnavailable), F3 (benchmarks clears old calibrators per run; serve_band checks fit_end vs train_end), F4 (a failed save does not change the leaderboard), F8 test gaps, nit (checkpoint-mismatch flag instead of reason-text match). Deferred: F5, F6 (latent while SARIMA is `none`); F7 kept by design (NaN band → no traceable coverage → refuse) | implementer | S4c.6 R1 | Tests pass; leaderboard and website/data byte-identical on a rerun | done (16075eb; test_api fit_end patch in 78da15a) — suite 112 pass; 14 tests + 24 subtests fail on the pre-fix code; 8/8 mutants killed. Benchmark rerun: leaderboard, LaTeX, results and both calibrators byte-identical to the first run; export byte-identical in all five files. Orchestrator approved its four calls: whitespace-only reason = unset; run-start clearing fails fast; `{e!r}` in the unreadable-file message; the test_api patch |
+| S4c.6b | Copy fix round: copy F1 (api-demo header claim conditional on API version), F2 (export refusal wording: forecasts.json withheld, other files still written, exit 1), F3/F4/F5 (plain-language band note with caveat; Results chart subtitle names the band), F6 ("split-conformal band", not "calibrated", for a 72.7% band), F7 (503 also for a stale calibrator), F9 (escape API error text and date fallback). Deferred: F8 (replace spliced README example after a new image is deployed), F10, F11 | implementer | S4c.6 R1 | JSX parses; `node --check`; R2 copy pass | done (15ee5d0; orchestrator follow-ups in 78da15a: export/run_pipeline wording, Serving section fit_end + run-start clearing) — esbuild + `node --check` pass; node harness over old/new data. Cache-bust stays v=10 (branch never deployed). Deferred to PR follow-ups: `BAND_FIT_WINDOW` constant in sections.jsx, F8, F10, F11 |
+
+## Sprint 4f — Lags count calendar months, not rows (opened 2026-10-24)
+
+(Named 4f: 4 to 4e are taken by sibling branches. Split out of Sprint 4e, the covariate
+experiment on `feat/covariate-benchmark`, by the user's decision of 2026-10-24.)
+
+**Goal.** `Processing/feature_engineering.py` `add_lag_features` shifts each station's series by
+rows, so early-2022 rows take their lags and rolling windows from 2019 across the 2020–21 gap.
+Shift by calendar month instead: a lag that lands in a month with no data is empty, and a rolling
+window counts only the months in it that have data against its `min_periods`.
+Update the site copy (#141's feature catalog) that describes the old behaviour.
+
+**Branch.** `fix/lag-calendar-months`, cut from `origin/fix/site-model-claims` @ `0938526` (PR #141),
+because #141's copy describes the gap. The PR targets that branch.
+
+**Gates.** Leaderboard CSV byte-identical before and after (no ranked model reads a lag column);
+the enriched store differs only in the lag/rolling columns, on rows whose window reaches 2020–21
+(each delta counted); unit tests pass; `py_compile` and JSX parse pass.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4f.1 | Calendar-month lags and rolling windows (monthly branch only; sub-monthly path unchanged) + unit test + catalog copy + cache-buster | implementer | — | Gates above | done (535039d, f702310, ca7915e) — 14 tests pass (8 fail on the old code); before/after on canonical 2019–23 inputs: leaderboard CSV, `benchmark_results.csv` and base store byte-identical (3.21 / 5.75 / 9.70 / 10.75, n = 300); enriched store: only the 8 lag/rolling columns change, 2,100 cells, all 2022 (1,700 become empty), plus 2,028 `rolling_std_3mo` cells 2022-04..2025-12 that differ by ≤ 1.0e-11 relative (pandas' running-variance rounding restarts across the empty months); TypeScript 5.9.3 parses `sections.jsx` with 0 diagnostics |
+| S4f.2 | Review the diff | code-reviewer | S4f.1 | No BLOCKER open | done — R1 on ca7915e: quality PASS; spec PASS with 1 MAJOR (F1: footnote and audit note said rolling windows reaching 2020–21 are left empty, but 400 of the 2,100 changed cells are partial-window values; cause: this board's goal line, now corrected), 2 MINOR (F2: 2,028 float-noise `rolling_std_3mo` cells outside 2022 breach the gate's wording; accepted deviation, nothing reads the column and every published output is byte-identical; F3: NaN/NaT/single-row cases untested), 2 NIT (F4 stale line ref in the audit note; F5 `Int64` → float64, as specified). Fix round: dd3ce96 (F1, F4), 92383c7 (F3); orchestrator checked the diff: 15 tests pass, footnote now says lags land empty and windows use the months that have data. F5 no action |
+| S4f.3 | Delivery audit | delivery-auditor | S4f.2 | Board matches git | todo — run jointly with Sprint 4e's audit |
 
 ## Sprint 4c — Every site claim traces to a run (opened 2026-10-24)
 
@@ -100,6 +273,237 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
   them with #140's `useSiteData`/`comparisonSplit` helpers once #140 merges.
 - `/tmp/tdf-venv` is broken (macOS tmp cleanup deleted `numpy/__init__.py` and `pyvenv.cfg`);
   any rerun of the gates needs a fresh pinned env.
+
+
+## Sprint 4 — Calibrate the P10/P90 intervals (opened 2026-10-22)
+
+**Goal.** Bring every leaderboard model's P10–P90 coverage to ~80% on the
+2025-H2 holdout without changing a point forecast. The method is chosen on the
+validation split only (2025-H1); the test split is scored once, after the
+choice is committed. Branch `feat/interval-calibration`, stacked on
+`sprint3/pr-backlog` (PR #136 open).
+
+**Starting state** (pinned env, leaderboard byte-identical to the S3.8 gate):
+test coverage SARIMA 96.67%, Prophet 46.0%, Chronos-1 51.0%, SeasonalNaive
+94.33%, n=300.
+
+**Decision rules, fixed before any validation number was seen** (user's
+defaults, 2026-10-22): a method qualifies if every model lands in 75–85%
+validation coverage with neither tail above 15% misses; among qualifiers the
+lowest mean interval score wins, one method for all four models preferred.
+Prophet MCMC is measured and reported, not eligible. The website's "not
+calibrated" wording changes only if every model's calibrated test coverage is
+in 75–85%. Serving-path intervals (API, `forecasts.json`) are out of scope.
+
+**Gates.** `Coverage_raw_%` reproduces SARIMA 96.67 / Prophet 46.0 / Chronos-1 51.0 / SeasonalNaive 94.33; WAPE, MAE,
+RMSE, MAPE, sMAPE, MASE and n identical to the starting leaderboard; two runs
+byte-identical; unit tests pass; `py_compile` and JSX parse pass.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4.1 | Find why the earlier `mcmc_samples=200` run errored | orchestrator | — | Error reproduced and explained | done — the fit succeeded; the diagnostic read `params['sigma_obs'][0][0]`, which raises `IndexError` under MCMC (1-D, 400 draws). Reproduced in a scratch run (not committed); the earlier command, in the Sprint 3 subagent transcript, sent stderr to `/dev/null`. Recorded in `docs/interval-calibration.md` (215449c) |
+| S4.2 | `evaluation/calibration.py`: fit/apply split-conformal, P50 untouched | implementer (orchestrator) | — | `tests/test_calibration.py` passes | done (056bd7b) — 16 tests pass |
+| S4.3 | `evaluation/interval_study.py`: validation-only comparison of methods | implementer (orchestrator) | S4.2 | Data cut at `val_end` and asserted; table written | done (904c449) — study run on pinned env; no single method qualifies, see S4.4. A full refit from a clean copy at 215449c reproduced all four result CSVs byte-identical |
+| S4.4 | Choose the method by the fixed rule; config + write-up committed before any test run | orchestrator | S4.3 | Commit precedes the S4.5 run | done (215449c, committed 20:30:24; first calibrated run started 20:30:35) — no single method qualified; per model: Prophet `scaled/horizon`, Chronos-1 `relative/pooled`, SARIMA and SeasonalNaive none (no method passed). Website wording therefore stays "not calibrated" (rule needs every model) |
+| S4.5 | Wire the chosen method into `benchmarks.py`; run the gates; score test once | implementer (orchestrator) | S4.4 | All gates green | done — wiring in 215449c; test scored once at 215449c, result recorded in `docs/interval-calibration.md` (bf80b8f). Gates below |
+| S4.6 | README, website wording, `model_comparison.json` | orchestrator | S4.5 | Wording follows the fixed rule | done (65db1c1) — "not calibrated" kept per rule; range 46–97% → 73–97%; README table gains own-band and interval columns; export carries `Coverage_raw_pct` and `Interval_method` |
+| S4.7 | Review the sprint diff | code-reviewer | S4.6 | No BLOCKER open | done — 0 BLOCKER, 1 MAJOR (LaTeX table mixed calibrated and raw coverage unlabelled), 10 MINOR; spec PASS, quality PASS with findings. Findings and their disposition are in the fix-round list below and in the PR description. Fix round in 3dff990; third run byte-identical |
+| S4.8 | Audit board against git; open PR (not merged) | delivery-auditor, orchestrator | S4.7 | Audit clean; PR open | in progress — audit on 32a75df..3dff990: 0 HIGH, 1 MEDIUM, 8 LOW, all addressed in this commit. Push and PR are authorized by the task brief ("Branch + PR, do not merge") and the user's "Go ahead with the defaults" on the plan, which included opening a PR stacked on `sprint3/pr-backlog`. Branch first pushed at 65db1c1, before review; re-pushed at 5c7036a with the fix round. Done: PR #138 opened against `sprint3/pr-backlog` (mergeable, not merged; retarget to `main` after #136 merges) |
+
+**Gate results (S4.5, 2026-10-22, pinned env, code at 215449c).**
+
+| Gate | Result |
+|---|---|
+| Point metrics | WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected identical to the starting leaderboard (`assert_frame_equal`); existing column order unchanged |
+| Raw coverage | `Coverage_raw_%` = 96.67 / 46.0 / 51.0 / 94.33, the starting coverage exactly |
+| Determinism | Two consecutive runs: leaderboard and results CSVs byte-identical |
+| Calibrated test coverage (scored once) | Prophet 74.67%, Chronos-1 72.67% (calibrated); SARIMA 96.67%, SeasonalNaive 94.33% (own band). Validation predicted 82.0% / 84.3% for the two calibrated models |
+| Website rule | Not every model is in 75–85%, so "not calibrated" stays; only the range figure changes (46–97% → 73–97%) |
+| Tests / compile / JSX | 17 unit tests pass; `py_compile` passes on every touched .py; `sections.jsx` and `charts.jsx` parse (TypeScript 5.9.3) |
+| After the review fix round | Same configuration re-run: leaderboard and results CSVs byte-identical to the scored run; Chronos validation forecasts identical with the store cut at `val_end`; 28 unit tests pass |
+
+**Review fix round (S4.7).**
+- Fixed in code:
+  - the LaTeX table now carries `Coverage_raw_%` and `Interval_method` and a caption note (MAJOR);
+  - horizon is counted before missing actuals are dropped;
+  - a zero P50 with an infinite quantile gives [0, inf], not NaN;
+  - the study no longer crashes when `asym_relative` is configured;
+  - the Chronos entry carries `validated_for`, so another checkpoint keeps its own band;
+  - the Chronos calibration run gets a store cut at `val_end`;
+  - `describe()` labels asymmetric spans correctly.
+- Wording:
+  - the false comment "the leaderboard still rejects" a missing bound is corrected;
+  - the doc's runner-up and three-station-check text are corrected;
+  - board rows cite hashes.
+- Tests: `tests/test_benchmark_calibration.py` added (3dff990).
+- Not changed: `accept_model_rows` does not reject a model with missing interval bounds (NaN coverage, still ranked). That is `main`'s behaviour; left as a question for the user. The study's private `_store` swap is kept, restored in `finally`.
+
+## Sprint 4e — Do weather and event covariates help? (opened 2026-10-24)
+
+(Named 4e: 4, 4b, 4c and 4d are taken by sibling branches.)
+
+**Goal.** Answer, with a scored run, whether weather and Sharks-game covariates improve the
+monthly forecast. Plan and decision rule: `docs/covariate-experiment-plan.md`, committed
+(81b2089) before any covariate arm was scored.
+
+**User decisions (2026-10-24).** SARIMAX arms only (no Chronos-2, no Prophet regressors); arms go
+to a separate experiment table, not the leaderboard, so the export and the site's best-model pick
+stay as they are; stack on PR #139 (`fix/bart-station-table`); the lag-gap fix ships as its own
+small PR (Sprint 4f, branch `fix/lag-calendar-months`, stacked on #141).
+
+**Branch.** `feat/covariate-benchmark`, cut from `origin/fix/bart-station-table` @ `7598107`.
+Pinned env rebuilt outside `/tmp`: `~/.venvs/tdf-py314` (the gate env's 66 pins + pip 26.2.1 /
+setuptools 84.2.1, plus pytest for the unit tests).
+
+**Gates.** Control SARIMA reproduces 3.21 % (n = 300) and equals the leaderboard's SARIMA row on the
+same run; the four leaderboard overall rows are unchanged by the 2024–25 data (each delta named
+otherwise); `model_comparison.json` unchanged; unit tests pass; `py_compile` passes.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4e.0 | Baseline: rebuild store and run benchmarks on unmodified `7598107` | orchestrator | — | Leaderboard 3.21 / 5.75 / 9.70 / 10.75, n = 300 | done — run0: leaderboard CSV byte-identical to #139's gate2; base store SHA-256 `9a7771080c59…a323cea`, byte-identical to gate2's and to Sprint 4d's rebuilt store |
+| S4e.1 | Fetch weather and Sharks games for 2024–25; record hashes in `data/MANIFEST.md`; rebuild; compare | orchestrator | S4e.0 | 2024–25 weather and game months non-null; leaderboard overall rows unchanged or each delta named | done — fetched 2026-10-24T11:06:49Z: 7 × 17,544 hourly rows, no nulls; 93 Sharks home games; copied (new filenames only) into the canonical `~/Desktop/transit-demand-forecasting/data/raw/`; hashes in `data/MANIFEST.md`. run1 vs run0: leaderboard CSV byte-identical; the 8 existing `benchmark_results.csv` rows identical; 12 new slice rows (`game_day`, `sharks_game` n=200, `rainy_day` n=100, per model). Store (SHA-256 `aa02436d44b5…f241`): weather columns filled for 1,200 rows (2024–25), event columns for 800 (16 game months × 50); 2019–23 `precip_mm`/`precip_in` differ by ≤ 2.6e-16 relative (summation order), every other 2019–23 cell identical |
+| S4e.2 | SARIMAX `exog` in `arima.py` (default path unchanged) + `models/baselines/covariate_experiment.py` (control + 3 arms, test and validation windows, station-clustered test, row-level DM, per-station wins, decision) | implementer | plan | Unit tests pass; with no exog the SARIMA forecasts are identical to before | in progress |
+| S4e.3 | Scored run; evidence `docs/covariate-experiment.md`; README result | orchestrator | S4e.1, S4e.2 | Every number in the doc traces to the run's CSV/log | todo |
+| S4e.4 | Review the branch diff | code-reviewer | S4e.2 | No BLOCKER open | todo |
+| S4e.5 | Delivery audit at sprint close | delivery-auditor | S4e.3, S4e.4 | Board matches git | todo |
+
+
+## Sprint 4b — One BART station table (opened 2026-10-22)
+
+(Named 4b, with ids S4b.x, because the parallel interval-calibration branch, PR #138, also adds a "Sprint 4" with S4.x ids. Board-only commit messages on this branch say "S4.x"; they mean these stories.)
+
+**Goal.** One authoritative table (BART 2-letter code → name → website id →
+weather location), sourced from repo data, used by the export, the
+`merge_pipeline` weather mapping, feature engineering and the website. Closes the
+Sprint 3 follow-up "Station-level website JSON exports empty".
+
+**Branch.** `fix/bart-station-table`, cut from `origin/sprint3/pr-backlog` @
+`32a75df` because PR #136 is still open; the PR targets that branch.
+
+**Starting state** (measured 2026-10-22):
+
+| Fact | Value |
+|---|---|
+| Store / workbook codes | 50 two-letter codes (`12 16 19 24 AN AS BE BF … WS`); the workbooks carry no names |
+| `fetch_bart_od.STATION_NAMES` | 50 four-letter BART API codes → names; the only name source |
+| 2-letter → name link | The only full table is `website/data/stations_meta.json` from `c5f5891` (2026-05-07): 47 of 50 named, BF/ML/WP left as codes. The same commit's 2-letter export map carries name comments (e.g. `"BF": "bayp"  # Bay Fair`), and `32a75df`'s `KEY_STATIONS` pairs 5 codes with names; all are from the same period, so this counts as one source. No commit ever held a 2-letter → name dict in code |
+| Export on this code | `stations_ridership.json` `{}`, `ridership_actuals.json` `[]`, `stations_meta.json` names = codes, `website_id` null (0 of 50 mapped) |
+| Committed `forecasts.json`, `ridership_actuals.json` | From `c5f5891`, ~4.3× the current Total-Trips target (EM 2023-12: 1.23M committed vs 286k in the store) |
+| Same 4-letter gap elsewhere | `HUB_STATIONS` (`is_hub_station` always False); `sections.jsx` `KEY_STATIONS.id`, `api-demo.html` fallback list, `api.py` examples and `predict.py --station` send 4-letter ids the store rejects |
+| Map page | `transit-demo.html` never reads `stations_ridership.json`; the export's `baseAM`/`basePM` are normalized × 1.05 / 0.95, not measured |
+
+**Gates.** Leaderboard identical to this branch's baseline run on `32a75df`
+(expected SARIMA 3.21 / Prophet 5.75 / Chronos-1 9.70 / SeasonalNaive 10.75,
+n=300) or each delta named; store target identical, every other column delta
+named; the three station JSONs non-empty for all 50 stations;
+`model_comparison.json` identical; website served locally renders the map,
+forecast table and calibration chart from the new files; `py_compile` and JSX parse.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4b.0 | Baseline: rebuild store, benchmarks and export on unmodified `32a75df` | orchestrator | — | Leaderboard and export recorded | done — 3.21 / 5.75 / 9.70 / 10.75, n=300; `model_comparison.json` byte-identical to the committed file; station exports 0 / 0 / 50 unnamed |
+| S4b.1 | `machine_learning_files/bart_stations.py`: the table, helpers, `--check` | implementer | user decisions | `--check` passes against `sources.yaml`, `transit-demo.html` and the store; names equal the pre-change `STATION_NAMES` | done (af10e82) — `--check` OK: 50 stations, 41 website ids, 6 weather stations. `STATION_NAMES` now re-exports the table, so `--check` cannot compare against it; the names were checked equal to a dump taken before the edit (S4b.1 report step 2) and re-verified by the S4b.7 audit |
+| S4b.2 | Pipeline consumers: `bart_od_from_xlsx.py`, `bart_od_from_csv.py`, `merge_pipeline.py`, `feature_engineering.py`, `api.py`, `predict.py` | implementer | S4b.1 | Rebuilt store: names for 50, per-station weather for the six mapped stations, `is_hub_station` true for the hub set | done (8c92631, 39827b9) |
+| S4b.3 | Export: 2-letter `station_id` for all 50, new `stations_meta`/`stations_ridership` schema, `forecasts.json` from the benchmark's Chronos-1 run | implementer | S4b.1 | Export from rebuilt store: 50/50 in each station file | done (4bad2ef) |
+| S4b.4 | Website: one id style, map reads `stations_ridership.json`, copy matches the new data | implementer | S4b.3 schema (fixed in this board) | JSX parses; local render shows data | done (ce83caa) |
+| S4b.5 | Full rerun, regenerate `website/data/`, run gates | orchestrator | S4b.2–S4b.4 | All gates green or deltas named | done — gate2 on f606498 ALL PASS, export byte-identical to gate1 (two independent runs); `website/data/` regenerated from gate2 in 087adcb; served locally and checked in headless Chrome: forecast table (EM: 12 actual months, then Jul–Dec 2025 actual beside P10/P50/P90), calibration chart with actuals, all 50 stations in the picker, map with 41 of 41 BART nodes on real levels. Earlier: gate1 on ce83caa ALL PASS: leaderboard, all result slices and Chronos preds identical to baseline; store deltas only `station_name`, the six stations' weather (+ `temp_deviation`, `is_rain_onset`, `precip_intensity`, `weather_discomfort`), `is_hub_station` on the ten hubs; export 50/50/3,000/300, `model_comparison.json` identical |
+| S4b.6 | Review the branch diff | code-reviewer | S4b.5 | No BLOCKER open | done — R1 on ce83caa: spec PASS, quality changes requested; 1 BLOCKER (index-page map copy contradicts the map's new caption), 2 MAJOR (refused forecasts exit 0 and leave the stale file; map's "ons/hr" invented unit beside real boardings), 11 MINOR. Fix round: F1 adf65b6 (refused forecasts exit 1, inputs checked before writes, forecasts tied to the leaderboard row's n, no silent station drop, docs), F2 f606498 (index map copy, unitless load index, tie-break, forecast months from data, late live response dropped, parallel fetch, cache-busters). R2 scoped review of ce83caa..087adcb: spec PASS, quality PASS, 0 BLOCKER / 0 MAJOR / 3 MINOR (N1-N3, ruled below); R1 items closed except two residuals the briefs allowed |
+| S4b.7 | Audit board against git | delivery-auditor | S4b.6 | No unresolved disagreement | done — 0 HIGH, 2 MEDIUM, 7 LOW (D1–D9), all wording on this board; corrected in the commit that marks this done. Commits, file sets, gates, `--check`, trailers and the clean tree all agree |
+| S4b.8 | Push, open PR against `sprint3/pr-backlog` (no merge) | orchestrator | S4b.7 | PR open | done — PR #139 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/139), mergeable, clean; the merge is the user's |
+
+S4b.2, S4b.3 and S4b.4 touch disjoint files and run in parallel after S4b.1.
+
+### Rulings (Sprint 4b)
+
+- **2026-10-22, the user's answers at the Go Ahead gate:**
+  1. ML = Milpitas (`MLPT`), WP = Pittsburg/Bay Point (`PITT`), and the
+     website `pit` node belongs to WP. The repo cannot pair these alone:
+     elimination leaves exactly those two codes for those two names, and ML's
+     all-zero 2019 matches BE (Berryessa). Recorded in the table as
+     user-confirmed, not repo-sourced. `c5f5891` had given `pit` to PC; that
+     mapping is dropped.
+  2. `forecasts.json` is regenerated from the benchmark's Chronos-1 zero-shot
+     predictions for Jul–Dec 2025 (the leaderboard run), replacing the stale May file.
+  3. `HUB_STATIONS` is re-keyed through the table in this PR.
+- BF → Bay Fair (`BAYF`): `c5f5891`'s map comment, the `transit-demo.html` node
+  `bayp` "Bay Fair", and the four-letter map at `32a75df` (`BAYF → bayp`, deleted in 4bad2ef) all agree.
+- Weather keeps the six name-matched locations (EM, MB, FM, BE, SO, 19). No
+  nearest-location assignment: that would be a modeling change nobody asked for.
+- `stations_ridership.json` averages the latest 12 store months. Averaging over
+  2019 and 2022–25 mixes levels across the ~2.9× COVID break, and counts BE and
+  ML's pre-opening zeros. `baseAM`/`basePM` are dropped: they are not measured.
+- F1: with `--allow-val-fallback` and no leaderboard the export now exits 1,
+  because forecasts cannot be tied to a scored run. The fallback is opt-in and
+  off by default. Cost if wrong: a fallback run needs `|| true`.
+- F2: the BARTForecasts heading's "6-month" is derived from `forecasts.json`, so
+  the empty-forecasts text cannot contradict it.
+- Sibling PRs, all against `sprint3/pr-backlog`: trial merges of this branch with
+  #138 (interval calibration) conflict only in this board file; with #137 (API
+  serving) only in `machine_learning_files/api.py`, where both sides set the
+  examples to `EM` — take #137's file. #137 commits `data/processed/feature_store.parquet`
+  built before this branch. Against this branch's store it differs in
+  `station_name` and the six stations' weather, and also in ways this branch did
+  not cause (the same differences appear against the `32a75df` baseline store):
+  it was built without the events archive (`is_game_day`/`is_sharks_game` never
+  true vs 1,000 rows here; `game_start_hour`/`hours_to_event` all NaN), and the
+  other 44 stations' regional weather differs slightly (`temp_f` up to 0.0034 °F,
+  `is_raining` up to 0.0047). Rebuild and commit it after both merge.
+- #138 interaction: #138 writes `chronos2_zeroshot_preds.parquet` before it
+  calibrates intervals, so after both merge `forecasts.json` carries Chronos's
+  raw P10/P90 while `model_comparison.json`'s `Coverage_pct` may score the
+  calibrated band. Reconcile at the second merge (publish the calibrated band,
+  or label the raw one).
+
+- R2 N3: commit 087adcb's subject says "full pipeline run". The steps that ran
+  were `bart_od_from_xlsx.py`, `merge_pipeline.py`, `feature_engineering.py`,
+  `models/baselines/benchmarks.py`, then the export with `--out-dir` into a
+  scratch directory, whose five files were copied into `website/data/`.
+  `zero_shot.py`, `arima.py`/`prophet_baseline.py` standalone runs, the validator
+  and fine-tuning from `run_pipeline.sh` did not run. `zero_shot.py`, the
+  standalone baselines and the validator feed none of the five files;
+  `finetune.py`, had it run, would have added an `AutoGluon_Ensemble` row to the
+  leaderboard (`benchmarks.py:535-551`), which `model_comparison.json` would
+  then publish. Not rewritten, because later commits sit on top.
+
+### Follow-ups (Sprint 4b, found here, not fixed here)
+
+- Published model claims that no run supports: the hero says Chronos-1 is
+  "enriched with weather and events data" (`sections.jsx:92`), and the site
+  shows feature-importance values (the `shap` list, `sections.jsx:285-293`). The review found
+  the zero-shot path never passes covariates: under chronos-forecasting 2.3.2
+  `predict_df(future_df=…)` raises TypeError and the code falls back to
+  univariate (50 "Falling back to univariate mode" lines per run). No ranked
+  model reads weather, events or `is_hub_station`.
+- `models/baselines/fetch_pems_roads.py:49-52` `near` values are four-letter (module unwired).
+- `website/data/*.json` fetches carry no cache-buster (`app.yaml` caches 1 day).
+- Hard-coded years that go stale on the next refresh: "2019 and 2022–2025" for
+  actuals; "Jul–Dec 2025 test split" labels beside `model_comparison.json`.
+- Dark mode: `index.html` sets `--primary` inline, so P50 values and forecast
+  month labels render navy on the dark background.
+- R2 N1: `website/app.yaml`'s `url: /` handler sets no expiration, so `index.html`
+  is cached for a day and returning visitors keep the old `?v=` cache-busters
+  until a reload.
+- R2 N2: when the `forecasts.json` fetch fails (network error, 5xx), the
+  forecast section says "No forecasts are published" (`sections.jsx` ~:687,
+  ~:787-795, ~:911-913).
+- The lede says the forecasts are "the predictions scored in the model
+  comparison below" without checking that `model_comparison.json` has the
+  Chronos row (the export now refuses to publish forecasts in that case).
+- F1 concern 5 (pre-existing): with `--allow-val-fallback` and no validation
+  split, `export_model_comparison` raises `SystemExit(1)` after the station and
+  actuals files were written.
+- F1 concern 6 (pre-existing): an unexpected exception inside
+  `export_forecasts` (e.g. a corrupt parquet) aborts before
+  `model_comparison.json` is written (non-zero exit either way).
+- The "Live demo" nav label and "Where is the rush, right now?" heading
+  (`sections.jsx:39`, `:373-375`) suggest live data; the map shows 2025 average
+  levels shaped by an illustrative curve.
+- Google Maps answers `BillingNotEnabledMapError` for the page's key (seen in
+  local headless runs: "can't load Google Maps correctly", development
+  watermark). That is a billing setting on the Maps project; whether the
+  deployed page is affected is unverified.
+
 
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
