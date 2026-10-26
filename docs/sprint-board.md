@@ -124,15 +124,15 @@ unit tests pass; `py_compile` passes.
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
 | S6.1 | Rebuild env (outside `/tmp`) and store; reproduce Sprint 5's study outputs | orchestrator | — | Store `assert_frame_equal` to PR #145's; unchanged study's outputs byte-identical | done — see Environment below |
-| S6.2 | Fix the rule and candidate definitions before measuring | orchestrator | — | Board committed before any new number | done (this commit) |
+| S6.2 | Fix the rule and candidate definitions before measuring | orchestrator | — | Board committed before any new number | done (ab8183c, 19:50:22) |
 | S6.3 | `evaluation/calibration.py`: weighted median, `fit_shift_conformal` (bias at T or at each origin) | implementer | S6.2 | Tests written first, fail, then pass | done — tests d787b16 (committed failing: `ImportError: cannot import name 'fit_shift_conformal'`), implementation e175f79; additions only to `calibration.py` |
 | S6.4 | `evaluation/interval_study.py`: `shift_study` with its own outputs, per-model rule, config check layered over Sprint 5's | implementer | S6.3 | Sprint 5 / PR #138 outputs byte-identical; tests | done — tests 36e0607 (committed failing: `ImportError: cannot import name 'SHIFT_CANDIDATES'`), implementation e2397f8; 124 tests pass; old vs new module on synthetic pools: 63 equivalence checks pass; on real data the 10 Sprint 5 / PR #138 files are byte-identical (S6.5 run) |
-| S6.5 | Run the study; apply the rule; write-up; commit the choice before any test run | orchestrator | S6.1, S6.4 | Commit precedes S6.6's run | done (this commit) — Chronos-1 `shift_hl1 relative/horizon`; SARIMA no qualifier, own band kept. See S6.5 notes below |
+| S6.5 | Run the study; apply the rule; write-up; commit the choice before any test run | orchestrator | S6.1, S6.4 | Commit precedes S6.6's run | done (0c3dc56, 20:26:48) — Chronos-1 `shift_hl1 relative/horizon`; SARIMA no qualifier, own band kept. See S6.5 notes below |
 | S6.6a | `shift_relative` through #144's path: `interval_plan` label and `band_method`, `calibrate_intervals` fit + save (provenance `method_config`, `bias_half_life`, `bias_at`), `serve_band` checks; Chronos-1 rolling pool in `run_benchmarks`; tests first; the implementer runs no benchmark, export or API | implementer | S6.5, merge ea6bde4 | 229+ tests pass; saved calibrator served identically | done — tests 5fca039 (committed failing: 28 failed), implementation f426445; 257 tests pass. Pre-scoring parity (data to `val_end` only, no test band fit): Chronos-1's deployed pool built by `benchmarks.py`'s own `_rolling_origin_pool` + `_forecast_checked` (4,650 rows, 18 origins) gives n, n_by_group, bias, width, q and clipped_groups identical at full precision to the study's |
 | S6.6b | `scripts/interval_test_breakdown.py` describes Chronos-1's band too (reproduces the leaderboard's coverage and Sprint 4's 72.67); not run by the implementer | implementer | S6.5 | py_compile; SN/Prophet output unchanged by reading | done — 8fa116d (+ 6 synthetic tests for `fit_band` / `by_group`); not run; also stops unless every Chronos test row is `model_mode == zeroshot` |
-| S6.6c | Score the test split once; determinism rerun; gates; breakdown; export `model_comparison.json` + `forecasts.json`; README and write-up | orchestrator | S6.6a, S6.6b, the merged study re-verification | All gates green; logged calibrator equals the study's deployed one at full precision | done — scored once at 5818932: Chronos-1 72.67% → **84.67%** (5.33% / 10.00%); other models unchanged. Gates and test-split access below |
-| S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | done — review of 1c5d0b1..fb19405: spec PASS, quality PASS; 0 BLOCKER, 1 MAJOR, 8 MINOR; no published number wrong. Fix round below |
-| S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | todo |
+| S6.6c | Score the test split once; determinism rerun; gates; breakdown; export `model_comparison.json` + `forecasts.json`; README and write-up | orchestrator | S6.6a, S6.6b, the merged study re-verification | All gates green; logged calibrator equals the study's deployed one at full precision | done — scored once at 5818932: Chronos-1 72.67% → **84.67%** (5.33% / 10.00%); other models unchanged; result published in fb19405 (README, ARCHITECTURE, write-up, `forecasts.json`, `model_comparison.json`, site). Gates and test-split access below |
+| S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | done — review of 1c5d0b1..fb19405: spec PASS, quality PASS; 0 BLOCKER, 1 MAJOR, 8 MINOR; no published number wrong. Fix round below (1606e99; its subject says "four MINORs", but five were addressed, MINOR-4 by documenting it) |
+| S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | in progress — audit of 1e27507..1606e99: no HIGH; 2 MEDIUM, 3 LOW (board wording: review-finding count, a disclosure claim, the site row's code version, two "this commit" cells, S6.6c's publishing commit), all fixed in the commit that records this; branch pushed |
 
 **S6.5 notes (validation only, 2026-10-25).**
 - First Sprint 6 numbers: the study at e2397f8, started 20:19:50. It
@@ -183,7 +183,8 @@ published number; the valid `interval_plan` labels are unchanged (tested).
   - `interval_plan` labelled any `bias_at` other than `as_of` "(at each
     origin)", typos included; now an explicit mapping, anything else shown
     as given (test added, failing first on the old code).
-- MINOR, disclosed, not changed:
+- MINOR, disclosed, not changed (three findings; the fourth bullet's two
+  points are one finding):
   - `serve_band` counts horizons by dense rank, `benchmarks.py` from
     `val_end`; identical on today's contiguous blocks (the export's coverage
     check passed), different for a station missing its first month
@@ -194,10 +195,11 @@ published number; the valid `interval_plan` labels are unchanged (tested).
     against 80% while the site-wide tile keeps "not calibrated" (Sprint 4's
     rule). Kept;
   - S6.6b's tests and f426445's extra test landed with their
-    implementation (disclosed in those commits).
+    implementation. f426445's message says so; 8fa116d's does not mention
+    it (recorded here instead).
 - 258 tests pass after the fix round.
 
-**Gate results (S6.6c, 2026-10-25, pinned env, code at 5818932).**
+**Gate results (S6.6c, 2026-10-25, pinned env; runs at 5818932, publishing in fb19405).**
 
 | Gate | Result |
 |---|---|
@@ -208,7 +210,7 @@ published number; the valid `interval_plan` labels are unchanged (tested).
 | Calibrated test coverage (scored once) | Chronos-1 84.67% (5.33% below / 10.00% above; width 30.78 → 21.39% of P50; interval score 43.05 → 26.23; by month 96 98 90 56 80 88). `scripts/interval_test_breakdown.py` reproduces it and Sprint 4's 72.67% exactly |
 | Website rule | Not every model in 75–85% (Prophet 74.0, SARIMA 96.7): "not calibrated" stays; the coverage range on the site moves 73–97% → 74–97% |
 | Export | `scripts/export_website_data.py` (its served-band coverage check passed): only `forecasts.json` (P10/P90 and `interval_method`; P50 and `p10_raw`/`p90_raw` unchanged on all 300 records) and `model_comparison.json` (Chronos-1 `Coverage_pct` 72.7 → 84.7 and `Interval_method`) changed; the other three files byte-identical |
-| Site | Served locally (built-in browser): the forecast section says "re-centred on the model's recent errors (forecasts made Dec 2023 – May 2025, …) … 84.7% of station-months, above the 80% it aims for"; the Intervals chart subtitle names the band; the tile shows 74–97%; `sections.jsx?v=13` loaded; no console errors |
+| Site | Served locally (built-in browser), first from fb19405's tree (`sections.jsx?v=13`) and again at 1606e99 (`v=14`), with the same result: the forecast section says "re-centred on the model's recent errors (forecasts made Dec 2023 – May 2025, …) … 84.7% of station-months, above the 80% it aims for"; the Intervals chart subtitle names the band; the tile shows 74–97%; no console errors |
 | Tests / compile | 257 tests pass (pinned env + pytest/fastapi/httpx); `py_compile` on every touched .py |
 
 **Test-split access (Sprint 6).**
