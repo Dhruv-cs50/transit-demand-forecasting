@@ -1,9 +1,28 @@
 runtime: python312
 
+# Handlers match top to bottom; the first match wins.
+#
+# The HTML pages name their scripts with ?v= cache-busters, so a page must be
+# revalidated on every visit: a cached index.html keeps pointing at the old
+# ?v= values, and so at the old JSX. The data exports are refreshed in place
+# under fixed names, so they revalidate too (the pages also fetch them with
+# cache: 'no-cache'). Everything else (JSX, CSS, EDA images) keeps
+# default_expiration.
 handlers:
 - url: /
   static_files: index.html
   upload: index\.html
+  expiration: "0s"
+
+- url: /(.+\.html)
+  static_files: \1
+  upload: .+\.html
+  expiration: "0s"
+
+- url: /data/(.+\.json)
+  static_files: data/\1
+  upload: data/.+\.json
+  expiration: "0s"
 
 - url: /(.+)
   static_files: \1

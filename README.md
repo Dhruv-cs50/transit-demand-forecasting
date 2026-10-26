@@ -84,6 +84,16 @@ Two caveats on the Chronos row:
   the covariate path in `zero_shot.py` raises and every station falls back to
   no covariates. The 9.70% is a no-covariate result.
 
+**Weather and Sharks games do not improve the forecast.** A separate, pre-registered
+experiment (`models/baselines/covariate_experiment.py`, write-up in
+[`docs/covariate-experiment.md`](docs/covariate-experiment.md)) adds them to the
+SARIMA above as `exog` and changes nothing else. On the same test window, weather
+(using the weather actually observed, a best case) raises WAPE from 3.21% to 3.79%,
+worse at 42 of 50 stations; Sharks home games give 3.19%, a difference the paired
+test cannot tell from noise (p = 0.54), and 4.63% against 4.27% on the validation
+window (paired p = 0.20). These
+are experiment rows, not leaderboard rows: the table above is unchanged.
+
 `benchmarks.py` also refuses to publish what it did not measure: if
 `chronos-forecasting` is absent the predictor silently falls back to seasonal
 naive, and the row is omitted rather than credited to Chronos. Any model whose
