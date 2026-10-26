@@ -126,11 +126,40 @@ unit tests pass; `py_compile` passes.
 | S6.1 | Rebuild env (outside `/tmp`) and store; reproduce Sprint 5's study outputs | orchestrator | — | Store `assert_frame_equal` to PR #145's; unchanged study's outputs byte-identical | done — see Environment below |
 | S6.2 | Fix the rule and candidate definitions before measuring | orchestrator | — | Board committed before any new number | done (this commit) |
 | S6.3 | `evaluation/calibration.py`: weighted median, `fit_shift_conformal` (bias at T or at each origin) | implementer | S6.2 | Tests written first, fail, then pass | done — tests d787b16 (committed failing: `ImportError: cannot import name 'fit_shift_conformal'`), implementation e175f79; additions only to `calibration.py` |
-| S6.4 | `evaluation/interval_study.py`: `shift_study` with its own outputs, per-model rule, config check layered over Sprint 5's | implementer | S6.3 | Sprint 5 / PR #138 outputs byte-identical; tests | in progress (dispatched 2026-10-25) |
-| S6.5 | Run the study; apply the rule; write-up; commit the choice before any test run | orchestrator | S6.1, S6.4 | Commit precedes S6.6's run | todo |
-| S6.6 | If a model qualifies: config + `benchmarks.py` wiring, score test once; else rerun the leaderboard unchanged | implementer | S6.5 | All gates green | todo |
+| S6.4 | `evaluation/interval_study.py`: `shift_study` with its own outputs, per-model rule, config check layered over Sprint 5's | implementer | S6.3 | Sprint 5 / PR #138 outputs byte-identical; tests | done — tests 36e0607 (committed failing: `ImportError: cannot import name 'SHIFT_CANDIDATES'`), implementation e2397f8; 124 tests pass; old vs new module on synthetic pools: 63 equivalence checks pass; on real data the 10 Sprint 5 / PR #138 files are byte-identical (S6.5 run) |
+| S6.5 | Run the study; apply the rule; write-up; commit the choice before any test run | orchestrator | S6.1, S6.4 | Commit precedes S6.6's run | done (this commit) — Chronos-1 `shift_hl1 relative/horizon`; SARIMA no qualifier, own band kept. See S6.5 notes below |
+| S6.6 | Chronos-1 qualified: `benchmarks.py` wiring for `shift_relative` (tests first, no benchmark run by the implementer); orchestrator scores the test once, then the determinism rerun | implementer, orchestrator | S6.5 | All gates green; logged calibrator equals the study's deployed one, all 6 horizons, full precision | todo |
 | S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | todo |
 | S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | todo |
+
+**S6.5 notes (validation only, 2026-10-25).**
+- First Sprint 6 numbers: the study at e2397f8, started 20:19:50. It
+  computed the decision and stopped at `check_config_matches_shift_decision`
+  before writing anything, because `configs/model.yaml` did not yet carry
+  Chronos-1's validated entry (Sprint 5's pattern: the config must hold the
+  choice before outputs are written). The tables were then printed by a
+  read-only scratch script that calls `shift_study` alone (validation data,
+  writes nothing in the repo), to check them before the config changed.
+- Checks on those tables: the SARIMA and Chronos-1 incumbent rows equal
+  Sprint 5's exactly; 300 rows per window have no origin bias in the
+  `shift_origin` candidates (the first origin's), as designed; the 12
+  `invalid value encountered in multiply` warnings are Sprint 5's (same
+  count in the unchanged study's run), none from `shift_study`.
+- Decision, by the rule: Chronos-1 `shift_hl1 relative/horizon` (the only
+  qualifier: B 82.33%, 3.0 / 14.67; V 83.33%, 2.0 / 14.67; mean score
+  29.02); SARIMA keep current entry (no qualifier).
+- Config: Chronos `{method: shift_relative, group: horizon, scheme: rolling,
+  half_life: 6, bias_half_life: 1, bias_at: as_of, first_origin:
+  "2023-12-31", validated_for: "amazon/chronos-t5-small"}`. Study rerun
+  20:23:00: same decision; it fit Chronos-1 from origins 2025-01-31 …
+  2025-05-31 with the store cut at `val_end` (the deployed pool's five new
+  origins); Sprint 5's six `adaptive_*` files and PR #138's four CSVs
+  byte-identical to PR #145's; `deployed_calibrators.yaml` differs only in
+  Chronos-1's entry. 124 unit tests pass with the new config.
+- Deployed Chronos-1 calibrator (full precision kept for the S6.6 parity
+  gate): n = 4,650; bias by horizon 1–6 = 0.034851, 0.100458, 0.096520,
+  0.103179, 0.090771, 0.089513; width = 0.086624, 0.111627, 0.106900,
+  0.110687, 0.111075, 0.114898; no clipped horizon.
 
 **Environment (S6.1, 2026-10-25; produces no Sprint 6 number).**
 - Venv `~/.venvs/tdf-pinned`, outside `/tmp`, rebuilt from the pip cache
