@@ -36,7 +36,7 @@ and `scored_split` so any figure can be traced to the run that made it.
 | --- | ---: | ---: | ---: | ---: | --- | ---: |
 | SARIMA airline (0,1,1)(0,1,1,12) | 3,086 | 3.21% | 96.7% | 96.7% | own band (no method passed validation) | 300 |
 | Prophet (per-station) | 5,526 | 5.75% | 74.0% | 46.0% | rolling-origin conformal, fit on data to Jun 2025 | 300 |
-| Chronos-1 zero-shot (`chronos-t5-small`) | 9,321 | 9.70% | 72.7% | 51.0% | split-conformal, fit on validation | 300 |
+| Chronos-1 zero-shot (`chronos-t5-small`) | 9,321 | 9.70% | 84.7% | 51.0% | bias-shifted rolling-origin conformal, fit on data to Jun 2025 | 300 |
 | Seasonal naive | 10,333 | 10.75% | 83.7% | 94.3% | rolling-origin conformal (asymmetric), fit on data to Jun 2025 | 300 |
 
 All models are scored on the same 300 station-months (50 stations × 6 forecast
@@ -49,19 +49,24 @@ Prophet and Chronos both sample, so `configs/model.yaml` seeds them
 identical runs — a figure nobody can reproduce is not a result. Two consecutive
 runs of the table above are bit-identical.
 
-**Point accuracy is sound; interval calibration is not finished.** Only
-seasonal naive's P10–P90 band landed in 75–85% on the holdout, and that is a
-single six-month window:
+**Point accuracy is sound; interval calibration is not finished.** Seasonal
+naive's and Chronos-1's P10–P90 bands landed in 75–85% on the holdout;
+Prophet's and SARIMA's did not, and that is a single six-month window:
 - Seasonal naive's band is now fit to recent errors: a weighted conformal
   quantile over forecasts from every month since December 2023, wider above
   P50 than below. It covers 83.7%. Its own ±20% band covered 94.3% at more
   than twice the width.
 - Prophet's and Chronos-1's own bands were far too narrow (46% and 51%
-  coverage). Widened with conformal quantiles, they reach 74.0% and 72.7%,
-  still short of 80%.
-  Prophet's band is now also fit on the rolling pool, as one symmetric
-  quantile for every month ahead; it scored 74.7% under the earlier
-  single-window method. Chronos-1's misses all fall above P90.
+  coverage). Prophet's, widened with a conformal quantile, reaches 74.0%,
+  still short of 80%. Its band is now also fit on the rolling pool, as one
+  symmetric quantile for every month ahead; it scored 74.7% under the
+  earlier single-window method.
+- Chronos-1 under-forecast: with a band widened around P50 its misses all
+  fell above P90 (72.7%). Its band is now re-centred on its recent median
+  error for each month ahead (about 3.5% above P50 one month out, 9–10%
+  further out) and widened by a conformal quantile. It covers 84.7%, with
+  5.3% of actuals below P10 and 10.0% above P90, at 70% of the
+  earlier width. October 2025 still covered only 56%.
 - SARIMA's own band is too wide (96.7%). No calibration method passed
   validation for it, so it is published unchanged.
 - Calibration never touches the point forecast: WAPE and MAE are identical
@@ -73,7 +78,7 @@ any calibration fit on the past. The comparison, the validation numbers each
 choice rests on, and why the earlier Prophet MCMC attempt failed are in
 [docs/interval-calibration.md](docs/interval-calibration.md).
 The API serves SARIMA's own band and labels it in each response;
-`website/data/forecasts.json` carries Chronos-1's split-conformal band (72.7%
+`website/data/forecasts.json` carries Chronos-1's bias-shifted band (84.7%
 test coverage). See
 [Serving](docs/interval-calibration.md#serving).
 
@@ -367,9 +372,10 @@ Full architecture diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 The frontend is a static site in `website/`. It uses CDN-loaded React and Babel — no Node build step needed. The site reads generated JSON files from `website/data/`.
 
 `website/data/forecasts.json` holds Chronos-1's Jul–Dec 2025 forecasts with its
-split-conformal P10/P90 band, set from the model's errors on the Jan–Jun 2025
-validation split. That band covered 72.7% of test actuals (51.0% for the
-model's own band), still short of 80%. Each record also keeps the
+bias-shifted P10/P90 band, re-centred on the model's recent errors from
+monthly forecasts made Dec 2023 – May 2025 and scored on actuals through June
+2025. That band covered 84.7% of test actuals (51.0% for the model's own
+band). Each record also keeps the
 model's own bounds as `p10_raw`/`p90_raw`, and an `interval_method` label that
 matches the leaderboard's. Calibration never changes P50.
 

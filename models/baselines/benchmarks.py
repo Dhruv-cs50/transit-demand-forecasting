@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -42,8 +43,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from evaluation.metrics import wape, mae, rmse, mape, smape, coverage, mase, _infer_seasonal_period
 from evaluation.calibration import (
-    add_horizon, apply_conformal, describe, fit_conformal, fit_rolling_conformal, interval_plan,
-    no_calibration, save_calibrator, with_origin_horizon,
+    add_horizon, apply_conformal, describe, fit_conformal, fit_rolling_conformal, fit_shift_conformal,
+    interval_plan, no_calibration, save_calibrator, with_origin_horizon,
 )
 
 logging.basicConfig(
@@ -352,6 +353,19 @@ def calibrate_intervals(
     cut) returns one origin's forecasts; it too runs after the test forecasts.
     Chosen on validation only (evaluation/interval_study.py, adaptive_study).
 
+    `method: shift_relative` (Sprint 6) uses the same rolling pool but fits a
+    bias-shifted band with fit_shift_conformal: re-centred on the recency-
+    weighted median relative error (bias_half_life; at the origin as_of, or
+    at each pool origin with bias_at "origin") and widened by the weighted
+    conformal quantile (half_life). It is stored and applied as an
+    asym_relative calibrator, saved with provenance method_config
+    "shift_relative" so serve_band never mistakes it for a Sprint 5 band. It
+    needs scheme rolling, half_life, bias_half_life and bias_at; an entry
+    without them fails before anything is forecast. Chosen on validation
+    only (interval_study.py, shift_study). The full calibrator (bias, width
+    and q per group, unrounded) is logged so it can be checked against the
+    study's.
+
     P50 is returned untouched, so every point metric is identical to the
     uncalibrated run. Returns (preds, interval_method): preds with p10/p90
     replaced and the model's own bounds kept as p10_raw/p90_raw (unchanged
@@ -372,6 +386,20 @@ def calibrate_intervals(
         return no_calibration(test_preds), plan["label"]
 
     method, group, label, scheme = plan["method"], plan["group"], plan["label"], plan["scheme"]
+    shift = method == "shift_relative"
+    if shift:
+        # Checked before anything is forecast. As for half_life below, a
+        # missing setting would silently be a band nobody chose.
+        missing = ([f"scheme {scheme!r} instead of rolling"] if scheme != "rolling" else []) + [
+            f"no {key}" for key, absent in (("half_life", not plan["half_life_given"]),
+                                            ("bias_half_life", plan["bias_half_life"] is None),
+                                            ("bias_at", plan["bias_at"] is None)) if absent]
+        if missing:
+            log.error(f"  {model_name}: shift_relative needs scheme rolling, half_life, "
+                      f"bias_half_life and bias_at ({', '.join(missing)})")
+            out = no_calibration(test_preds)
+            out["p10"], out["p90"] = np.nan, np.nan
+            return out, f"FAILED: {method}/{group} ({', '.join(missing)})"
     if scheme == "rolling" and not plan["half_life_given"]:
         # A missing half_life would silently mean equal weights, a different
         # method from the one chosen; null must be written out to ask for it.
@@ -380,7 +408,16 @@ def calibrate_intervals(
         out["p10"], out["p90"] = np.nan, np.nan
         return out, f"FAILED: {method}/{group} (no half_life)"
     try:
-        if scheme == "rolling":
+        if shift:
+            pool = _rolling_origin_pool(make_origin_preds, history_df, as_of,
+                                        plan["first_origin"], cfg)
+            calibrator = fit_shift_conformal(pool, group, plan["level"], as_of,
+                                             bias_half_life=plan["bias_half_life"],
+                                             half_life=plan["half_life"], bias_at=plan["bias_at"])
+            calibrated = apply_conformal(with_origin_horizon(test_preds, as_of), calibrator)
+            fit_end = (cfg.get("data") or {}).get("val_end")
+            months = pd.to_datetime(pool.loc[pool["timestamp"] <= as_of, "timestamp"])
+        elif scheme == "rolling":
             pool = _rolling_origin_pool(make_origin_preds, history_df, as_of,
                                         plan["first_origin"], cfg)
             calibrator = fit_rolling_conformal(pool, method, group, plan["level"], as_of,
@@ -404,6 +441,11 @@ def calibrate_intervals(
         else:
             raise ValueError(f"unknown calibration scheme {scheme!r}")
         log.info(f"  interval calibration: {describe(calibrator)}")
+        if shift:
+            log.info("  interval calibrator (full): " + json.dumps(
+                {"model": model_key, "n": calibrator["n"], "n_by_group": calibrator["n_by_group"],
+                 "bias": calibrator["bias"], "width": calibrator["width"], "q": calibrator["q"],
+                 "clipped_groups": calibrator["clipped_groups"]}, sort_keys=True))
     except Exception as e:
         log.error(
             f"  {model_name}: interval calibration FAILED ({e}); calibrated "
@@ -420,6 +462,11 @@ def calibrate_intervals(
         try:
             extra = ({"scheme": "rolling", "half_life": plan["half_life"],
                       "first_origin": str(plan["first_origin"])} if scheme == "rolling" else {})
+            if shift:
+                # The file's method is the calibrator's (asym_relative); this
+                # records which configured method fitted it.
+                extra.update(method_config="shift_relative", bias_half_life=plan["bias_half_life"],
+                             bias_at=plan["bias_at"])
             save_calibrator(
                 calibrator, calibrator_path,
                 model_key=model_key, model=model_name, checkpoint=checkpoint, label=label,
@@ -844,6 +891,14 @@ def run_benchmarks(
                                           CAL_DIR / "chronos2_zeroshot_val_preds.parquet", "zeroshot"),
                 val_df, cfg, checkpoint=checkpoint,
                 calibrator_path=CALIBRATOR_DIR / "Chronos.json",
+                # Rolling-origin pool (shift_relative): each origin's forecasts
+                # from the store cut at min(origin + horizon, val_end), as in
+                # interval_study.forecast. forecast_all_stations creates the
+                # directory.
+                make_origin_preds=lambda o, cut: _forecast_checked(
+                    predictor, o, cut, CAL_DIR / "chronos2_zeroshot_rolling" / f"{o:%Y-%m-%d}.parquet",
+                    "zeroshot"),
+                history_df=df[df["timestamp"] <= val_end], as_of=val_end,
             )
             model_preds[chronos_label] = zs_preds
             rows = compute_metrics(test_df, zs_preds, chronos_label, train_df=train_df,

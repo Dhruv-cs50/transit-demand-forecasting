@@ -28,9 +28,9 @@
     "MAE": 9321.0,
     "MAPE_pct": 9.3,
     "WAPE_pct": 9.7,
-    "Coverage_pct": 72.7,
+    "Coverage_pct": 84.7,
     "Coverage_raw_pct": 51.0,
-    "Interval_method": "split-conformal relative/pooled, fit on validation",
+    "Interval_method": "bias-shifted rolling-origin conformal relative/horizon, bias half-life 1 month(s) (at the forecast origin), width half-life 6 months, fit on data to val_end",
     "n_predictions": 300,
     "source": "benchmark_leaderboard",
     "scored_split": "test"

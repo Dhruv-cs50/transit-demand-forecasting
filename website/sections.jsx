@@ -255,8 +255,12 @@ const Dataset = () => {
    band. A split-conformal band's quantile is fit on the validation split,
    Jan–Jun 2025 (configs/model.yaml train_end..val_end, the saved
    calibrator's window). That window is not in the export, so it is named
-   here, and only shown under the split-conformal label. */
+   here, and only shown under the split-conformal label. A bias-shifted band
+   (Sprint 6) is fit on forecasts from every monthly origin first_origin ..
+   val_end − 1 month (configs/model.yaml), scored on actuals through val_end;
+   BAND_POOL_WINDOW names those origins, shown only under its label. */
 const BAND_FIT_WINDOW = 'Jan–Jun 2025';
+const BAND_POOL_WINDOW = 'Dec 2023 – May 2025';
 const bandKind = records => {
   const labels = [...new Set((Array.isArray(records) ? records : []).map(r =>
     r && typeof r.interval_method === 'string' && r.interval_method ? r.interval_method : null))];
@@ -265,6 +269,7 @@ const bandKind = records => {
   return {
     label,
     conformal: !!label && /^split-conformal \S+, fit on validation$/.test(label),
+    shifted: !!label && /^bias-shifted rolling-origin conformal \S+, .+, fit on data to val_end$/.test(label),
     rawReason: raw ? raw[1] : null,
     labelled: labels.some(l => l !== null),
   };
@@ -297,6 +302,8 @@ const Results = () => {
   const chartBand = bandKind(fcRecords);
   const chartBandNote = chartBand.conformal
     ? ` · P10–P90 range set from the model's errors on ${BAND_FIT_WINDOW}, not a validated 80% interval`
+    : chartBand.shifted
+      ? ` · P10–P90 range re-centred on the model's recent errors (forecasts made ${BAND_POOL_WINDOW})`
     : chartBand.rawReason
       ? " · P10–P90 is the model's own band, not a validated 80% interval"
       : '';
@@ -334,7 +341,7 @@ const Results = () => {
             <div className="cm">
               <div className="cm-cell tp"><div className="v">{bestRow ? bestRow.WAPE_pct.toFixed(1) + '%' : '—'}</div><div className="l">WAPE · {bestRow ? bestRow.model : 'best model'}</div><div className="text-muted" style={{ fontSize:11 }}>{bestNote}</div></div>
               <div className="cm-cell tn"><div className="v">3.1k</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>vs 5.5k Prophet</div></div>
-              <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>73–97% vs nominal 80%</div></div>
+              <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>74–97% vs nominal 80%</div></div>
               <div className="cm-cell fn"><div className="v">50 sta.</div><div className="l">all BART stations</div><div className="text-muted" style={{ fontSize:11 }}>no station excluded</div></div>
             </div>
             <div className="text-muted" style={{ fontSize: 13 }}>
@@ -782,6 +789,10 @@ const BARTForecasts = () => {
   const bandNote = band.conformal
     ? `The P10–P90 range is set from the model's errors on ${BAND_FIT_WINDOW}`
       + (bandCoverage ? `.${bandCoverage}` : ', but it is not a validated 80% interval.')
+    : band.shifted
+      ? `The P10–P90 range is re-centred on the model's recent errors (forecasts made ${BAND_POOL_WINDOW}, `
+        + `scored on actuals through Jun 2025)`
+        + (bandCoverage ? `.${bandCoverage}` : ', but it is not a validated 80% interval.')
     : band.rawReason
       ? `P10/P90 is the model's own band (${band.rawReason}), not a validated 80% interval.${bandCoverage}`
       : band.labelled

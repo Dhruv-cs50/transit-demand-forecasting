@@ -76,19 +76,28 @@ prophet:
 #   monthly origin first_origin .. val_end - 1 month whose target is on or
 #   before val_end, weight 0.5**(age / half_life months).
 #
+# method: shift_relative (Sprint 6) — the rolling pool above, but the band is
+#   re-centred: P50 * (1 + m -/+ w), m the lower weighted median of the
+#   relative error (y - P50) / P50, weight 0.5**(age / bias_half_life), w the
+#   weighted conformal quantile of |r - m| with half_life. bias_at: as_of
+#   estimates m at the forecast origin; origin, at each pool row's own origin.
+#
 # Chosen per model on data up to val_end only (evaluation/interval_study.py).
 # Sprint 5 rule, fixed before any number was seen: 75-85% coverage with
 # neither tail above 15% misses on BOTH 2024-H2 and 2025-H1; lowest mean
 # interval score; a model with no qualifier keeps its entry. SARIMA and
-# Chronos-1 had none, so they keep their Sprint 4 entries. See
-# docs/interval-calibration.md. A model not listed keeps its own band.
+# Chronos-1 had none. Sprint 6 (the same test, SARIMA and Chronos-1 only,
+# per model) found a bias-shifted band for Chronos-1; SARIMA still has
+# none. See docs/interval-calibration.md. A model not listed keeps its own
+# band.
 calibration:
   level: 0.8
   models:
     SeasonalNaive: {method: asym_relative, group: horizon, scheme: rolling, half_life: 6, first_origin: "2023-12-31"}
     SARIMA:        {method: none, reason: "no method passed validation"}
     Prophet:       {method: relative, group: pooled, scheme: rolling, half_life: 6, first_origin: "2023-12-31"}
-    Chronos:       {method: relative, group: pooled, validated_for: "amazon/chronos-t5-small"}
+    Chronos:       {method: shift_relative, group: horizon, scheme: rolling, half_life: 6, bias_half_life: 1,
+                    bias_at: as_of, first_origin: "2023-12-31", validated_for: "amazon/chronos-t5-small"}
 
 # ── Serving ───────────────────────────────────────────────────────────────────
 serving:

@@ -211,6 +211,14 @@ class ExportForecastsTest(unittest.TestCase):
         self.assertNotEqual([r["p10"] for r in records], [r["p10_raw"] for r in records])
         self.assertEqual({r["interval_method"] for r in records}, {CALIBRATED_LABEL})
 
+    def test_the_band_counts_months_ahead_from_val_end(self):
+        # A per-horizon band must be keyed by months after the forecast
+        # origin (val_end), as benchmarks.py scored it, not by each station's
+        # row order.
+        with mock.patch.object(ewd, "serve_band", side_effect=ewd.serve_band) as spy:
+            self.assertIsNone(self._run())
+        self.assertEqual(pd.Timestamp(spy.call_args.kwargs["forecast_origin"]), pd.Timestamp("2025-06-30"))
+
     def test_p50_is_the_raw_parquet_value(self):
         self.assertIsNone(self._run())
         raw = self.preds.assign(month=self.preds["timestamp"].dt.strftime("%Y-%m"))
