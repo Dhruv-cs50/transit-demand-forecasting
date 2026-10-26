@@ -74,7 +74,7 @@ Verify your copies with:
 ```bash
 shasum -a 256 "Ridership Report 2019.zip" "BART Ridership 2022.zip" \
               "Ridership 2023 (2).zip" "Ridership 2024.zip" \
-              "Ridership Report 2025 (1).zip"
+              "Ridership 2025 (1).zip"
 ```
 
 ## Workbook format
