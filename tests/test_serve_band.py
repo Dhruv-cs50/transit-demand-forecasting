@@ -783,6 +783,17 @@ class ShiftServeBandTest(unittest.TestCase):
         with self.assertRaisesRegex(CalibratorUnavailable, r"shift_relative needs scheme rolling"):
             self._serve({**SHIFT, "scheme": "split"})
 
+    def test_incomplete_shift_entry_is_refused_even_by_a_matching_file(self):
+        # calibrate_intervals fits nothing for such an entry, so a file whose
+        # provenance also lacks the key was not scored under it.
+        for key in ("bias_half_life", "bias_at", "half_life"):
+            with self.subTest(key=key):
+                self._edit_provenance(**{key: None})
+                with self.assertRaisesRegex(CalibratorUnavailable,
+                                            r"shift_relative needs scheme rolling, half_life, "
+                                            r"bias_half_life and bias_at"):
+                    self._serve({k: v for k, v in SHIFT.items() if k != key})
+
     def test_calibrator_without_method_config_is_refused(self):
         self._edit_provenance(method_config=None)
         with self.assertRaisesRegex(CalibratorUnavailable,

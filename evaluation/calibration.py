@@ -634,7 +634,8 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
 
     Returns {"model_key", "calibrated", "method", "group", "level", "reason",
     "checkpoint_mismatch", "label", "description", "scheme", "half_life",
-    "half_life_given", "first_origin"}. `scheme` is "split" (one quantile
+    "half_life_given", "first_origin", "band_method", "bias_half_life",
+    "bias_at"}. `scheme` is "split" (one quantile
     from the validation split's forecasts, the default) or "rolling" (a
     weighted quantile over forecasts from monthly origins first_origin ..
     val_end - 1 month, weight 0.5**(age / half_life); Sprint 5). `label` is the exact
@@ -643,6 +644,15 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     `description` is one plain sentence for people. `checkpoint_mismatch` is
     True only when a configured method is set aside because it was validated
     for another checkpoint.
+
+    `method` is the configured method; `band_method` is the method of the
+    calibrator that method fits, which apply_conformal applies (None for a raw
+    band). They differ only for "shift_relative" (Sprint 6): a bias-shifted
+    band fit by fit_shift_conformal over the rolling pool and stored as an
+    asym_relative calibrator. A shift_relative entry's `bias_half_life` and
+    `bias_at` are the config's (None when absent), kept like half_life and
+    first_origin also when its band is left raw; for every other method they
+    are None.
 
     A model that is not listed, or whose method is "none" (or empty), keeps its
     own band; its reason is the configured one, or "not validated" when none is
@@ -655,9 +665,12 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     method = mcfg.get("method", "none")
     group = mcfg.get("group", "pooled")
     scheme = mcfg.get("scheme", "split")
+    shift = method == "shift_relative"
     plan = {"model_key": model_key, "level": level, "scheme": scheme,
             "half_life": mcfg.get("half_life"), "half_life_given": "half_life" in mcfg,
-            "first_origin": mcfg.get("first_origin")}
+            "first_origin": mcfg.get("first_origin"),
+            "bias_half_life": mcfg.get("bias_half_life") if shift else None,
+            "bias_at": mcfg.get("bias_at") if shift else None}
 
     # Raw or calibrated is decided here, from the method and the checkpoint
     # alone; the reason text only labels a raw band. (Deciding from the reason
@@ -677,7 +690,7 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
             if reason is None or (isinstance(reason, str) and not reason.strip()):
                 reason = "not validated"
         plan.update(
-            calibrated=False, method="none", group=None, reason=reason,
+            calibrated=False, method="none", band_method=None, group=None, reason=reason,
             checkpoint_mismatch=checkpoint_mismatch,
             label=f"raw: {reason}",
             description=(f"{model_key}'s own P10/P90 band (nominal {level:.0%}), "
@@ -688,7 +701,19 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     # An unknown method is not rejected here: fit_conformal and load_calibrator
     # reject it, which benchmarks.py reports as a FAILED calibration and
     # serve_band as CalibratorUnavailable.
-    if scheme == "rolling":
+    if shift:
+        # Labelled as configured whatever the scheme; benchmarks.py fails and
+        # serve_band refuses a shift_relative entry whose scheme is not rolling.
+        bias_half_life, bias_at = plan["bias_half_life"], plan["bias_at"]
+        label = (f"bias-shifted rolling-origin conformal relative/{group}, bias half-life "
+                 f"{bias_half_life} month(s) "
+                 f"({'at the forecast origin' if bias_at == 'as_of' else 'at each origin'}), "
+                 f"width half-life {plan['half_life']} months, fit on data to val_end")
+        description = (f"Bias-shifted P10/P90 band (relative/{group}, nominal {level:.0%}): "
+                       f"re-centred on {model_key}'s recent median error and widened by a "
+                       f"conformal quantile, fit on its errors from monthly forecast origins up "
+                       f"to the end of the validation split.")
+    elif scheme == "rolling":
         label = (f"rolling-origin conformal {method}/{group}, half-life {plan['half_life']} months, "
                  f"fit on data to val_end")
         description = (f"Conformal P10/P90 band ({method}/{group}, nominal {level:.0%}), fit on "
@@ -701,7 +726,8 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
         description = (f"Split-conformal P10/P90 band ({method}/{group}, nominal "
                        f"{level:.0%}), fit on {model_key}'s validation-split errors.")
     plan.update(
-        calibrated=True, method=method, group=group, reason=None,
+        calibrated=True, method=method, band_method="asym_relative" if shift else method,
+        group=group, reason=None,
         checkpoint_mismatch=False, label=label, description=description,
     )
     return plan
@@ -812,6 +838,13 @@ def serve_band(
     `fit_end` other than the config's data.train_end for scheme split, or
     data.val_end for scheme rolling; checked only when the config names it):
     a stale calibrator would publish a band nobody scored.
+
+    The calibrator's method is compared with the plan's `band_method`. A
+    shift_relative entry (Sprint 6) needs scheme rolling and a calibrator
+    saved for it: provenance `method_config` "shift_relative" with the
+    config's bias_half_life and bias_at. Any other entry needs a calibrator
+    without `method_config`, so a shift band is never served as a Sprint 5
+    asym_relative rolling band, nor the other way round.
     """
     plan = interval_plan(model_key, cfg, checkpoint)
     if not plan["calibrated"]:
@@ -836,6 +869,16 @@ def serve_band(
     prov = cal["provenance"]
     if plan["scheme"] not in ("split", "rolling"):
         raise CalibratorUnavailable(f"{model_key}: unknown calibration scheme {plan['scheme']!r}")
+    shift = plan["method"] == "shift_relative"
+    # benchmarks.py fits nothing for an incomplete shift entry, so no file can
+    # have been scored under one.
+    if shift and (plan["scheme"] != "rolling" or not plan["half_life_given"]
+                  or plan["bias_half_life"] is None or plan["bias_at"] is None):
+        raise CalibratorUnavailable(
+            f"{model_key}: shift_relative needs scheme rolling, half_life, bias_half_life and "
+            f"bias_at (config: scheme {plan['scheme']!r}, half_life "
+            f"{plan['half_life'] if plan['half_life_given'] else 'absent'!r}, bias_half_life "
+            f"{plan['bias_half_life']!r}, bias_at {plan['bias_at']!r})")
     # A split calibrator is fit on the validation window (fit ending
     # train_end); a rolling one on every target resolved by val_end.
     end_key = "val_end" if plan["scheme"] == "rolling" else "train_end"
@@ -847,8 +890,10 @@ def serve_band(
                                           or str(prov.get("first_origin")) != str(plan["first_origin"])):
         mismatches.append(f"half_life/first_origin {prov.get('half_life')!r}/{prov.get('first_origin')!r} "
                           f"(config: {plan['half_life']!r}/{plan['first_origin']!r})")
-    if (cal["method"], cal["group"]) != (plan["method"], plan["group"]):
-        mismatches.append(f"method {cal['method']}/{cal['group']} (config: {plan['method']}/{plan['group']})")
+    if (cal["method"], cal["group"]) != (plan["band_method"], plan["group"]):
+        configured = (f"{plan['band_method']}/{plan['group']}"
+                      + (f" for {plan['method']}" if plan["band_method"] != plan["method"] else ""))
+        mismatches.append(f"method {cal['method']}/{cal['group']} (config: {configured})")
     if cal["level"] != plan["level"]:
         mismatches.append(f"level {cal['level']} (config: {plan['level']})")
     if prov.get("model_key") != model_key:
@@ -859,6 +904,15 @@ def serve_band(
     # all) was not fitted on this config's data.
     if fit_end_expected is not None and ("fit_end" not in prov or str(prov["fit_end"]) != str(fit_end_expected)):
         mismatches.append(f"fit_end {prov.get('fit_end')!r} (config {end_key}: {str(fit_end_expected)!r})")
+    # A shift band and a Sprint 5 asym_relative rolling band are both stored
+    # as asym_relative; only the provenance tells them apart.
+    method_config = "shift_relative" if shift else None
+    if prov.get("method_config") != method_config:
+        mismatches.append(f"method_config {prov.get('method_config')!r} (config: {method_config!r})")
+    if shift and (prov.get("bias_half_life") != plan["bias_half_life"]
+                  or prov.get("bias_at") != plan["bias_at"]):
+        mismatches.append(f"bias_half_life/bias_at {prov.get('bias_half_life')!r}/{prov.get('bias_at')!r} "
+                          f"(config: {plan['bias_half_life']!r}/{plan['bias_at']!r})")
     if mismatches:
         raise CalibratorUnavailable(
             f"{model_key}: saved calibrator {calibrator_path} does not match: "
