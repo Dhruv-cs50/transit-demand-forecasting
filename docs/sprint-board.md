@@ -1,8 +1,8 @@
 # Sprint board
 
-## Sprint 4e — EDA section rebuilt from the current store (opened 2026-10-24)
+## Sprint 4h — EDA section rebuilt from the current store (opened 2026-10-24)
 
-(4e because the reconcile session uses 4d.)
+(4h: 4d is the reconcile session's; 4e, 4f and 4g were taken by the time this merged.)
 
 **Goal.** Close Sprint 4c's follow-up "Regenerate the EDA plots from the current store": rewrite
 `transit_eda/notebooks/eda_complete.ipynb` for monthly station rows, regenerate the PNGs, and
@@ -25,13 +25,13 @@ and section 5 now covers three year pairs. `sections.jsx?v=13` (the base has 12)
 
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
-| S4e.1 | Rebuild the store | orchestrator | — | sha256 equals #139's gate2 store | done — `9a777108…` |
-| S4e.2 | Rewrite the notebook; regenerate PNGs | orchestrator | S4e.1 | Executes with 0 errors; every caption claim asserted; image outputs byte-identical to the PNGs; rerun gives identical PNGs | done (13f265f; caption fixes 41b712a, 828ffa5) |
-| S4e.3 | Restore `EDAViz`, nav link, mount; `?v=13` (12 at first; #142 also took 12) | orchestrator | S4e.2 | Notebook's site check passes; local render: 4 tabs, every image loads, 0 console errors | done (3cb7a1d; 41b712a, 828ffa5; v=13 in 23766b4). Sprint-boundary delivery audit pending: skipped at 93% of the 5-hour plan window |
-| S4e.4 | Review the diff | code-reviewer | S4e.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 3 MAJOR (games claim overreached; seasonality range driven by 2022; this board lost the Sprint 4c heading), 7 MINOR. Fix round 41b712a: all fixed except MINOR 7's no-CI point, which is now documented in the notebook and the code comment. Scoped re-review R2: spec PASS, quality PASS; its two optional MINORs (ambiguous growth sentence, this row's wording) fixed in the next commit |
-| S4e.5 | Push; open PR (no merge) | orchestrator | S4e.4 | PR open with claim → evidence table | done — PR #143 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/143), base `fix/site-model-claims`, not merged (the user's call) |
+| S4h.1 | Rebuild the store | orchestrator | — | sha256 equals #139's gate2 store | done — `9a777108…` |
+| S4h.2 | Rewrite the notebook; regenerate PNGs | orchestrator | S4h.1 | Executes with 0 errors; every caption claim asserted; image outputs byte-identical to the PNGs; rerun gives identical PNGs | done (13f265f; caption fixes 41b712a, 828ffa5) |
+| S4h.3 | Restore `EDAViz`, nav link, mount; `?v=13` (12 at first; #142 also took 12) | orchestrator | S4h.2 | Notebook's site check passes; local render: 4 tabs, every image loads, 0 console errors | done (3cb7a1d; 41b712a, 828ffa5; v=13 in 23766b4). Sprint-boundary delivery audit pending: skipped at 93% of the 5-hour plan window |
+| S4h.4 | Review the diff | code-reviewer | S4h.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 3 MAJOR (games claim overreached; seasonality range driven by 2022; this board lost the Sprint 4c heading), 7 MINOR. Fix round 41b712a: all fixed except MINOR 7's no-CI point, which is now documented in the notebook and the code comment. Scoped re-review R2: spec PASS, quality PASS; its two optional MINORs (ambiguous growth sentence, this row's wording) fixed in the next commit |
+| S4h.5 | Push; open PR (no merge) | orchestrator | S4h.4 | PR open with claim → evidence table | done — PR #143 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/143), base `fix/site-model-claims`, not merged (the user's call) |
 
-### Rulings (Sprint 4e)
+### Rulings (Sprint 4h)
 
 - **Kept:** network level (with the 2020–21 gap drawn as missing, not a crash), seasonality,
   station ranking, coverage map. **Dropped:** hour-of-day, day-of-week, game-night spike, rain
@@ -47,7 +47,7 @@ and section 5 now covers three year pairs. `sections.jsx?v=13` (the base has 12)
 - **The seven old PNGs are deleted** (Sprint 4c kept them only so this regeneration could diff
   against them; they stay in git history at `0938526`). New filenames, so no cached old image
   is served at a reused URL.
-- **Review R1 fixes (S4e.4):** the games result is reported as "cannot be separated", not "no
+- **Review R1 fixes (S4h.4):** the games result is reported as "cannot be separated", not "no
   relationship"; the seasonality range is quoted without 2022, whose wider row is attributed in
   part to growth within 2022 (Jan vs Dec YoY, asserted "widest"); a like-for-like 48-station share
   is added to plot 01; unasserted trend words ("climbs", "fell") replaced by endpoint values; the
@@ -261,7 +261,7 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
 
 - Make the covariate path real: a covariate-capable checkpoint (Chronos-2) plus 2024–25
   weather and an event source beyond 2023. Changes the leaderboard; the user's call.
-- (Addressed by Sprint 4e.) Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
+- (Addressed by Sprint 4h.) Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
   and hour (`hour_of_day` is constant 0), so several plots need rewriting, not just rerunning.
 - Lag and rolling features are row shifts per station (`feature_engineering.py:497-500`), so
   early-2022 rows lag into 2019 across the 2020–21 gap. No ranked model reads them today;
