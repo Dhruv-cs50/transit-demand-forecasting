@@ -1,5 +1,84 @@
 # Sprint board
 
+## Sprint 4f — Lags count calendar months, not rows (opened 2026-10-24)
+
+(Named 4f: 4 to 4e are taken by sibling branches. Split out of Sprint 4e, the covariate
+experiment on `feat/covariate-benchmark`, by the user's decision of 2026-10-24.)
+
+**Goal.** `Processing/feature_engineering.py` `add_lag_features` shifts each station's series by
+rows, so early-2022 rows take their lags and rolling windows from 2019 across the 2020–21 gap.
+Shift by calendar month instead: a lag that lands in a month with no data is empty, and a rolling
+window counts only the months in it that have data against its `min_periods`.
+Update the site copy (#141's feature catalog) that describes the old behaviour.
+
+**Branch.** `fix/lag-calendar-months`, cut from `origin/fix/site-model-claims` @ `0938526` (PR #141),
+because #141's copy describes the gap. The PR targets that branch.
+
+**Gates.** Leaderboard CSV byte-identical before and after (no ranked model reads a lag column);
+the enriched store differs only in the lag/rolling columns, on rows whose window reaches 2020–21
+(each delta counted); unit tests pass; `py_compile` and JSX parse pass.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4f.1 | Calendar-month lags and rolling windows (monthly branch only; sub-monthly path unchanged) + unit test + catalog copy + cache-buster | implementer | — | Gates above | done (535039d, f702310, ca7915e) — 14 tests pass (8 fail on the old code); before/after on canonical 2019–23 inputs: leaderboard CSV, `benchmark_results.csv` and base store byte-identical (3.21 / 5.75 / 9.70 / 10.75, n = 300); enriched store: only the 8 lag/rolling columns change, 2,100 cells, all 2022 (1,700 become empty), plus 2,028 `rolling_std_3mo` cells 2022-04..2025-12 that differ by ≤ 1.0e-11 relative (pandas' running-variance rounding restarts across the empty months); TypeScript 5.9.3 parses `sections.jsx` with 0 diagnostics |
+| S4f.2 | Review the diff | code-reviewer | S4f.1 | No BLOCKER open | done — R1 on ca7915e: quality PASS; spec PASS with 1 MAJOR (F1: footnote and audit note said rolling windows reaching 2020–21 are left empty, but 400 of the 2,100 changed cells are partial-window values; cause: this board's goal line, now corrected), 2 MINOR (F2: 2,028 float-noise `rolling_std_3mo` cells outside 2022 breach the gate's wording; accepted deviation, nothing reads the column and every published output is byte-identical; F3: NaN/NaT/single-row cases untested), 2 NIT (F4 stale line ref in the audit note; F5 `Int64` → float64, as specified). Fix round: dd3ce96 (F1, F4), 92383c7 (F3); orchestrator checked the diff: 15 tests pass, footnote now says lags land empty and windows use the months that have data. F5 no action |
+| S4f.3 | Delivery audit | delivery-auditor | S4f.2 | Board matches git | todo — run jointly with Sprint 4e's audit |
+
+## Sprint 4c — Every site claim traces to a run (opened 2026-10-24)
+
+(Named 4c, ids S4c.x, because #138 adds a "Sprint 4" and #139 a "Sprint 4b".)
+
+**Goal.** Close #139's follow-up "Published model claims that no run supports": every model or
+data claim in `website/sections.jsx`, `website/index.html` and `README.md` either traces to code
+or a run output, or is corrected or removed. No model or leaderboard change.
+
+**Branch.** `fix/site-model-claims`, cut from `origin/sprint3/pr-backlog` @ `32a75df` (#136
+open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR targets it.
+
+**Evidence.** Claim-by-claim table with evidence: `docs/site-claims-audit.md`. Run evidence is
+#139's gate2 run on `f606498` (leaderboard identical to the published one).
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4c.1 | Audit every model/data claim against code and run outputs | orchestrator | — | Table with evidence per claim | done — 28 claims (+3 found while editing), `docs/site-claims-audit.md` |
+| S4c.2 | User decisions: covariates, EDA, report links, bio | orchestrator | S4c.1 | Answers recorded | done — 2026-10-24, recorded in the audit doc header |
+| S4c.3 | Apply the approved text fixes | orchestrator | S4c.2 | JSX/HTML parse; local render shows the changes, no console errors | done (97b7c99; cache-buster v=11 in ffbf274) — TypeScript 5.9.3 parse OK; served locally: EDA and `shap` gone, Dataset grid one full-width card, 0 console errors |
+| S4c.4 | Review the diff against the audit table | code-reviewer | S4c.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 2 MAJOR (Method lede and README:43 named `run_pipeline.sh` as the reproduction path; it cannot reproduce the table), 11 MINOR. Fix round in 7ab033a: both MAJOR fixed; MINOR fixed except the pull quote (kept: the user chose to re-attribute it) and README's `.venv311` line (follow-up, adjacent to #137's hunk). Re-parsed and re-rendered: 0 console errors |
+| S4c.5 | Trial-merge with #137, #138, #139, #140; push; open PR (no merge) | orchestrator | S4c.4 | PR open, conflicts listed | done — PR #141 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/141), not merged (the user's call). #137 clean; #138 board only; #139 board + `index.html` `?v=` line; #140 board + two `sections.jsx` hunks (keep #140's `bestNote`/`wapeSub`, drop `cm`/`shap`; keep the `EDAViz` deletion) |
+
+### Rulings (Sprint 4c)
+
+- **Covariates, 2026-10-24, the user:** correct the copy now; making the covariate path real
+  is a separate proposal. Evidence: Chronos-1 (`ChronosPipeline`) cannot take `future_df`
+  (50 fallback lines per run); SARIMA, Prophet and seasonal naive read no covariates; and the
+  weather and Sharks archives end 2023-12, so the test window has neither.
+- **EDA section removed** until its plots are regenerated from the current store. The seven
+  PNGs stay in `website/data/eda_plots/`, unreferenced, so the regeneration can diff against them.
+- **Report/slides links and the report citation removed** (no report or slides in the repo).
+  **About bio kept**: the user confirmed it.
+- **Post-review changes, 2026-10-24, the user:** keep all (Method lede and README reproduce
+  text, Rec 01 title and Recs lede, lag pills in rows, tag/notebook card, ↓ tile marker, nav "Demo",
+  `.shap*` CSS removal).
+- Replacements trace to code or are removals: no number computed in scratch is published
+  (e.g. 12th St's own WAPE, 3.52%, is not on the page; the hero card is relabelled instead).
+
+### Follow-ups (Sprint 4c, found here, not fixed here)
+
+- Make the covariate path real: a covariate-capable checkpoint (Chronos-2) plus 2024–25
+  weather and an event source beyond 2023. Changes the leaderboard; the user's call.
+- Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
+  and hour (`hour_of_day` is constant 0), so several plots need rewriting, not just rerunning.
+- Lag and rolling features are row shifts per station (`feature_engineering.py:497-500`), so
+  early-2022 rows lag into 2019 across the 2020–21 gap. No ranked model reads them today;
+  fix before any covariate model does.
+- README Known Limitations says `run_pipeline.sh` "assumes `.venv311/bin/python` exists"; it
+  falls back to `python3`. Left because the line sits next to #137's edit of the following line.
+- Headline metrics (hero cards, `HeroOrbit`, AtAGlance, Results lede/tiles, Benchmarks lede,
+  Rec 02) trace to today's run but are hard-coded, so they go stale on the next refresh. Derive
+  them with #140's `useSiteData`/`comparisonSplit` helpers once #140 merges.
+- `/tmp/tdf-venv` is broken (macOS tmp cleanup deleted `numpy/__init__.py` and `pyvenv.cfg`);
+  any rerun of the gates needs a fresh pinned env.
+
 ## Sprint 3 — Clear the open-PR backlog (opened 2026-10-22)
 
 **Goal.** Every still-valid fix in the 104 open PRs reaches `main` through one
