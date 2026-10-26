@@ -579,6 +579,240 @@ class LateRejectionTest(unittest.TestCase):
         self.assertTrue(self.path.exists())
 
 
+# ── Sprint 6: method shift_relative, served as an asym_relative band ─────────
+
+SHIFT = {"method": "shift_relative", "group": "horizon", "scheme": "rolling", "half_life": 6,
+         "bias_half_life": 1, "bias_at": "as_of", "first_origin": "2023-12-31",
+         "validated_for": "amazon/chronos-t5-small"}
+SHIFT_LABEL = ("bias-shifted rolling-origin conformal relative/horizon, bias half-life 1 month(s) "
+               "(at the forecast origin), width half-life 6 months, fit on data to val_end")
+SHIFT_DESCRIPTION = ("Bias-shifted P10/P90 band (relative/horizon, nominal 80%): re-centred on "
+                     "Chronos's recent median error and widened by a conformal quantile, fit on its "
+                     "errors from monthly forecast origins up to the end of the validation split.")
+PLAN_KEYS = {"model_key", "calibrated", "method", "group", "level", "reason", "checkpoint_mismatch",
+             "label", "description", "scheme", "half_life", "half_life_given", "first_origin",
+             "band_method", "bias_half_life", "bias_at"}
+
+
+class ShiftPlanTest(unittest.TestCase):
+    def test_shift_plan(self):
+        plan = interval_plan("Chronos", _cfg(Chronos=SHIFT), checkpoint="amazon/chronos-t5-small")
+        self.assertEqual(set(plan), PLAN_KEYS)
+        self.assertTrue(plan["calibrated"])
+        self.assertEqual((plan["method"], plan["band_method"], plan["group"], plan["scheme"]),
+                         ("shift_relative", "asym_relative", "horizon", "rolling"))
+        self.assertEqual((plan["half_life"], plan["bias_half_life"], plan["bias_at"]), (6, 1, "as_of"))
+        self.assertEqual(plan["label"], SHIFT_LABEL)
+        self.assertEqual(plan["description"], SHIFT_DESCRIPTION)
+
+    def test_shift_plan_with_the_bias_at_each_origin(self):
+        plan = interval_plan("Chronos", _cfg(Chronos={**SHIFT, "group": "pooled", "bias_half_life": 3,
+                                                      "bias_at": "origin"}))
+        self.assertEqual(plan["label"], "bias-shifted rolling-origin conformal relative/pooled, bias "
+                                        "half-life 3 month(s) (at each origin), width half-life 6 "
+                                        "months, fit on data to val_end")
+        self.assertEqual((plan["bias_half_life"], plan["bias_at"]), (3, "origin"))
+
+    def test_absent_shift_keys_are_none(self):
+        plan = interval_plan("Chronos", _cfg(Chronos={k: v for k, v in SHIFT.items()
+                                                      if k not in ("bias_half_life", "bias_at")}))
+        self.assertEqual((plan["bias_half_life"], plan["bias_at"]), (None, None))
+        self.assertEqual(plan["band_method"], "asym_relative")
+
+    # Existing methods: the plan keeps every key and value it had before
+    # Sprint 6, and gains band_method = method (None when raw), no bias keys.
+    EXISTING = (
+        ("Prophet", {"method": "scaled", "group": "horizon"}, None,
+         {"model_key": "Prophet", "calibrated": True, "method": "scaled", "group": "horizon", "level": 0.8,
+          "reason": None, "checkpoint_mismatch": False,
+          "label": "split-conformal scaled/horizon, fit on validation",
+          "description": "Split-conformal P10/P90 band (scaled/horizon, nominal 80%), fit on Prophet's "
+                         "validation-split errors.",
+          "scheme": "split", "half_life": None, "half_life_given": False, "first_origin": None}),
+        ("SeasonalNaive", {"method": "asym_relative", "group": "horizon", "scheme": "rolling", "half_life": 6,
+                           "first_origin": "2023-12-31"}, None,
+         {"model_key": "SeasonalNaive", "calibrated": True, "method": "asym_relative", "group": "horizon",
+          "level": 0.8, "reason": None, "checkpoint_mismatch": False,
+          "label": "rolling-origin conformal asym_relative/horizon, half-life 6 months, fit on data to val_end",
+          "description": "Conformal P10/P90 band (asym_relative/horizon, nominal 80%), fit on SeasonalNaive's "
+                         "errors from monthly forecast origins up to the end of the validation split, recent "
+                         "months weighted more.",
+          "scheme": "rolling", "half_life": 6, "half_life_given": True, "first_origin": "2023-12-31"}),
+        ("SARIMA", {"method": "none", "reason": "no method passed validation"}, None,
+         {"model_key": "SARIMA", "calibrated": False, "method": "none", "group": None, "level": 0.8,
+          "reason": "no method passed validation", "checkpoint_mismatch": False,
+          "label": "raw: no method passed validation",
+          "description": "SARIMA's own P10/P90 band (nominal 80%), not calibrated: no method passed validation.",
+          "scheme": "split", "half_life": None, "half_life_given": False, "first_origin": None}),
+        ("Chronos", {"method": "relative", "group": "pooled", "validated_for": "ckpt-a"}, "ckpt-b",
+         {"model_key": "Chronos", "calibrated": False, "method": "none", "group": None, "level": 0.8,
+          "reason": "method validated for ckpt-a only", "checkpoint_mismatch": True,
+          "label": "raw: method validated for ckpt-a only",
+          "description": "Chronos's own P10/P90 band (nominal 80%), not calibrated: method validated for "
+                         "ckpt-a only.",
+          "scheme": "split", "half_life": None, "half_life_given": False, "first_origin": None}),
+    )
+
+    def test_existing_plans_are_unchanged(self):
+        for key, mcfg, checkpoint, before in self.EXISTING:
+            with self.subTest(key=key):
+                plan = interval_plan(key, _cfg(**{key: mcfg}), checkpoint)
+                self.assertEqual({k: v for k, v in plan.items() if k in before}, before)
+
+    def test_existing_plans_band_method_and_no_bias_keys(self):
+        for key, mcfg, checkpoint, before in self.EXISTING:
+            with self.subTest(key=key):
+                plan = interval_plan(key, _cfg(**{key: mcfg}), checkpoint)
+                self.assertEqual(set(plan), PLAN_KEYS)
+                self.assertEqual(plan["band_method"], before["method"] if before["calibrated"] else None)
+                self.assertEqual((plan["bias_half_life"], plan["bias_at"]), (None, None))
+
+    def test_shift_entry_for_another_checkpoint_is_raw(self):
+        plan = interval_plan("Chronos", _cfg(Chronos=SHIFT), checkpoint="amazon/chronos-2")
+        self.assertFalse(plan["calibrated"])
+        self.assertEqual((plan["method"], plan["band_method"], plan["group"]), ("none", None, None))
+        self.assertEqual(plan["label"], "raw: method validated for amazon/chronos-t5-small only")
+        # Like half_life and first_origin, the configured bias settings are kept.
+        self.assertEqual((plan["bias_half_life"], plan["bias_at"]), (1, "as_of"))
+
+
+def _month_index(t):
+    if isinstance(t, pd.Series):
+        return (t.dt.year - 2023) * 12 + t.dt.month - 1
+    t = pd.Timestamp(t)
+    return (t.year - 2023) * 12 + t.month - 1
+
+
+def _level(t):
+    """An accelerating level: persistence forecasts under-forecast by more at
+    longer horizons and later origins, so the bias is far from zero."""
+    m = _month_index(t)
+    return 1 + 0.01 * m + 0.0008 * m ** 2
+
+
+class ShiftServeBandTest(unittest.TestCase):
+    """A shift_relative band saved by calibrate_intervals is served exactly as
+    scored, and only under the plan it was fitted for."""
+
+    AS_OF = pd.Timestamp("2025-06-30")
+    CKPT = "amazon/chronos-t5-small"
+
+    def setUp(self):
+        rng = np.random.default_rng(21)
+        ts = pd.date_range("2022-01-01", "2025-12-01", freq="MS")
+        rows = [(t, f"S{i}") for i in range(6) for t in ts]
+        self.history = pd.DataFrame(rows, columns=["timestamp", "station_id"])
+        self.history["ridership"] = (10_000 * _level(self.history["timestamp"])
+                                     * (1 + rng.normal(0, 0.03, len(self.history))))
+        # Starts the month after as_of and is contiguous, so add_horizon (serving)
+        # and with_origin_horizon (scoring) count the same horizons.
+        self.test = _preds("2025-07-01", n_stations=6, seed=12)[BAND]
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "Chronos.json"
+        self.scored, self.label = self._calibrate(SHIFT)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _make(origin, cut):
+        ts = pd.date_range(origin + pd.offsets.MonthBegin(1), periods=6, freq="MS")
+        out = pd.DataFrame([(t, f"S{i}") for i in range(6) for t in ts], columns=["timestamp", "station_id"])
+        out["p50"] = 10_000 * _level(origin)
+        out["p10"], out["p90"] = out["p50"] * 0.98, out["p50"] * 1.02
+        return out
+
+    def _cfg(self, mcfg):
+        return {"data": {"train_end": FIT_END, "val_end": "2025-06-30", "forecast_horizon_steps": 6},
+                "calibration": {"level": 0.8, "models": {"Chronos": mcfg}}}
+
+    def _calibrate(self, mcfg):
+        return calibrate_intervals(
+            "Chronos", "Chronos1_ZeroShot (chronos-t5-small)", self.test, lambda: None, None,
+            self._cfg(mcfg), checkpoint=self.CKPT, calibrator_path=self.path,
+            make_origin_preds=self._make, history_df=self.history, as_of=self.AS_OF)
+
+    def _serve(self, mcfg=SHIFT):
+        return serve_band(self.test, "Chronos", self._cfg(mcfg), calibrator_path=self.path,
+                          checkpoint=self.CKPT)
+
+    def _edit_provenance(self, **changes):
+        doc = json.loads(self.path.read_text())
+        for k, v in changes.items():
+            if v is None:
+                doc["provenance"].pop(k, None)
+            else:
+                doc["provenance"][k] = v
+        self.path.write_text(json.dumps(doc))
+
+    def test_served_band_is_the_scored_band(self):
+        self.assertEqual(self.label, SHIFT_LABEL)
+        out, plan = self._serve()
+        np.testing.assert_array_equal(out["p50"].to_numpy(), self.test["p50"].to_numpy())
+        for col in ("p10", "p90", "p10_raw", "p90_raw"):
+            np.testing.assert_array_equal(out[col].to_numpy(), self.scored[col].to_numpy())
+        self.assertFalse(np.array_equal(out["p90"].to_numpy(), self.test["p90"].to_numpy()))
+        self.assertNotIn("horizon", out.columns)
+        self.assertTrue(plan["calibrated"])
+        self.assertEqual((plan["method"], plan["band_method"]), ("shift_relative", "asym_relative"))
+        self.assertEqual(plan["label"], SHIFT_LABEL)
+        self.assertEqual(plan["provenance"]["method_config"], "shift_relative")
+
+    # Each refusal differs from the served case in one respect, and the
+    # message names it.
+
+    def test_config_with_other_bias_settings_is_refused(self):
+        for change, pattern in (
+            ({"bias_half_life": 3}, r"does not match: .*bias_half_life/bias_at 1/'as_of' \(config: 3/'as_of'\)"),
+            ({"bias_at": "origin"}, r"does not match: .*bias_half_life/bias_at 1/'as_of' \(config: 1/'origin'\)"),
+        ):
+            with self.subTest(change=change):
+                with self.assertRaisesRegex(CalibratorUnavailable, pattern):
+                    self._serve({**SHIFT, **change})
+
+    def test_config_with_other_width_settings_is_refused(self):
+        for change in ({"half_life": 3}, {"first_origin": "2024-06-30"}):
+            with self.subTest(change=change):
+                with self.assertRaisesRegex(CalibratorUnavailable, r"does not match: .*half_life/first_origin"):
+                    self._serve({**SHIFT, **change})
+
+    def test_shift_entry_with_another_scheme_is_refused(self):
+        # A file that would otherwise match a split entry: its scheme and fit_end
+        # say split, its method_config and bias settings match.
+        self._edit_provenance(scheme="split", fit_end=FIT_END)
+        with self.assertRaisesRegex(CalibratorUnavailable, r"shift_relative needs scheme rolling"):
+            self._serve({**SHIFT, "scheme": "split"})
+
+    def test_calibrator_without_method_config_is_refused(self):
+        self._edit_provenance(method_config=None)
+        with self.assertRaisesRegex(CalibratorUnavailable,
+                                    r"does not match: .*method_config None \(config: 'shift_relative'\)"):
+            self._serve()
+
+    def test_calibrator_fitted_to_train_end_is_refused(self):
+        self._edit_provenance(fit_end=FIT_END)
+        with self.assertRaisesRegex(CalibratorUnavailable,
+                                    r"does not match: fit_end '2024-12-31' \(config val_end: '2025-06-30'\)"):
+            self._serve()
+
+    def test_sprint5_rolling_asym_calibrator_is_not_a_shift_band(self):
+        rolling = {k: v for k, v in SHIFT.items() if k not in ("bias_half_life", "bias_at")}
+        rolling["method"] = "asym_relative"
+        self._calibrate(rolling)
+        self.assertEqual(load_calibrator(self.path)["provenance"].get("method_config"), None)
+        self._serve(rolling)    # served under its own plan
+        with self.assertRaisesRegex(CalibratorUnavailable,
+                                    r"does not match: .*method_config None \(config: 'shift_relative'\)"):
+            self._serve()
+
+    def test_shift_calibrator_is_not_a_rolling_asym_band(self):
+        rolling = {k: v for k, v in SHIFT.items() if k not in ("bias_half_life", "bias_at")}
+        rolling["method"] = "asym_relative"
+        with self.assertRaisesRegex(CalibratorUnavailable,
+                                    r"does not match: .*method_config 'shift_relative' \(config: None\)"):
+            self._serve(rolling)
+
+
 class UnsearchableCalibratorTest(unittest.TestCase):
     def test_permission_error_on_lookup_is_refused_not_raised(self):
         cfg = _cfg(Prophet={"method": "scaled", "group": "horizon"})
