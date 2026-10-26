@@ -155,8 +155,8 @@ const AtAGlance = () => {
 /* ── Methodology timeline ──────────────────────────────────────── */
 const Method = () => {
   const steps = [
-    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public ridership reports (bart.gov workbooks, 2019 + 2022–2025; BART published none for 2020–21), joined with Open-Meteo weather aggregated to months and a San Jose Sharks home-game schedule. Both archives end in December 2023. Stored as Parquet in a local feature store.", tools:['BART reports','Open-Meteo','Parquet'] },
-    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built lag and rolling-mean features, calendar flags, monthly weather summaries and Sharks game-day indicators. Because both archives end in 2023, the 2024–2025 rows, the test window included, have no weather and no games. No ranked model reads these features: SARIMA and the seasonal-naive baseline are univariate, Prophet uses only a US federal holiday calendar, and the Chronos-1 checkpoint cannot accept covariates.', tools:['pandas'] },
+    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public ridership reports (bart.gov workbooks, 2019 + 2022–2025; BART published none for 2020–21), joined with Open-Meteo weather aggregated to months and a San Jose Sharks home-game schedule. Weather covers every month in the store; the schedule starts in September 2019, so the January–May 2019 games are missing. Stored as Parquet in a local feature store.", tools:['BART reports','Open-Meteo','Parquet'] },
+    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built lag and rolling-mean features, calendar flags, monthly weather summaries and Sharks game-day indicators. The weather and game data reach December 2025, the test window included; that weather is observed, so for the test window it is hindsight, not a forecast. No ranked model reads these features: SARIMA and the seasonal-naive baseline are univariate, Prophet uses only a US federal holiday calendar, and the Chronos-1 checkpoint cannot accept covariates. A separate experiment that adds them to SARIMA does not improve it.', tools:['pandas'] },
     { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline. AutoGluon fine-tuning is scaffolded but has never been run — autogluon.timeseries will not install on this Python.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
     { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations. Intervals are not yet calibrated.', tools:['WAPE','MAE'] },
     { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station). The website reads JSON exported from the pipeline: forecasts, actuals, station levels and the model comparison.', tools:['FastAPI','React','JSON'] },
@@ -194,8 +194,8 @@ const Dataset = () => {
     { nm:'Validation (Jan–Jun 2025)', v:300, w:0.125 },
     { nm:'Test (Jul–Dec 2025)', v:300, w:0.125 },
   ];
-  // Columns of feature_store_enriched.parquet. p = external data, which
-  // covers 2019–2023 only (the weather and Sharks archives end there).
+  // Columns of feature_store_enriched.parquet. p = external data: weather for
+  // every store month, Sharks games from Sep 2019 (data/MANIFEST.md).
   const features = [
     {n:'Lagged ridership (1, 2, 3, 6, 12 months back)'}, {n:'Rolling mean (3, 12 months)'}, {n:'Rolling std (3 months)'},
     {n:'Month-of-year'}, {n:'Temperature (°F)', p:true}, {n:'Precipitation (mm)', p:true},
@@ -208,7 +208,7 @@ const Dataset = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Dataset</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>BART OD · 3,000 station‑months across 50 stations.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public ridership reports (bart.gov), joined with Open-Meteo weather and a San Jose Sharks home-game schedule (both 2019–2023 only; no ranked model uses them). Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public ridership reports (bart.gov), joined with Open-Meteo weather and a San Jose Sharks home-game schedule (weather for every month, the schedule from September 2019; no ranked model uses them). Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
           </div></Reveal>
         </div>
         <div className="ds-grid">
@@ -241,7 +241,7 @@ const Dataset = () => {
           </div>
           <div className="divider" />
           <p className="text-muted" style={{ fontSize: 13 }}>
-            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data, available for 2019–2023 only. Lags and rolling windows count calendar months; a lag that lands in 2020–21 is empty; a rolling window uses only the months in it that have data, and is empty when too few do. No ranked model reads any of these columns, so their influence on the forecasts has not been measured.
+            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data: weather for every month in the store; Sharks games from September 2019, so January–May 2019 reads as months without a game. Lags and rolling windows count calendar months; a lag that lands in 2020–21 is empty; a rolling window uses only the months in it that have data, and is empty when too few do. No ranked model reads any of these columns. A separate, pre-registered experiment that added weather and Sharks games to SARIMA found no improvement (docs/covariate-experiment.md).
           </p>
         </Reveal>
       </div>
@@ -437,7 +437,7 @@ const Benchmarks = () => {
   ] : [];
 
   const recs = [
-    { n:'01', t:'Extend event and weather data through the forecast window.', d:"The only event data ingested is a Sharks home-game schedule that ends in 2023 (the pipeline has no Ticketmaster key), and no ranked model reads it. Extending the event and weather archives through the forecast window, then fitting a model that accepts covariates, is what would let surge effects be measured at all, let alone flagged ahead of time.", who:'Operations Control' },
+    { n:'01', t:'Keep weather and Sharks games out of the monthly forecast.', d:"The only event data ingested is a Sharks home-game schedule (the pipeline has no Ticketmaster key). It and the weather now run through December 2025, the end of the test window. A pre-registered experiment added them to the leaderboard SARIMA: observed weather made the test forecast worse (3.79% against 3.21% WAPE) and Sharks games made no measurable difference, so at monthly station totals they do not help. Not tested: a daily or hourly grain, a model that pools one effect across stations, and events other than Sharks games.", who:'Operations Control' },
     { n:'02', t:'Fine-tune Chronos per station cluster.', d:'Zero-shot Chronos-1 (chronos-t5-small) scores 9.7% WAPE here — ahead of seasonal-naïve at 10.8%, behind both classical baselines. It also runs univariate, since the pipeline cannot pass covariates to this checkpoint. Fixing that, then fine-tuning per station cluster, is the path worth testing.', who:'Data / ML' },
     { n:'03', t:'Test fresher data sources.', d:"The model trains on BART's monthly ridership reports. The 511 SF Bay API offers real-time stop monitoring and historical stop observations (arrival times, not ridership counts); the repo has a fetcher for them, but nothing joins them into the feature store yet. Whether they would cut data staleness, and how much of the residual error staleness accounts for, has not been measured.", who:'Data / IT' },
   ];
@@ -606,7 +606,7 @@ const About = () => (
           { lbl:'Repo · GitHub', t:'Source code', d:'Pipeline scripts, the benchmark runner (SARIMA, Prophet, seasonal naive, Chronos-1 zero-shot) and this website. AutoGluon fine-tuning code is included but has never been run.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting' },
           { lbl:'Notebook', t:'Exploratory analysis', d:'Summary statistics, seasonality, missing-data and correlation plots. Its saved plots come from an earlier version of the feature store and are due to be regenerated.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting/blob/main/transit_eda/notebooks/eda_complete.ipynb' },
           { lbl:'BART OD ridership', t:'Dataset · BART OD', d:'Public BART origin-destination monthly ridership data from BART.gov.', href:'https://www.bart.gov/about/reports/ridership' },
-          { lbl:'Open-Meteo weather', t:'Dataset · Open-Meteo', d:'Free historical weather API. The feature store aggregates it to months for 2019–2023; no ranked model uses it yet.', href:'https://open-meteo.com' },
+          { lbl:'Open-Meteo weather', t:'Dataset · Open-Meteo', d:'Free historical weather API. The feature store holds its monthly aggregates for 2019 and 2022–2025; no ranked model uses it yet.', href:'https://open-meteo.com' },
         ].map((r,i) => (
           <Reveal key={i} delay={(i%3)+1}>
             <a href={r.href} target={r.href !== '#' ? '_blank' : undefined} rel="noopener noreferrer">
