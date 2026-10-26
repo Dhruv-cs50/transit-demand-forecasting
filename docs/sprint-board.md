@@ -176,9 +176,14 @@ unit tests pass; `py_compile` passes.
 - 229 tests pass on the merge (the pinned env plus pytest 9.1.1, fastapi
   0.162.0 and httpx 0.28.1 for tests only; `pip freeze` still contains all
   68 pins unchanged).
-- Sprint 6's study ran on the pre-merge base. It is re-run on the merge
-  with `--refresh` (every forecast refit on the new store); every output
-  and cached forecast must equal the S6.5 run's before the choice stands.
+- Sprint 6's study ran on the pre-merge base. Re-run on the merge with
+  `--refresh` (20:33–20:40, all 108 forecasts refit on the new store): all
+  17 outputs (six `adaptive_*`, `deployed_calibrators.yaml`, four
+  `validation_*`, six `shift_*`) byte-identical to the S6.5 run's, so the
+  decision and the deployed Chronos-1 calibrator stand. Of the 108 refit
+  forecast files, 107 are byte-identical and one (`Prophet_MCMC`,
+  2024-12-31, not used by Sprint 6) has identical values and differs only in
+  its recorded fit time (28.9 s vs 29.1 s).
 - Under #144's flow, `shift_relative` must also be labelled, saved and
   served (the website export calls `serve_band` for Chronos-1), so S6.6 is
   split into S6.6a / S6.6b / S6.6c. The stopped S6.6 dispatch had changed no
