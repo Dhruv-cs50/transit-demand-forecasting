@@ -1,5 +1,21 @@
 # Sprint board
 
+## Sprint 4g — Site copy matches the 2019–2025 covariate archives (opened 2026-10-26)
+
+(4g: 4e and 4f are taken on the base; #143's EDA sprint becomes 4h.)
+
+**Goal.** #141 and #142 wrote "weather and Sharks archives end in 2023" into the site and README.
+#147 then rebuilt the tracked store (`aa02436d…`) with 2024–25 weather and Sharks games, so the
+merged page contradicted its own data. Correct that copy to what `data/MANIFEST.md` and the
+store say. No model or number change.
+
+**Branch.** `fix/site-copy-archives-2024-25`, cut from `origin/sprint3/pr-backlog` @ `bde247f`.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4g.1 | Correct every "ends 2023" claim in `website/` and `README.md` | orchestrator | — | grep finds none; each new sentence traces to `data/MANIFEST.md`, the store or model code; render shows 0 console errors | done |
+| S4g.2 | Push; open PR (no merge) | orchestrator | S4g.1 | PR open with claim → evidence table | todo |
+
 ## Sprint 4d — Reconcile what #137, #138 and #139 publish together (opened 2026-10-24)
 
 (Named 4d, ids S4d.x. S4, S4b, S4c and Sprint 5, the adaptive-calibration branch, are taken.)
