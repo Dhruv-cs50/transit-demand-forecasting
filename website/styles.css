@@ -243,18 +243,6 @@ section + section{border-top:1px solid var(--line)}
 .cm-cell.fp{background:color-mix(in oklab, var(--warn) 14%, var(--bg-elev))}
 .cm-cell.fn{background:color-mix(in oklab, var(--danger) 14%, var(--bg-elev))}
 
-/* SHAP rows */
-.shap{display:flex; flex-direction:column; gap:10px}
-.shap-row{display:grid; grid-template-columns: 160px 1fr 70px; gap:12px; align-items:center; font-size:13px}
-.shap-row .nm{color:var(--ink); font-family:var(--mono); font-size:12.5px}
-.shap-row .track{position:relative; height:22px; background:var(--bg-muted); border-radius:6px; overflow:hidden}
-.shap-row .track .mid{position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--line-strong)}
-.shap-row .track i{position:absolute; top:0; bottom:0; border-radius:4px; transform-origin:left center; transform:scaleX(0); transition:transform 1s cubic-bezier(.2,.7,.2,1)}
-.reveal.in .shap-row .track i{transform:scaleX(1)}
-.shap-row .track i.pos{left:50%; background:linear-gradient(90deg, var(--accent), var(--accent-2))}
-.shap-row .track i.neg{right:50%; background:linear-gradient(270deg, var(--primary), var(--primary-2)); transform-origin:right center}
-.shap-row .v{font-family:var(--mono); text-align:right; color:var(--ink-muted); font-size:12.5px}
-
 /* ─────────────────── live demo ─────────────────── */
 .demo-grid{display:grid; grid-template-columns: 1fr 1fr; gap:24px}
 @media (max-width: 980px){ .demo-grid{grid-template-columns:1fr} }
