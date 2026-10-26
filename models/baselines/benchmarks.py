@@ -42,8 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from evaluation.metrics import wape, mae, rmse, mape, smape, coverage, mase, _infer_seasonal_period
 from evaluation.calibration import (
-    add_horizon, apply_conformal, describe, fit_conformal, interval_plan, no_calibration,
-    save_calibrator,
+    add_horizon, apply_conformal, describe, fit_conformal, fit_rolling_conformal, interval_plan,
+    no_calibration, save_calibrator, with_origin_horizon,
 )
 
 logging.basicConfig(
@@ -310,16 +310,20 @@ def calibrate_intervals(
     cfg: dict,
     checkpoint: str = None,
     calibrator_path: Path = None,
+    make_origin_preds=None,
+    history_df: pd.DataFrame = None,
+    as_of: pd.Timestamp = None,
 ) -> tuple[pd.DataFrame, str]:
-    """Split-conformal P10/P90 for one model's test forecasts.
+    """Conformal P10/P90 for one model's test forecasts.
 
-    The models' own bands are not 80% intervals (test coverage before this:
-    Prophet 46.0%, Chronos-1 51.0%, SARIMA 96.7%, SeasonalNaive 94.3%). For a
-    model with a calibration method in configs/model.yaml, the model also
-    forecasts the validation split from a fit that ends at train_end, and the
-    conformal quantile of those validation errors sets the test band. Methods
-    were chosen per model on validation data only, and a model for which no
-    method passed validation keeps its own band — see
+    The models' own bands are not 80% intervals (test coverage of the own
+    bands: Prophet 46.0%, Chronos-1 51.0%, SARIMA 96.7%, SeasonalNaive 94.3%).
+    A model with a calibration method in configs/model.yaml gets its test band
+    from the conformal quantile of errors on data up to val_end: by default
+    (`scheme: split`) its forecasts of the validation split from a fit that
+    ends at train_end; with `scheme: rolling`, a pool over monthly origins
+    (below). Methods were chosen per model on data up to val_end only, and a
+    model for which no method passed keeps its own band — see
     docs/interval-calibration.md and evaluation/interval_study.py.
 
     model_key: stable config key (calibration.models.<key>), independent of
@@ -340,6 +344,14 @@ def calibrate_intervals(
         label; the export and the API then refuse this model's calibrated band
         for lack of a matching file.
 
+    `scheme: rolling` (Sprint 5) calibrates on a pool instead of one window:
+    forecasts from every monthly origin from `first_origin` to one month
+    before `as_of` (the test forecast origin, val_end), each from a store cut
+    at min(origin + horizon, as_of), scored against `history_df` rows on or
+    before as_of, weighted 0.5**(age / half_life). make_origin_preds(origin,
+    cut) returns one origin's forecasts; it too runs after the test forecasts.
+    Chosen on validation only (evaluation/interval_study.py, adaptive_study).
+
     P50 is returned untouched, so every point metric is identical to the
     uncalibrated run. Returns (preds, interval_method): preds with p10/p90
     replaced and the model's own bounds kept as p10_raw/p90_raw (unchanged
@@ -359,18 +371,39 @@ def calibrate_intervals(
                         f"keeping the model's own band")
         return no_calibration(test_preds), plan["label"]
 
-    method, group, label = plan["method"], plan["group"], plan["label"]
+    method, group, label, scheme = plan["method"], plan["group"], plan["label"], plan["scheme"]
+    if scheme == "rolling" and not plan["half_life_given"]:
+        # A missing half_life would silently mean equal weights, a different
+        # method from the one chosen; null must be written out to ask for it.
+        log.error(f"  {model_name}: scheme rolling needs half_life (null for equal weights)")
+        out = no_calibration(test_preds)
+        out["p10"], out["p90"] = np.nan, np.nan
+        return out, f"FAILED: {method}/{group} (no half_life)"
     try:
-        val_preds = make_val_preds()
-        if val_preds is None or val_preds.empty:
-            raise ValueError("no validation-window forecasts")
-        cal = val_df[["timestamp", "station_id", "ridership"]].merge(
-            val_preds[["timestamp", "station_id", "p10", "p50", "p90"]],
-            on=["timestamp", "station_id"], how="left",
-        )
-        calibrator = fit_conformal(add_horizon(cal), method=method, group=group, level=plan["level"])
+        if scheme == "rolling":
+            pool = _rolling_origin_pool(make_origin_preds, history_df, as_of,
+                                        plan["first_origin"], cfg)
+            calibrator = fit_rolling_conformal(pool, method, group, plan["level"], as_of,
+                                               half_life=plan["half_life"])
+            calibrated = apply_conformal(with_origin_horizon(test_preds, as_of), calibrator)
+            # Fitted on every resolved target up to as_of (val_end).
+            fit_end = (cfg.get("data") or {}).get("val_end")
+            months = pd.to_datetime(pool.loc[pool["timestamp"] <= as_of, "timestamp"])
+        elif scheme == "split":
+            val_preds = make_val_preds()
+            if val_preds is None or val_preds.empty:
+                raise ValueError("no validation-window forecasts")
+            cal = val_df[["timestamp", "station_id", "ridership"]].merge(
+                val_preds[["timestamp", "station_id", "p10", "p50", "p90"]],
+                on=["timestamp", "station_id"], how="left",
+            )
+            calibrator = fit_conformal(add_horizon(cal), method=method, group=group, level=plan["level"])
+            calibrated = apply_conformal(add_horizon(test_preds), calibrator)
+            fit_end = (cfg.get("data") or {}).get("train_end")
+            months = pd.to_datetime(val_df["timestamp"])
+        else:
+            raise ValueError(f"unknown calibration scheme {scheme!r}")
         log.info(f"  interval calibration: {describe(calibrator)}")
-        calibrated = apply_conformal(add_horizon(test_preds), calibrator)
     except Exception as e:
         log.error(
             f"  {model_name}: interval calibration FAILED ({e}); calibrated "
@@ -385,12 +418,14 @@ def calibrate_intervals(
     # computed above whether or not the file can be written.
     if calibrator_path is not None:
         try:
-            months = pd.to_datetime(val_df["timestamp"])
+            extra = ({"scheme": "rolling", "half_life": plan["half_life"],
+                      "first_origin": str(plan["first_origin"])} if scheme == "rolling" else {})
             save_calibrator(
                 calibrator, calibrator_path,
                 model_key=model_key, model=model_name, checkpoint=checkpoint, label=label,
-                fit_end=str((cfg.get("data") or {}).get("train_end")),
+                fit_end=str(fit_end),
                 window=[months.min().strftime("%Y-%m-%d"), months.max().strftime("%Y-%m-%d")],
+                **extra,
             )
             log.info(f"  calibrator saved → {calibrator_path}")
         except Exception as e:
@@ -445,6 +480,37 @@ def clear_saved_calibrators(directory: Path) -> int:
         path.unlink(missing_ok=True)
         removed += 1
     return removed
+
+
+def _rolling_origin_pool(make_origin_preds, history_df: pd.DataFrame, as_of: pd.Timestamp,
+                         first_origin, cfg: dict) -> pd.DataFrame:
+    """Calibration pool for `scheme: rolling`: one block of forecasts per monthly
+    origin first_origin .. as_of - 1 month, each merged onto its actuals (left
+    merge, so a missing forecast fails the fit instead of dropping out) and
+    tagged with its explicit origin and horizon. Nothing after as_of is read."""
+    if make_origin_preds is None or history_df is None or as_of is None or first_origin is None:
+        raise ValueError("rolling calibration needs make_origin_preds, history_df, as_of and first_origin")
+    horizon = int(cfg["data"]["forecast_horizon_steps"])
+    as_of = pd.Timestamp(as_of)
+    first, tz = pd.Timestamp(first_origin), history_df["timestamp"].dt.tz
+    if tz is not None and first.tzinfo is None:
+        first = first.tz_localize(tz)
+    elif tz is None and first.tzinfo is not None:
+        first = first.tz_localize(None)
+    actuals = history_df.loc[history_df["timestamp"] <= as_of, ["timestamp", "station_id", "ridership"]]
+    parts = []
+    for origin in pd.date_range(first, as_of - pd.offsets.MonthEnd(1), freq="ME"):
+        cut = min(origin + pd.DateOffset(months=horizon), as_of)
+        preds = make_origin_preds(origin, cut)
+        if preds is None or preds.empty:
+            raise ValueError(f"no forecasts from origin {origin:%Y-%m-%d}")
+        window = actuals[(actuals["timestamp"] > origin) & (actuals["timestamp"] <= cut)]
+        merged = window.merge(preds[["timestamp", "station_id", "p10", "p50", "p90"]],
+                              on=["timestamp", "station_id"], how="left")
+        parts.append(with_origin_horizon(merged, origin))
+    if not parts:
+        raise ValueError(f"no origins between {first_origin} and {as_of:%Y-%m-%d}")
+    return pd.concat(parts, ignore_index=True)
 
 
 def _forecast_checked(predictor, as_of, window_end, output_path: Path, mode: str) -> pd.DataFrame:
@@ -599,7 +665,7 @@ def leaderboard_latex(leaderboard: pd.DataFrame) -> str:
         # others; without these columns the two read as the same quantity.
         latex_cols += ["Coverage_raw_%"] + (["Interval_method"] if "Interval_method" in leaderboard.columns else [])
         caption = caption.rstrip(".") + (". Coverage_% scores the band named in Interval_method "
-                    "(split-conformal, fit on the validation split, or the model's own); "
+                    "(conformal, fit on data up to the end of the validation split, or the model's own); "
                     "Coverage_raw_% scores the model's own band")
     table = leaderboard[latex_cols].rename(columns={"MASE": MASE_LABEL})
     return table.to_latex(
@@ -668,6 +734,10 @@ def run_benchmarks(
             "SeasonalNaive", "SeasonalNaive", naive_preds,
             lambda: seasonal_naive_forecast(train_df[train_df["timestamp"] <= train_end], val_df, freq),
             val_df, cfg, calibrator_path=CALIBRATOR_DIR / "SeasonalNaive.json",
+            make_origin_preds=lambda o, cut: seasonal_naive_forecast(
+                train_df[train_df["timestamp"] <= o],
+                df[(df["timestamp"] > o) & (df["timestamp"] <= cut)], freq),
+            history_df=df[df["timestamp"] <= val_end], as_of=val_end,
         )
         model_preds["SeasonalNaive"] = naive_preds
         rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df,
@@ -715,6 +785,11 @@ def run_benchmarks(
                         df, cfg, output_dir=CAL_DIR / "prophet", train_cutoff=train_end,
                         horizon_steps=horizon_steps, freq=freq),
                     val_df, cfg, calibrator_path=CALIBRATOR_DIR / "Prophet.json",
+                    make_origin_preds=lambda o, cut: run_prophet_all_stations(
+                        df[df["timestamp"] <= cut], cfg,
+                        output_dir=CAL_DIR / "prophet_rolling" / f"{o:%Y-%m-%d}",
+                        train_cutoff=o, horizon_steps=horizon_steps, freq=freq),
+                    history_df=df[df["timestamp"] <= val_end], as_of=val_end,
                 )
                 model_preds["Prophet"] = prophet_preds
                 rows = compute_metrics(test_df, prophet_preds, "Prophet", train_df=train_df,
