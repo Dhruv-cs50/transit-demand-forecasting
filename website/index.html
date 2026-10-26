@@ -19,7 +19,7 @@
 <div id="progress"></div>
 <div id="root"></div>
 
-<script type="text/babel" src="charts.jsx?v=6"></script>
+<script type="text/babel" src="charts.jsx?v=7"></script>
 <script type="text/babel" src="tweaks-panel.jsx?v=5"></script>
 <script type="text/babel" src="sections.jsx?v=12"></script>
 <script type="text/babel">
@@ -50,8 +50,14 @@ function App() {
 
   useEffect(() => {
     const r = document.documentElement;
-    r.style.setProperty('--primary', t.primary);
-    r.style.setProperty('--accent', t.accent);
+    // styles.css gives --primary and --accent a value per theme (html.dark
+    // overrides them). An inline value would beat html.dark and leave the
+    // light-theme colours on the dark background, so only a colour picked in
+    // the Tweaks panel is set inline; the defaults come from the stylesheet.
+    const themeVar = (name, value, dflt) =>
+      value === dflt ? r.style.removeProperty(name) : r.style.setProperty(name, value);
+    themeVar('--primary', t.primary, TWEAK_DEFAULTS.primary);
+    themeVar('--accent', t.accent, TWEAK_DEFAULTS.accent);
     r.style.setProperty('--display', `'${t.displayFont}', ui-sans-serif, system-ui, sans-serif`);
     const dens = t.density === 'compact' ? .85 : t.density === 'comfy' ? 1.12 : 1;
     r.style.setProperty('--maxw', `${Math.round(1240 * (t.density==='compact'?0.95:1))}px`);
