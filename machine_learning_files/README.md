@@ -17,12 +17,15 @@ This folder contains the ingestion, feature-store, zero-shot forecasting, API, a
 
 ## Setup
 
+Use the pinned Python 3.14.0 environment from the root README's Setup section:
+
 ```bash
-python3.11 -m venv .venv311
-source .venv311/bin/activate
-pip install --upgrade pip
-pip install -r machine_learning_files/requirements.txt
+python3.14 -m venv ~/.venvs/tdf-py314
+source ~/.venvs/tdf-py314/bin/activate
+pip install -r requirements-lock.txt
 ```
+
+`requirements-lock.txt` leaves out AutoGluon (it needs Python below 3.14) and the serving stack; see the root README for both.
 
 Edit `configs/sources.yaml` before running credentialed fetchers. Open-Meteo works without a key. 511 and Ticketmaster require API keys.
 
@@ -120,14 +123,14 @@ because no method passed validation:
 - `configs/model.yaml` controls the modeled frequency, context length, forecast horizon, chronological split dates, quantile levels, and AutoGluon training settings.
 - `configs/sources.yaml` controls source endpoints, API-key placeholders, venue IDs, agency IDs, and weather station coordinates.
 - The API does not use Chronos or any forecast cache. Each `/forecast` fits SARIMA(0,1,1)(0,1,1,12) for one station on months from `data.train_start` up to `as_of` (default: the latest month in the store), with the same code and settings `benchmarks.py` scores for the leaderboard. Tests: `python -m pytest tests/`.
-- `scripts/run_pipeline.sh` expects `.venv311/bin/python` to exist.
+- `scripts/run_pipeline.sh` runs `.venv311/bin/python` if that file exists and `python3` from `PATH` otherwise, so activate the Setup venv first; a leftover `.venv311/` takes precedence over it.
 
 ## Troubleshooting
 
 - `FileNotFoundError: feature_store.parquet`: run `python machine_learning_files/merge_pipeline.py`.
-- `No BART OD files found`: run `python machine_learning_files/fetch_bart_od.py` or place parsed BART parquet files in `data/raw/transit/bart/`.
+- `No BART OD files found`: bart.gov answers automated requests with HTTP 403, so `fetch_bart_od.py` cannot fill `data/raw/transit/bart/`. Download the Ridership workbooks by hand and run `python machine_learning_files/bart_od_from_xlsx.py --zips <zips>` (or `--dir <workbooks>`); see `data/MANIFEST.md`. Do not use `bart_od_from_csv.py` for the pipeline: `merge_pipeline.py` rejects the months it builds.
 - Chronos device errors: `chronos2.device` in `configs/model.yaml` defaults to `cpu`; set it to `mps` on Apple Silicon or `cuda` on a GPU machine as appropriate.
-- AutoGluon errors with newer Python versions: recreate the environment with Python 3.11.
+- AutoGluon import/install errors: expected in the Setup environment, since `autogluon.timeseries` needs Python below 3.14 and is not in `requirements-lock.txt`. The published leaderboard does not use it; the root README's "Reproduce The Pipeline" section lists the four steps that produced it.
 - `404 Unknown station`: station IDs are the store's codes (`EM`, `MT`, `12`, …) — list them with `GET /stations`.
 - `400` with "months of history": the `as_of` leaves fewer than 24 months since `data.train_start`.
 - `503` mentioning a calibrator: `configs/model.yaml` names a calibration method for SARIMA, but the API has no matching fitted calibrator: it is missing or unreadable, or it is stale or mismatched (fitted for another method, level, model or training cut-off). The API refuses rather than serve the raw band under a calibrated label. SARIMA's method is `none` today, so this only follows a config change.

@@ -152,21 +152,30 @@ The merge pipeline aggregates BART OD records to origin station-month totals, jo
 
 ## Setup
 
-**Prerequisites:** Python 3.11, Git. AutoGluon needs Python below 3.14; the published benchmark (SARIMA, Prophet, Chronos-1) ran on Python 3.14 without it.
+**Prerequisites:** Python 3.14.0, Git. The published benchmark (SARIMA, Prophet, Chronos-1) is reproduced on the pinned environment in `requirements-lock.txt` (every package `==`-pinned, frozen on macOS arm64).
 
 ```bash
 # Clone
 git clone https://github.com/Dhruv-cs50/transit-demand-forecasting.git
 cd transit-demand-forecasting
 
-# Create virtual environment with Python 3.11
-python3.11 -m venv .venv311
-source .venv311/bin/activate        # Windows: .venv311\Scripts\activate
+# Create the virtual environment with Python 3.14.0, outside /tmp
+python3.14 -m venv ~/.venvs/tdf-py314
+source ~/.venvs/tdf-py314/bin/activate
 
-# Install dependencies
-pip install --upgrade pip
-pip install -r machine_learning_files/requirements.txt
+# Install the pinned dependencies
+pip install -r requirements-lock.txt
 ```
+
+Do not put the venv under `/tmp`: macOS cleanup deletes files there and leaves
+a half-broken environment behind. A path outside the repo also keeps it out of
+git (`.gitignore` only covers `.venv/` and `.venv311/`).
+
+AutoGluon is not in the lock: `autogluon.timeseries` needs Python below 3.14,
+so it cannot be installed on this environment, and its scaffolding is scheduled
+for removal. `machine_learning_files/requirements.txt` (unpinned) still lists it
+until then. The lock also omits the serving stack; the API tests use the
+separate install under [Forecast API](#forecast-api).
 
 **API keys** — before running source fetchers, edit `configs/sources.yaml`:
 
@@ -211,7 +220,7 @@ the benchmark runs; where AutoGluon is installed, the benchmark adds an
 For faster iteration, run individual steps:
 
 ```bash
-source .venv311/bin/activate
+source ~/.venvs/tdf-py314/bin/activate
 
 python machine_learning_files/merge_pipeline.py
 python Processing/feature_engineering.py
@@ -405,11 +414,20 @@ same functions `benchmarks.py` scores (`fit_station` / `predict_station` in
   the API (missing, unreadable or stale) → `503`, so a raw band is never served
   under a calibrated label.
 
-Code: `machine_learning_files/api.py`. Tests (`requirements.txt` lacks `pytest` and `httpx`):
+Code: `machine_learning_files/api.py`. `tests/test_api.py` needs the serving
+stack, which `requirements-lock.txt` leaves out, so it cannot be collected in
+the Setup environment; the other tests in `tests/` run there. Run the API tests
+in a separate Python 3.11 venv, the Python the API image is built on
+(`python:3.11-slim` in `Dockerfile.api`), with the image's pins plus `httpx`
+and `pytest`. The image's numpy, pandas, pyarrow, scipy and statsmodels pins
+have no Python 3.14 wheels, so this set does not install in the Setup
+environment:
 
 ```bash
-pip install fastapi==0.115.0 pydantic==2.7.0 pandas==2.2.0 pyarrow==16.0.0 numpy==1.26.4 PyYAML==6.0.1 scipy==1.14.1 statsmodels==0.14.4 httpx pytest
-python -m pytest tests/
+python3.11 -m venv ~/.venvs/tdf-api-py311
+source ~/.venvs/tdf-api-py311/bin/activate
+pip install fastapi==0.115.0 "uvicorn[standard]==0.30.0" pydantic==2.7.0 pandas==2.2.0 pyarrow==16.0.0 numpy==1.26.4 PyYAML==6.0.1 scipy==1.14.1 patsy==1.0.1 statsmodels==0.14.4 httpx pytest
+python -m pytest tests/test_api.py
 ```
 
 Start locally (the feature store is committed, so no pipeline run is needed):
@@ -469,7 +487,7 @@ Additional project documentation:
 
 - The active modeled target is monthly BART OD ridership. Some files describe future higher-frequency transit support, but the current reliable pipeline is monthly.
 - Weather and event data are aggregated to the monthly modeling cadence, and both raw archives end in December 2023, so 2024–2025 rows (the test window included) have no weather and no games. No ranked model reads these columns.
-- `scripts/run_pipeline.sh` assumes `.venv311/bin/python` exists.
+- `scripts/run_pipeline.sh` runs `.venv311/bin/python` if that file exists and `python3` from `PATH` otherwise. Activate the Setup venv before running it, and note that a leftover `.venv311/` in the repo takes precedence over the active venv.
 - Chronos (benchmarks only; the API does not run it) defaults to `cpu` in `configs/model.yaml`; change it to `mps` on Apple Silicon or `cuda` on a GPU machine for faster inference.
 - Some source fetchers require external credentials or manual data access.
 
@@ -480,6 +498,6 @@ Additional project documentation:
 | `Feature store not found` | Run `python machine_learning_files/merge_pipeline.py`. |
 | `feature_store_enriched.parquet` missing | Run `python Processing/feature_engineering.py`. |
 | `No BART OD files found` | bart.gov answers automated requests with HTTP 403, so `fetch_bart_od.py` cannot fill `data/raw/transit/bart/`. Download the Ridership workbooks by hand and run `python machine_learning_files/bart_od_from_xlsx.py --zips <zips>` (see `data/MANIFEST.md`). Do not use `bart_od_from_csv.py` for the pipeline: `merge_pipeline.py` rejects the months it builds. |
-| AutoGluon import/install failures | Recreate the environment with Python 3.11. |
+| AutoGluon import/install failures | Expected in the Setup environment: `autogluon.timeseries` needs Python below 3.14 and is not in `requirements-lock.txt`. The published leaderboard does not use it; run the four steps under [Reproduce The Pipeline](#reproduce-the-pipeline) instead of `scripts/run_pipeline.sh`, which stops at its AutoGluon step. |
 | Chronos device errors | Change `chronos2.device` in `configs/model.yaml`. |
 | Website shows stale data | Re-run `scripts/export_website_data.py` before deploying. |

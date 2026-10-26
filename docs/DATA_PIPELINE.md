@@ -4,12 +4,15 @@ This runbook documents how to rebuild the project data, models, validation outpu
 
 ## Prerequisites
 
+Python 3.14.0 and the pinned environment from the README's Setup section:
+
 ```bash
-python3.11 -m venv .venv311
-source .venv311/bin/activate
-pip install --upgrade pip
-pip install -r machine_learning_files/requirements.txt
+python3.14 -m venv ~/.venvs/tdf-py314
+source ~/.venvs/tdf-py314/bin/activate
+pip install -r requirements-lock.txt
 ```
+
+`requirements-lock.txt` leaves out AutoGluon (it needs Python below 3.14) and the serving stack; see the README for both.
 
 Review `configs/sources.yaml` before running ingestion. Replace placeholder keys where needed.
 
@@ -152,7 +155,7 @@ After setup, the full scripted path is:
 bash scripts/run_pipeline.sh
 ```
 
-This script assumes `.venv311/bin/python` exists and that required raw data/API credentials are available.
+This script runs `.venv311/bin/python` if that file exists and `python3` from `PATH` otherwise, so activate the Prerequisites venv first (a leftover `.venv311/` takes precedence over it). It assumes the required raw data/API credentials are available. Without AutoGluon it stops at its fine-tune step, before the benchmark; the README's "Reproduce The Pipeline" section lists the four steps that produced the published leaderboard.
 
 ## Feature Store Schema
 
@@ -181,5 +184,5 @@ Common optional columns include:
 | `feature_store_enriched.parquet` missing | Feature engineering has not run. | Run `python Processing/feature_engineering.py`. |
 | Validation flags missing windows | Split cadence or source coverage changed. | Confirm `configs/model.yaml` frequency and inspect source coverage by station. |
 | Chronos fails to load on `mps` | Machine is not Apple Silicon or MPS is unavailable. | Set `chronos2.device` to `cuda` or `cpu` in `configs/model.yaml`. |
-| AutoGluon install fails | Unsupported Python version or dependency conflict. | Recreate the environment with Python 3.11. |
+| AutoGluon install or import fails | `autogluon.timeseries` needs Python below 3.14 and is not in `requirements-lock.txt`. | Expected in the Prerequisites environment. The published leaderboard does not use AutoGluon; run the four steps in the README's "Reproduce The Pipeline" section instead of `scripts/run_pipeline.sh`. |
 | Website shows stale values | `website/data/*.json` was not regenerated. | Run `scripts/export_website_data.py` before deploy. |
