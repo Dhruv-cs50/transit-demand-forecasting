@@ -22,21 +22,24 @@ the merged PRs publish it (SARIMA 96.67, Prophet 74.00, Chronos-1 72.67, Seasona
 
 | ID | Goal | Owner | Est. | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|---|
-| S7-01 | Close the superseded daily-audit drafts with a disposition each; delete their `nifty-goodall` branches | orchestrator | 45m | — | No open draft from the routine; no branch deleted that an open non-draft PR uses; list recorded here | todo |
-| S7-02 | Merge `sprint3/pr-backlog` into #145's branch; resolve README, interval doc, board, `benchmarks.py` | engineer A | 1h | — | No conflict with the backlog; tests pass | todo |
-| S7-03 | Design: carry #145's `scheme`/`half_life`/`first_origin` through #144's `interval_plan`, `save_calibrator`, `serve_band` | principal engineer | 45m | S7-02 | Written design, files and tests named | todo |
-| S7-04 | Implement S7-03 with tests | engineer A | 1h | S7-03 | Serving path uses the rolling calibrators; leaderboard coverage 83.67 / 74.00 for SeasonalNaive / Prophet | todo |
-| S7-05 | Merge `sprint3/pr-backlog` into #146's branch; resolve `data/MANIFEST.md`, board | engineer B | 45m | — | No conflict; covariate tests pass | todo |
-| S7-06 | Merge `sprint3/pr-backlog` into #140's branch; resolve board, `index.html`, `sections.jsx` | engineer C | 45m | — | No conflict; JSX parses | todo |
-| S7-07 | Merge the backlog and #140 into #143's branch; reconcile #143's EDA rebuild with #141's removal | engineer C | 1h | S7-06 | No conflict; the EDA section's captions trace to printed values | todo |
-| S7-08 | Commit the pinned environment (`requirements-lock.txt`) and document it | engineer D | 45m | — | A fresh venv from the lock imports everything the gates need | todo |
+| S7-01 | Close the superseded daily-audit drafts with a disposition each; delete their `nifty-goodall` branches | orchestrator | 45m | — | No open draft from the routine; no branch deleted that an open non-draft PR uses; list recorded here | in progress |
+| S7-10 | Retarget #140, #143, #145, #146 from their merged bases to `sprint3/pr-backlog` | orchestrator | 10m | — | Each PR's diff is only its own commits | done — 2026-10-26; GitHub: #146 mergeable, #140/#143/#145 conflicting as the merge-order analysis predicted |
+| S7-05 | #146 merges cleanly into the backlog: run its tests on the merge result | orchestrator | 15m | S7-10 | `test_sarimax_exog`, `test_covariate_experiment`, `test_api` pass on the merge | in progress |
+| S7-03 | Design: how the serving path (#144's `interval_plan`, `save_calibrator`, `serve_band`, labels) treats #145's `scheme: rolling` calibrators | systems architect | 45m | — | Written decision with files, functions and tests named | in progress |
+| S7-02 | Merge the backlog into #145's branch and implement S7-03 (6 `benchmarks.py` hunks, README, interval doc, board) | engineer A | 1h | S7-03 | No conflict; the six interval/serving test modules pass | todo |
+| S7-04 | Re-run benchmarks and export on #145's merged branch | engineer A | 1h | S7-02 | Leaderboard WAPE unchanged; coverage 96.67 / 74.00 / 72.67 / 83.67; labels agree across leaderboard, API, `forecasts.json` | todo |
+| S7-06 | Merge the backlog into #140's branch; resolve 4 `sections.jsx` hunks, `index.html`, board | engineer C | 1h | S7-10 | No conflict; JSX parses; backlog's band label and #141's removals kept; #140's derived sentences kept | in progress |
+| S7-07 | Merge the backlog (with #140) into #143's branch; board, `index.html`; set final cache-busters (sections ≥ v14, charts ≥ v8) | engineer C | 45m | S7-06 merged | No conflict; one cache-buster value above every branch's | todo |
+| S7-08 | Commit the pinned environment (`requirements-lock.txt`) and document it | engineer D | 45m | — | Lock equals `~/.venvs/tdf-py314`'s freeze; README says how to build it | in progress |
 | S7-09 | Test window gets an end date; ignore `evaluation/outputs/`; MANIFEST zip name; stale doc lines | engineer D | 1h | S7-08 | Leaderboard unchanged; a 2026 month cannot enter the test split | todo |
-| — | **Gate: the user merges #151, then #146, #140, #143, #145 (retargeted to main)** | user | — | S7-02..07 | Merged | todo |
-| S7-10 | Retarget #140, #143, #145, #146 to main | orchestrator | 10m | #151 merged | Each PR's diff is only its own commits | todo |
-| S7-11 | Final cache-buster bump above every branch's value | engineer C | 15m | website PRs merged | sections ≥ v14, charts ≥ v8 | todo |
+| — | **Gate: the user merges #146, #140, #143, #145 into the backlog, then #151 into main** | user | — | S7-02..07 | Merged | todo |
 | S7-12 | Site and README date ranges match the 2019–2025 store and MANIFEST | engineer C | 1h | #143, #146 merged | Every date-range sentence matches `data/MANIFEST.md` | todo |
 | S7-13 | Full gate on integrated main; regenerate `model_comparison.json` | QA | 1h | all merges, S7-04 | Gates above green | todo |
 | S7-14 | Delivery audits never run: S4d.6, S4f.3, S4e.5, the EDA sprint | delivery-auditor | 1h | all merges | Disagreements fixed or recorded | todo |
+
+**Board naming.** Two sections are titled "Sprint 4c" (#144, #141) and #143 adds a second "Sprint 4e".
+Commit messages cite those IDs, so they are not renumbered; headings gain their PR number instead
+(Sprint 8 hygiene).
 
 ### Sprint 8 — Harden (planned)
 
