@@ -1,5 +1,57 @@
 # Sprint board
 
+## Sprint 7 — Integrate every open PR into main and verify it (opened 2026-10-26)  |  Status: On track
+
+(Named 7: Sprint 5 is the adaptive-calibration branch, Sprint 6 the bias-shift plan.)
+
+**Goal.** Main holds every finished branch (#151's backlog plus #140, #143, #145, #146), the
+serving path honours #145's rolling calibrators, and one gate run on integrated main reproduces
+every published number. Branch `sprint7/integrate`, cut from `sprint3/pr-backlog` @ `bde247f`
+(the head of #151). The board is edited only here, by the orchestrator.
+
+**User decisions (2026-10-26).** Close the superseded daily-audit draft PRs and delete their
+branches. Remove the AutoGluon/AutoETS scaffolding (Sprint 8). Redeploy website and API after the
+Sprint 8 gates, each deploy confirmed by the user first. In scope after integration: the bias-
+shift sprint (Sprint 6, its own session), a Chronos-2 covariate trial, and 511/Ticketmaster data
+(keys come from the user). Merges stay the user's.
+
+**Gates.** Leaderboard on integrated main: WAPE 3.21 / 5.75 / 9.70 / 10.75, n = 300; coverage as
+the merged PRs publish it (SARIMA 96.67, Prophet 74.00, Chronos-1 72.67, SeasonalNaive 83.67 once
+#145 and C3 land); two runs byte-identical; full pytest suite passes in `~/.venvs/tdf-py314`;
+`py_compile` and JSX parse pass; `model_comparison.json` regenerated from the gated run.
+
+| ID | Goal | Owner | Est. | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|---|
+| S7-01 | Close the superseded daily-audit drafts with a disposition each; delete their `nifty-goodall` branches | orchestrator | 45m | — | No open draft from the routine; no branch deleted that an open non-draft PR uses; list recorded here | todo |
+| S7-02 | Merge `sprint3/pr-backlog` into #145's branch; resolve README, interval doc, board, `benchmarks.py` | engineer A | 1h | — | No conflict with the backlog; tests pass | todo |
+| S7-03 | Design: carry #145's `scheme`/`half_life`/`first_origin` through #144's `interval_plan`, `save_calibrator`, `serve_band` | principal engineer | 45m | S7-02 | Written design, files and tests named | todo |
+| S7-04 | Implement S7-03 with tests | engineer A | 1h | S7-03 | Serving path uses the rolling calibrators; leaderboard coverage 83.67 / 74.00 for SeasonalNaive / Prophet | todo |
+| S7-05 | Merge `sprint3/pr-backlog` into #146's branch; resolve `data/MANIFEST.md`, board | engineer B | 45m | — | No conflict; covariate tests pass | todo |
+| S7-06 | Merge `sprint3/pr-backlog` into #140's branch; resolve board, `index.html`, `sections.jsx` | engineer C | 45m | — | No conflict; JSX parses | todo |
+| S7-07 | Merge the backlog and #140 into #143's branch; reconcile #143's EDA rebuild with #141's removal | engineer C | 1h | S7-06 | No conflict; the EDA section's captions trace to printed values | todo |
+| S7-08 | Commit the pinned environment (`requirements-lock.txt`) and document it | engineer D | 45m | — | A fresh venv from the lock imports everything the gates need | todo |
+| S7-09 | Test window gets an end date; ignore `evaluation/outputs/`; MANIFEST zip name; stale doc lines | engineer D | 1h | S7-08 | Leaderboard unchanged; a 2026 month cannot enter the test split | todo |
+| — | **Gate: the user merges #151, then #146, #140, #143, #145 (retargeted to main)** | user | — | S7-02..07 | Merged | todo |
+| S7-10 | Retarget #140, #143, #145, #146 to main | orchestrator | 10m | #151 merged | Each PR's diff is only its own commits | todo |
+| S7-11 | Final cache-buster bump above every branch's value | engineer C | 15m | website PRs merged | sections ≥ v14, charts ≥ v8 | todo |
+| S7-12 | Site and README date ranges match the 2019–2025 store and MANIFEST | engineer C | 1h | #143, #146 merged | Every date-range sentence matches `data/MANIFEST.md` | todo |
+| S7-13 | Full gate on integrated main; regenerate `model_comparison.json` | QA | 1h | all merges, S7-04 | Gates above green | todo |
+| S7-14 | Delivery audits never run: S4d.6, S4f.3, S4e.5, the EDA sprint | delivery-auditor | 1h | all merges | Disagreements fixed or recorded | todo |
+
+### Sprint 8 — Harden (planned)
+
+CI (pytest, `py_compile`, JSX parse, `bart_stations.py --check`) on the lock from S7-08; headline
+site numbers derived from data, not literals; all-or-nothing export; uncovered event months give
+NaN; `ridership_daily_est` honesty; API `/health` and infinite-quantile gaps; `interval_study`
+cache key includes the checkpoint; delete or fix `fetch_pems_roads.py`; favicon and contrast;
+remove the AutoGluon/AutoETS scaffolding; board hygiene. Then deploy, each step confirmed by the
+user.
+
+### Sprint 9 — Modelling (planned, after Sprint 8)
+
+Chronos-2 covariate trial; 511 and Ticketmaster ingestion (keys from the user). The bias-shift
+sprint (Sprint 6) runs in its own session once #145 and S7-04 land.
+
 ## Sprint 4d — Reconcile what #137, #138 and #139 publish together (opened 2026-10-24)
 
 (Named 4d, ids S4d.x. S4, S4b, S4c and Sprint 5, the adaptive-calibration branch, are taken.)
