@@ -35,7 +35,7 @@ const Reveal = ({ as: Tag = 'div', className = '', children, delay, ...rest }) =
 const Nav = ({ dark, onToggleDark }) => {
   const links = [
     ['overview','Overview'], ['method','Method'], ['data','Data'],
-    ['results','Results'], ['demo','Demo'], ['recs','Recommendations'], ['about','About']
+    ['results','Results'], ['demo','Demo'], ['recs','Recommendations'], ['eda','EDA'], ['about','About']
   ];
   const extLinks = [
     { href:'transit-demo.html', label:'Map Demo ↗' },
@@ -511,6 +511,57 @@ const Benchmarks = () => {
   );
 };
 
+/* ── EDA Visualizations ────────────────────────────────────────── */
+// PNGs and captions come from transit_eda/notebooks/eda_complete.ipynb. When the
+// notebook is rerun, its last cell fails unless each caption below (and EDA_NOTE)
+// matches its own output exactly, under the same file. Edit captions there, not here.
+const EDA_PLOTS = [
+  { file:'01_ridership_levels.png', tab:'Network level', title:'Network Total Trips per month, 2019 and 2022–2025',
+    desc:'Total Trips per month, summed over all 50 stations. Yearly totals as a share of 2019: 2022 35.0%, 2023 40.5%, 2024 43.1%, 2025 47.3%, rising every year. Berryessa/North San José and Milpitas record 0 trips in 2019; over the other 48 stations 2025 is 46.5% of 2019. The store has no rows for 2020 or 2021, so the line breaks there: the fall between 2019 and 2022 is not observed month by month.' },
+  { file:'02_monthly_seasonality.png', tab:'Seasonality', title:'Seasonal index by month and year',
+    desc:'Each cell is one month of network Total Trips divided by the mean monthly total of the same year. In all 5 years December, January and February are below 1 and August, September and October are above 1, also after dividing by the days in each month. Leaving out 2022, the December to February cells run from 0.84 to 0.97 and the August to October cells from 1.01 to 1.15. The 2022 row spans 0.64 (January) to 1.19 (September), the widest of the five years, partly from growth during 2022: January 2023 was 51.4% above January 2022, December 2023 only 9.8% above December 2022.' },
+  { file:'03_station_ranking.png', tab:'Station ranking', title:'Station ranking, 2022–2025 vs 2019',
+    desc:'Median monthly Total Trips per station over 2022 to 2025 (bars, top 20 of 50) and in 2019 (circles). Embarcadero (349k), Powell St. (327k) and Montgomery St. (287k) lead. Montgomery St. had the highest 2019 median (974k). The four busiest stations carry 29.2% of all 2022 to 2025 trips.' },
+  { file:'04_data_coverage.png', tab:'Data coverage', title:'Data coverage by month',
+    desc:'Each column is one month from January 2019 to December 2025. All 50 stations have a row in each of the 60 months in the store; the 24 months of 2020 and 2021 are not in it. Berryessa/North San José (BE) and Milpitas (ML) record 0 trips in every 2019 month. Weather is filled for every month in the store. The Sharks schedule files run from 2019-09-17 to 2025-12-31, so the game flags for the 8 store months outside that window (January to August 2019) are False for lack of data, not observed zeros.' },
+];
+const EDA_NOTE = 'No weather or Sharks-game plot. Comparing each month with the same month a year earlier, for the 3 pairs of consecutive years with both (2022 to 2023, 2023 to 2024, 2024 to 2025), the correlation of growth with extra rain is +0.82, -0.27, +0.26 and with extra home games -0.05, +0.41, +0.20. Neither keeps one sign across the pairs, and each value rests on 12 months, so neither is plotted (notebook section 5). Hourly, day-of-week and game-night views need hourly or daily rows; the store has one row per station per month (section 6).';
+
+const EDAViz = () => {
+  const [active, setActive] = React.useState(0);
+  const plot = EDA_PLOTS[active];
+  return (
+    <section id="eda" style={{ background:'var(--bg)' }}>
+      <div className="wrap">
+        <div className="section-h">
+          <Reveal><div className="eyebrow"><span className="pip" /> Exploratory Analysis</div></Reveal>
+          <Reveal delay="1"><div className="row">
+            <h2>Patterns in the data.</h2>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Four views of the feature store at its own grain, one row per station per month: the 2019 and 2022–2025 levels, seasonality, the station ranking and the gaps. Each caption is written by the EDA notebook (<code style={{ overflowWrap:'anywhere' }}>transit_eda/notebooks/eda_complete.ipynb</code>) from numbers it prints.</p>
+          </div></Reveal>
+        </div>
+        <div className="chip-grp" role="tablist" aria-label="EDA plots" style={{ marginTop:32, flexWrap:'wrap' }}>
+          {EDA_PLOTS.map((p, i) => (
+            <button key={p.file} role="tab" aria-selected={i === active}
+              className={i === active ? 'on' : ''} onClick={() => setActive(i)}>{p.tab}</button>
+          ))}
+        </div>
+        <Reveal key={active}>
+          <div className="card" style={{ padding:0, overflow:'hidden', marginTop:16 }}>
+            <img src={`data/eda_plots/${plot.file}`} alt={plot.title}
+              style={{ width:'100%', display:'block', background:'#fff' }} />
+            <div style={{ padding:'16px 20px' }}>
+              <h4 style={{ margin:0 }}>{plot.title}</h4>
+              <p style={{ margin:'6px 0 0', color:'var(--ink-muted)', fontSize:14 }}>{plot.desc}</p>
+            </div>
+          </div>
+        </Reveal>
+        <p style={{ marginTop:16, color:'var(--ink-muted)', fontSize:13, maxWidth:'80ch' }}>{EDA_NOTE}</p>
+      </div>
+    </section>
+  );
+};
+
 /* ── About + Resources ─────────────────────────────────────────── */
 const About = () => (
   <section id="about" style={{ background:'var(--bg-muted)' }}>
@@ -913,4 +964,4 @@ const BARTForecasts = () => {
   );
 };
 
-Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, About, Footer, BARTForecasts });
+Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, EDAViz, About, Footer, BARTForecasts });

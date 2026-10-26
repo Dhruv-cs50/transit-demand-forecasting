@@ -1,5 +1,59 @@
 # Sprint board
 
+## Sprint 4e — EDA section rebuilt from the current store (opened 2026-10-24)
+
+(4e because the reconcile session uses 4d.)
+
+**Goal.** Close Sprint 4c's follow-up "Regenerate the EDA plots from the current store": rewrite
+`transit_eda/notebooks/eda_complete.ipynb` for monthly station rows, regenerate the PNGs, and
+restore the site's EDA section with captions that state only what each plot shows.
+
+**Branch.** `fix/eda-from-store`, cut from `origin/fix/site-model-claims` @ `0938526` (#141, the
+only branch without `EDAViz`). PR targets it. None of #139/#140/#141 had merged.
+
+**Store.** Rebuilt with #139's pipeline (`origin/fix/bart-station-table` @ `7598107`) from the 60
+hand-downloaded workbooks plus the weather and Sharks-schedule files used by the gate runs:
+`feature_store.parquet` sha256 `9a7771080c592a1206c4d7553d78012157df958d3a6bda279895a2151a323cea`,
+byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, matplotlib 3.11.2).
+
+**Rebased onto the merged backlog (2026-10-26).** #141 merged and the PR now targets
+`sprint3/pr-backlog`, where #147 tracks a store rebuilt with 2024–25 weather and Sharks games
+(`aa02436d…`, see `data/MANIFEST.md`). `ridership` and `station_name` are identical to `9a777108…`,
+so plots 01–03 and their captions are unchanged. The notebook was rerun on `aa02436d…`: plot 04
+and its caption now show weather in every month and the schedule from 2019-09-17 to 2025-12-31,
+and section 5 now covers three year pairs. `sections.jsx?v=13` (the base has 12).
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S4e.1 | Rebuild the store | orchestrator | — | sha256 equals #139's gate2 store | done — `9a777108…` |
+| S4e.2 | Rewrite the notebook; regenerate PNGs | orchestrator | S4e.1 | Executes with 0 errors; every caption claim asserted; image outputs byte-identical to the PNGs; rerun gives identical PNGs | done (13f265f; caption fixes 41b712a, 828ffa5) |
+| S4e.3 | Restore `EDAViz`, nav link, mount; `?v=13` (12 at first; #142 also took 12) | orchestrator | S4e.2 | Notebook's site check passes; local render: 4 tabs, every image loads, 0 console errors | done (3cb7a1d; 41b712a, 828ffa5; v=13 in 23766b4). Sprint-boundary delivery audit pending: skipped at 93% of the 5-hour plan window |
+| S4e.4 | Review the diff | code-reviewer | S4e.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 3 MAJOR (games claim overreached; seasonality range driven by 2022; this board lost the Sprint 4c heading), 7 MINOR. Fix round 41b712a: all fixed except MINOR 7's no-CI point, which is now documented in the notebook and the code comment. Scoped re-review R2: spec PASS, quality PASS; its two optional MINORs (ambiguous growth sentence, this row's wording) fixed in the next commit |
+| S4e.5 | Push; open PR (no merge) | orchestrator | S4e.4 | PR open with claim → evidence table | done — PR #143 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/143), base `fix/site-model-claims`, not merged (the user's call) |
+
+### Rulings (Sprint 4e)
+
+- **Kept:** network level (with the 2020–21 gap drawn as missing, not a crash), seasonality,
+  station ranking, coverage map. **Dropped:** hour-of-day, day-of-week, game-night spike, rain
+  scatter, hourly decomposition, event proximity, correlation heatmap: they need daily or hourly
+  rows (notebook section 6).
+- **Weather and games vs YoY not plotted.** On the 2019–23 store only 2022→23 had both:
+  rain r = 0.82 over 12 months, confounded with the recovery (YoY +51.4% in January, +9.8% in
+  December); games r = −0.05. On `aa02436d…` there are three pairs (2022→23, 2023→24, 2024→25):
+  rain r = +0.82, −0.27, +0.26; games r = −0.05, +0.41, +0.20. Neither keeps one sign, which the
+  notebook asserts. Printed in notebook section 5, not published as a plot.
+- **Sharks schedule window comes from the raw files** (2019-09-17 to 2025-12-31 on `aa02436d…`), because the
+  store's game flags are `False` both for no game and for no data.
+- **The seven old PNGs are deleted** (Sprint 4c kept them only so this regeneration could diff
+  against them; they stay in git history at `0938526`). New filenames, so no cached old image
+  is served at a reused URL.
+- **Review R1 fixes (S4e.4):** the games result is reported as "cannot be separated", not "no
+  relationship"; the seasonality range is quoted without 2022, whose wider row is attributed in
+  part to growth within 2022 (Jan vs Dec YoY, asserted "widest"); a like-for-like 48-station share
+  is added to plot 01; unasserted trend words ("climbs", "fell") replaced by endpoint values; the
+  site check pairs each caption with its file instead of a substring search; legend "No source
+  data"; the lede's notebook path wraps at 375 px.
+
 ## Sprint 4d — Reconcile what #137, #138 and #139 publish together (opened 2026-10-24)
 
 (Named 4d, ids S4d.x. S4, S4b, S4c and Sprint 5, the adaptive-calibration branch, are taken.)
@@ -207,7 +261,7 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
 
 - Make the covariate path real: a covariate-capable checkpoint (Chronos-2) plus 2024–25
   weather and an event source beyond 2023. Changes the leaderboard; the user's call.
-- Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
+- (Addressed by Sprint 4e.) Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
   and hour (`hour_of_day` is constant 0), so several plots need rewriting, not just rerunning.
 - Lag and rolling features are row shifts per station (`feature_engineering.py:497-500`), so
   early-2022 rows lag into 2019 across the 2020–21 gap. No ranked model reads them today;
