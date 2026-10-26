@@ -1,8 +1,8 @@
 # ── FastAPI serving image ────────────────────────────────────────────────────
-# Serves Chronos (chronos-t5-small) forecasts via REST API from cached parquet files,
-# but this image ships NO forecast cache and does NOT include Chronos/AutoGluon, so
-# /forecast returns 503 for known stations until a cache is provided in
-# models/chronos2/outputs/ (known gap).
+# Serves SARIMA monthly ridership forecasts (P10/P50/P90) for BART stations.
+# Each /forecast request fits SARIMA(0,1,1)(0,1,1,12) for one station from the
+# committed feature store, using models/baselines/arima.py — the model and
+# code the benchmark leaderboard ranks first. No forecast cache, no Chronos.
 # Target: Google Cloud Run (linux/amd64)
 #
 # Build & push (Apple Silicon — MUST use Cloud Build, not local docker build):
@@ -24,7 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
   && rm -rf /var/lib/apt/lists/*
 
-# Python deps — only what the serving layer needs (no Chronos/AutoGluon)
+# Python deps — the serving layer plus statsmodels for SARIMA. scipy is pinned
+# below 1.15: later releases deprecate the L-BFGS `disp` option statsmodels
+# passes, and 1.18 removes it.
 RUN pip install --no-cache-dir \
     fastapi==0.115.0 \
     "uvicorn[standard]==0.30.0" \
@@ -32,26 +34,32 @@ RUN pip install --no-cache-dir \
     pandas==2.2.0 \
     pyarrow==16.0.0 \
     numpy==1.26.4 \
-    PyYAML==6.0.1
+    PyYAML==6.0.1 \
+    scipy==1.14.1 \
+    patsy==1.0.1 \
+    statsmodels==0.14.4
 
 # App source
 COPY machine_learning_files/__init__.py   ./machine_learning_files/__init__.py
 COPY machine_learning_files/api.py        ./machine_learning_files/api.py
-COPY machine_learning_files/zero_shot.py  ./machine_learning_files/zero_shot.py
+COPY models/baselines/arima.py            ./models/baselines/arima.py
+# serve_band(): which P10/P90 band /forecast returns, and its label. Imported
+# as a namespace package (no evaluation/__init__.py), like models/ above.
+# No calibrator JSON is copied: configs/model.yaml leaves SARIMA's band raw
+# (calibration.models.SARIMA method: none), so none is read. If a method is
+# ever configured, also copy evaluation/outputs/calibration/calibrators/
+# SARIMA.json (saved by benchmarks.py), or every /forecast answers 503.
+COPY evaluation/calibration.py            ./evaluation/calibration.py
 
 # Config
 COPY configs/model.yaml ./configs/model.yaml
 
-# Feature-store data copied into the image
-COPY data/processed/feature_store_enriched.parquet ./data/processed/feature_store_enriched.parquet
-COPY data/processed/feature_store.parquet          ./data/processed/feature_store.parquet
-# models/chronos2/outputs/ is NOT copied: the directory does not exist in the
-# repository, and a COPY of a missing path fails the build. It was only ever
-# produced by a local zero_shot.py run, and nothing committed depends on it —
-# api.py tries live inference when cached forecasts are absent, but this image
-# installs no chronos-forecasting, so /forecast returns 503 for a known station
-# (unknown station: 404).
-# Re-add this line only alongside a step that actually creates the directory.
+# Feature store (committed; see data/MANIFEST.md). The only data the API reads.
+COPY data/processed/feature_store.parquet ./data/processed/feature_store.parquet
+
+# One BLAS thread: a SARIMA fit works on tiny matrices, and OpenBLAS's default
+# of one thread per visible CPU made each /forecast 3-4x slower in testing.
+ENV OPENBLAS_NUM_THREADS=1
 
 # Cloud Run injects PORT env var; default 8080
 ENV PORT=8080

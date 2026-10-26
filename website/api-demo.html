@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>API Playground · Transit Demand Forecast</title>
-<meta name="description" content="Interactive demo for the Bay Area Transit Demand Forecasting FastAPI service — request Chronos (chronos-t5-small) ridership forecasts per station." />
+<meta name="description" content="Interactive demo for the Bay Area Transit Demand Forecasting FastAPI service — request SARIMA monthly ridership forecasts per station." />
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -124,9 +124,9 @@ input[type=range]{width:100%;accent-color:var(--primary);cursor:pointer;margin-t
     <h1>Forecast API — Interactive Demo</h1>
     <p>
       Live interface for the <b>Bay Area Transit Demand Forecast</b> FastAPI service.
-      Powered by zero-shot Chronos (chronos-t5-small) forecasting — returns P10/P50/P90 monthly ridership
-      per BART station. The current serving image ships no forecast cache and no chronos package, so
-      requests for known stations return 503 until a cache is provided (known gap).
+      Fits SARIMA — the best model on the benchmark leaderboard — per request and returns P10/P50/P90
+      monthly ridership per BART station for up to 6 months. Newer versions of the API say in each response
+      which P10/P90 band they return; the result below shows that description, or says when the API does not give one.
     </p>
     <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <span id="healthBadge" class="status loading"><span class="status-dot"></span>Checking…</span>
@@ -247,6 +247,21 @@ function fmtRiders(n) {
   if (n >= 1e6) return (n/1e6).toFixed(2)+'M';
   if (n >= 1e3) return (n/1e3).toFixed(0)+'k';
   return String(Math.round(n));
+}
+
+/* Text from the API or the form goes into innerHTML templates, so escape it. */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
+
+/* Which P10/P90 band the response returned, in the API's own words
+   (`interval.description`). Older API versions send no `interval`. */
+function intervalNote(interval) {
+  const d = interval && interval.description;
+  if (typeof d === 'string' && d.trim()) return d.trim();
+  return 'P10/P90: band not labelled by this API version; not a validated 80% interval.';
 }
 
 /* ── Health check ── */
@@ -438,10 +453,10 @@ function renderChart(forecasts) {
   });
 }
 
-function renderTable(station, forecasts) {
+function renderTable(station, forecasts, interval) {
   const rows = forecasts.map(f => {
     const d = new Date(f.timestamp);
-    const mo = isNaN(d) ? f.timestamp : d.toLocaleDateString('en-US', {month:'short', year:'numeric'});
+    const mo = escapeHtml(isNaN(d) ? f.timestamp : d.toLocaleDateString('en-US', {month:'short', year:'numeric'}));
     return `<tr>
       <td>${mo}</td>
       <td class="p10">${fmtRiders(f.p10)}</td>
@@ -463,7 +478,7 @@ function renderTable(station, forecasts) {
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:10px;font-size:11px;color:var(--ink-soft)">
-      Station: <b class="mono">${station}</b> · P10/P90 = 80% prediction interval
+      Station: <b class="mono">${escapeHtml(station)}</b> · ${escapeHtml(intervalNote(interval))}
     </div>`;
 }
 
@@ -504,7 +519,7 @@ async function runForecast() {
     document.getElementById('resultContent').innerHTML = `
       <div class="chart-wrap"><canvas id="forecastChart"></canvas></div>
       <div class="divider"></div>
-      ${renderTable(station, forecasts)}`;
+      ${renderTable(station, forecasts, data.interval)}`;
 
     renderChart(forecasts);
     updateHealthOk();
@@ -512,7 +527,7 @@ async function runForecast() {
   } catch(e) {
     document.getElementById('resultContent').innerHTML = `
       <div class="errbox">
-        <b>Request failed</b><br>${e.message}<br>
+        <b>Request failed</b><br>${escapeHtml(e.message)}<br>
         <span style="font-size:12px;opacity:.8">Check the API URL above and make sure the service is running.</span>
       </div>
       <div class="result-placeholder" style="min-height:200px">

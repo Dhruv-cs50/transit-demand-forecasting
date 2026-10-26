@@ -474,6 +474,60 @@ def add_station_features(df: pd.DataFrame) -> pd.DataFrame:
 
 # ── Lag features ───────────────────────────────────────────────────────────────
 
+def _add_calendar_month_lags(df: pd.DataFrame, target_col: str, lags: list[int]) -> None:
+    """
+    Monthly branch of add_lag_features; adds the columns to df in place.
+
+    Each station's series is keyed by calendar month and reindexed onto the
+    complete month grid from its first to its last month, so shift(k) is k
+    calendar months back and a month with no data is NaN. Values are mapped
+    back onto the original rows by position. Rolling windows and min_periods
+    are the same as the row-based version had.
+    """
+    ts = df["timestamp"]
+    if ts.dt.tz is not None:
+        ts = ts.dt.tz_localize(None)  # wall-clock month; what to_period would use
+    months = ts.dt.to_period("M")
+
+    keyed = pd.DataFrame({"station_id": df["station_id"].to_numpy(), "month": months.to_numpy()})
+    dup = (keyed["station_id"].notna() & keyed["month"].notna() & keyed.duplicated(keep=False)).to_numpy()
+    if dup.any():
+        pairs = keyed[dup].drop_duplicates()
+        listed = ", ".join(f"{s} {m}" for s, m in pairs.head(10).itertuples(index=False))
+        raise ValueError(
+            f"add_lag_features: {len(pairs)} (station, calendar month) pair(s) have more "
+            f"than one row, so monthly lags are ambiguous: {listed}"
+        )
+
+    values = df[target_col].to_numpy(dtype=float, na_value=np.nan)
+    lag_cols = {lag: np.full(len(df), np.nan) for lag in lags}
+    mean_3mo = np.full(len(df), np.nan)
+    std_3mo = np.full(len(df), np.nan)
+    mean_12mo = np.full(len(df), np.nan)
+
+    for pos in df.groupby("station_id").indices.values():
+        station_months = pd.PeriodIndex(months.iloc[pos])
+        has_month = station_months.notna()
+        if not has_month.any():
+            continue
+        series = pd.Series(values[pos][has_month], index=station_months[has_month])
+        grid = series.reindex(
+            pd.period_range(series.index.min(), series.index.max(), freq="M")
+        )
+        for lag in lags:
+            lag_cols[lag][pos] = grid.shift(lag).reindex(station_months).to_numpy()
+        prior = grid.shift(1)
+        mean_3mo[pos] = prior.rolling(3, min_periods=2).mean().reindex(station_months).to_numpy()
+        std_3mo[pos] = prior.rolling(3, min_periods=2).std().reindex(station_months).to_numpy()
+        mean_12mo[pos] = prior.rolling(12, min_periods=6).mean().reindex(station_months).to_numpy()
+
+    for lag in lags:
+        df[f"{target_col}_lag_{lag}"] = lag_cols[lag]
+    df[f"{target_col}_rolling_mean_3mo"] = mean_3mo
+    df[f"{target_col}_rolling_std_3mo"] = std_3mo
+    df[f"{target_col}_rolling_mean_12mo"] = mean_12mo
+
+
 def add_lag_features(
     df: pd.DataFrame,
     target_col: str = "ridership",
@@ -485,6 +539,13 @@ def add_lag_features(
     Lags are chosen from the observed cadence. For current BART OD data this
     means monthly lags (1, 2, 3, 6, 12 months); for future 15-minute data this
     falls back to the original hourly/day/week lags.
+
+    Monthly lags and rolling windows count calendar months, not rows. The
+    store has 2019 and 2022 onward but no 2020-21 (BART never published
+    those months), so a 2022-01 row's lag_1 is 2021-12: no data, NaN, rather
+    than 2019-12. A rolling window counts only the months in it that have
+    data against its min_periods. A station with two rows in one calendar
+    month raises ValueError. The sub-monthly lags shift by rows.
 
     These help the baseline models (Prophet, ARIMA) and can also be
     used as additional context features alongside Chronos-2.
@@ -503,23 +564,15 @@ def add_lag_features(
     if lags is None:
         lags = [1, 2, 3, 6, 12] if is_monthly else [4, 8, 12, 96, 192, 672]
 
-    for lag in lags:
-        col_name = f"{target_col}_lag_{lag}"
-        df[col_name] = df.groupby("station_id")[target_col].transform(
-            lambda x: x.shift(lag)
-        )
-
     if is_monthly:
-        df[f"{target_col}_rolling_mean_3mo"] = df.groupby("station_id")[target_col].transform(
-            lambda x: x.shift(1).rolling(3, min_periods=2).mean()
-        )
-        df[f"{target_col}_rolling_std_3mo"] = df.groupby("station_id")[target_col].transform(
-            lambda x: x.shift(1).rolling(3, min_periods=2).std()
-        )
-        df[f"{target_col}_rolling_mean_12mo"] = df.groupby("station_id")[target_col].transform(
-            lambda x: x.shift(1).rolling(12, min_periods=6).mean()
-        )
+        _add_calendar_month_lags(df, target_col, lags)
     else:
+        for lag in lags:
+            col_name = f"{target_col}_lag_{lag}"
+            df[col_name] = df.groupby("station_id")[target_col].transform(
+                lambda x: x.shift(lag)
+            )
+
         df[f"{target_col}_rolling_mean_24h"] = df.groupby("station_id")[target_col].transform(
             lambda x: x.shift(1).rolling(96, min_periods=24).mean()
         )

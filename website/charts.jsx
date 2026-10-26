@@ -138,7 +138,8 @@ const Calibration = ({ width = 460, height = 260 }) => {
   const H = height - pad.t - pad.b;
   const n = validPts.length;
 
-  // Actuals join the y-domain: intervals are not calibrated, so some fall outside the band.
+  // Actuals join the y-domain so a month outside the band is still drawn.
+  // Misses happen with the calibrated band too (docs/interval-calibration.md).
   const allVals = [...validPts.flatMap(r => [r.p10, r.p50, r.p90]), ...actualPts.map(a => a.v)];
   const minV = Math.min(...allVals) * 0.92;
   const maxV = Math.max(...allVals) * 1.05;
