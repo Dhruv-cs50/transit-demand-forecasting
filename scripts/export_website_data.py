@@ -338,7 +338,7 @@ def export_forecasts(out_dir: Path, actuals: pd.DataFrame) -> str | None:
 
     The parquet holds the model's own P10/P90, which the leaderboard reports
     as Coverage_raw_%; its Coverage_% scores the band configs/model.yaml
-    assigns (for Chronos, split-conformal fit on validation). Publishing the
+    assigns (for Chronos-1, the bias-shifted `shift_relative` band). Publishing the
     raw band beside that figure would show one band and the coverage of
     another, so p10/p90 are the assigned band (evaluation.calibration.
     serve_band applies the calibrator benchmarks.py saved, never refits it),

@@ -74,7 +74,10 @@ Sprint 4's single-window calibration (PR #138) follows unchanged under
   lower mean score all covered too much on 2025-H1 (86.7–89.0%); the two
   with a higher one missed too often above P90 on 2024-H2 (18.3%, 18.0%).
 
-**SARIMA fails every candidate, as the board predicted before measuring.**
+**SARIMA fails every candidate.** The board expected it might, by a
+different route than it took: it named 2025-H1, where a shift following
+2024-H2's under-forecasts would push the band up. The failure came mainly on
+2024-H2.
 - On 2024-H2 the pool's recent errors are over-forecasts (bias −7 to −8%
   pooled), so every shift moves the band down. 2024-H2's actuals then ran
   above it: 77–83% of them land above P90.
@@ -105,6 +108,10 @@ study code existed (e2397f8) or ran. The rule:
   test misses: 0% below, 27.3% above). The board rests the case on
   validation: Chronos-1's Sprint 4 band missed almost only above P90 on both
   windows, and SARIMA's errors changed sign between them.
+- "Unrounded" is Sprint 5's implementation: the mean of the two window
+  scores as `score()` reports them (2 dp), not rounded again. Two qualifiers
+  closer than 0.005 would tie and fall to the name rule; with one qualifier
+  (Chronos-1) and none (SARIMA) it decided nothing here.
 - `interval_study.py` stops if `configs/model.yaml` carries anything other
   than the validated choice for SARIMA or Chronos-1
   (`check_config_matches_shift_decision`); for the other two models Sprint
@@ -186,9 +193,9 @@ The SARIMA and Chronos-1 incumbent rows equal Sprint 5's exactly.
 | Prophet | shift_origin_hl3 relative/pooled | 95 | 1 / 4 | 29.03 | 84.67 | 1.67 / 13.67 | 24.94 | 26.98 | no |
 | Prophet | shift_origin_hl1 relative/pooled | 91 | 0.67 / 8.33 | 29.64 | 87.33 | 1.67 / 11 | 24.43 | 27.04 | no |
 
-- The `shift_origin` candidates are the widest in seven of the eight
-  model × window cells (all but SARIMA on 2024-H2): scoring each row against
-  the bias known at its own origin adds the bias's drift over the following
+- In seven of the eight model × window cells (all but SARIMA on 2024-H2)
+  the widest candidate is a `shift_origin` one: scoring each row against the
+  bias known at its own origin adds the bias's drift over the following
   months to the width.
 
 ### Test result, Sprint 6 (scored once)

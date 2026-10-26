@@ -490,6 +490,8 @@ def describe(calibrator: dict) -> str:
 # floors (P10 >= 0) the band as for any calibrator, and P50 is never touched.
 
 SHIFT_BIAS_AT = ("as_of", "origin")
+# How interval_plan's label names each bias_at; any other value is shown as given.
+_BIAS_AT_TEXT = {"as_of": "at the forecast origin", "origin": "at each origin"}
 
 
 def weighted_median(values, weights) -> float:
@@ -707,7 +709,7 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
         bias_half_life, bias_at = plan["bias_half_life"], plan["bias_at"]
         label = (f"bias-shifted rolling-origin conformal relative/{group}, bias half-life "
                  f"{bias_half_life} month(s) "
-                 f"({'at the forecast origin' if bias_at == 'as_of' else 'at each origin'}), "
+                 f"({_BIAS_AT_TEXT.get(bias_at, f'bias_at {bias_at!r}')}), "
                  f"width half-life {plan['half_life']} months, fit on data to val_end")
         description = (f"Bias-shifted P10/P90 band (relative/{group}, nominal {level:.0%}): "
                        f"re-centred on {model_key}'s recent median error and widened by a "

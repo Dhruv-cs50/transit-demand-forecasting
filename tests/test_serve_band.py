@@ -613,6 +613,15 @@ class ShiftPlanTest(unittest.TestCase):
                                         "months, fit on data to val_end")
         self.assertEqual((plan["bias_half_life"], plan["bias_at"]), (3, "origin"))
 
+    def test_an_unknown_bias_at_is_labelled_as_given(self):
+        # Never "(at each origin)" for a typo or a missing value: such an entry
+        # fails in benchmarks.py and is refused by serve_band, but its label
+        # must not claim a method it does not name.
+        for value in ("orgin", None):
+            plan = interval_plan("Chronos", _cfg(Chronos={**SHIFT, "bias_at": value}))
+            self.assertIn(f"(bias_at {value!r})", plan["label"], msg=value)
+            self.assertNotIn("at each origin", plan["label"], msg=value)
+
     def test_absent_shift_keys_are_none(self):
         plan = interval_plan("Chronos", _cfg(Chronos={k: v for k, v in SHIFT.items()
                                                       if k not in ("bias_half_life", "bias_at")}))

@@ -131,7 +131,7 @@ unit tests pass; `py_compile` passes.
 | S6.6a | `shift_relative` through #144's path: `interval_plan` label and `band_method`, `calibrate_intervals` fit + save (provenance `method_config`, `bias_half_life`, `bias_at`), `serve_band` checks; Chronos-1 rolling pool in `run_benchmarks`; tests first; the implementer runs no benchmark, export or API | implementer | S6.5, merge ea6bde4 | 229+ tests pass; saved calibrator served identically | done — tests 5fca039 (committed failing: 28 failed), implementation f426445; 257 tests pass. Pre-scoring parity (data to `val_end` only, no test band fit): Chronos-1's deployed pool built by `benchmarks.py`'s own `_rolling_origin_pool` + `_forecast_checked` (4,650 rows, 18 origins) gives n, n_by_group, bias, width, q and clipped_groups identical at full precision to the study's |
 | S6.6b | `scripts/interval_test_breakdown.py` describes Chronos-1's band too (reproduces the leaderboard's coverage and Sprint 4's 72.67); not run by the implementer | implementer | S6.5 | py_compile; SN/Prophet output unchanged by reading | done — 8fa116d (+ 6 synthetic tests for `fit_band` / `by_group`); not run; also stops unless every Chronos test row is `model_mode == zeroshot` |
 | S6.6c | Score the test split once; determinism rerun; gates; breakdown; export `model_comparison.json` + `forecasts.json`; README and write-up | orchestrator | S6.6a, S6.6b, the merged study re-verification | All gates green; logged calibrator equals the study's deployed one at full precision | done — scored once at 5818932: Chronos-1 72.67% → **84.67%** (5.33% / 10.00%); other models unchanged. Gates and test-split access below |
-| S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | todo |
+| S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | done — review of 1c5d0b1..fb19405: spec PASS, quality PASS; 0 BLOCKER, 1 MAJOR, 8 MINOR; no published number wrong. Fix round below |
 | S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | todo |
 
 **S6.5 notes (validation only, 2026-10-25).**
@@ -162,6 +162,40 @@ unit tests pass; `py_compile` passes.
   gate): n = 4,650; bias by horizon 1–6 = 0.034851, 0.100458, 0.096520,
   0.103179, 0.090771, 0.089513; width = 0.086624, 0.111627, 0.106900,
   0.110687, 0.111075, 0.114898; no clipped horizon.
+
+**Review fix round (S6.7).** None of these changes a choice, a band or a
+published number; the valid `interval_plan` labels are unchanged (tested).
+- MAJOR, fixed: `website/index.html` cache-bust `sections.jsx?v=13` collided
+  with PR #143 (`fix/eda-from-store`), which also moves to v=13 with a
+  different `sections.jsx`; now v=14, the highest on any branch (scan of
+  every local and remote branch).
+- MINOR, fixed:
+  - write-up: "as the board predicted" for SARIMA overstated the board, which
+    named the 2025-H1 route; the failure came mainly on 2024-H2. Reworded;
+  - write-up: "`shift_origin` candidates are the widest in seven of eight
+    cells" now says the widest candidate in seven of eight cells is a
+    `shift_origin` one (Chronos-1 on 2025-H1 has non-origin candidates wider
+    than `shift_origin_hl3`);
+  - write-up: "unrounded" mean documented as Sprint 5's mean of the 2-dp
+    window scores (inherited; decided nothing here);
+  - `scripts/export_website_data.py` docstring still said Chronos is
+    split-conformal;
+  - `interval_plan` labelled any `bias_at` other than `as_of` "(at each
+    origin)", typos included; now an explicit mapping, anything else shown
+    as given (test added, failing first on the old code).
+- MINOR, disclosed, not changed:
+  - `serve_band` counts horizons by dense rank, `benchmarks.py` from
+    `val_end`; identical on today's contiguous blocks (the export's coverage
+    check passed), different for a station missing its first month
+    (pre-existing for SeasonalNaive's horizon band). Follow-up;
+  - `BAND_POOL_WINDOW` on the site is hard-coded, as `BAND_FIT_WINDOW` is;
+  - the bias-shifted chart subtitle has no "not a validated 80% interval":
+    this band passed the two-window rule, and the copy states its 84.7%
+    against 80% while the site-wide tile keeps "not calibrated" (Sprint 4's
+    rule). Kept;
+  - S6.6b's tests and f426445's extra test landed with their
+    implementation (disclosed in those commits).
+- 258 tests pass after the fix round.
 
 **Gate results (S6.6c, 2026-10-25, pinned env, code at 5818932).**
 
