@@ -116,20 +116,40 @@ new. The website's "not calibrated" wording follows Sprint 4's rule
 **Gates.** Point metrics (WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected)
 identical to PR #145's leaderboard; `Coverage_raw_%` = 96.67 / 46.0 / 51.0 /
 94.33; SeasonalNaive and Prophet `Coverage_%` unchanged (83.67 / 74.00); two
-runs byte-identical; after the study change, Sprint 5's seven `adaptive_*`
-outputs and PR #138's four validation CSVs byte-identical; unit tests pass;
-`py_compile` passes.
+runs byte-identical; after the study change, Sprint 5's seven outputs (six
+`adaptive_*` files, and `deployed_calibrators.yaml` except for a model whose
+entry Sprint 6 changes) and PR #138's four validation CSVs byte-identical;
+unit tests pass; `py_compile` passes.
 
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
-| S6.1 | Rebuild env (outside `/tmp`) and store; reproduce Sprint 5's study outputs | orchestrator | — | Store `assert_frame_equal` to PR #145's; unchanged study's outputs byte-identical | in progress |
+| S6.1 | Rebuild env (outside `/tmp`) and store; reproduce Sprint 5's study outputs | orchestrator | — | Store `assert_frame_equal` to PR #145's; unchanged study's outputs byte-identical | done — see Environment below |
 | S6.2 | Fix the rule and candidate definitions before measuring | orchestrator | — | Board committed before any new number | done (this commit) |
-| S6.3 | `evaluation/calibration.py`: weighted median, `fit_shift_conformal` (bias at T or at each origin) | implementer | S6.2 | Tests written first, fail, then pass | todo |
-| S6.4 | `evaluation/interval_study.py`: `shift_study` with its own outputs, per-model rule, config check layered over Sprint 5's | implementer | S6.3 | Sprint 5 / PR #138 outputs byte-identical; tests | todo |
+| S6.3 | `evaluation/calibration.py`: weighted median, `fit_shift_conformal` (bias at T or at each origin) | implementer | S6.2 | Tests written first, fail, then pass | done — tests d787b16 (committed failing: `ImportError: cannot import name 'fit_shift_conformal'`), implementation e175f79; additions only to `calibration.py` |
+| S6.4 | `evaluation/interval_study.py`: `shift_study` with its own outputs, per-model rule, config check layered over Sprint 5's | implementer | S6.3 | Sprint 5 / PR #138 outputs byte-identical; tests | in progress (dispatched 2026-10-25) |
 | S6.5 | Run the study; apply the rule; write-up; commit the choice before any test run | orchestrator | S6.1, S6.4 | Commit precedes S6.6's run | todo |
 | S6.6 | If a model qualifies: config + `benchmarks.py` wiring, score test once; else rerun the leaderboard unchanged | implementer | S6.5 | All gates green | todo |
 | S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | todo |
 | S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | todo |
+
+**Environment (S6.1, 2026-10-25; produces no Sprint 6 number).**
+- Venv `~/.venvs/tdf-pinned`, outside `/tmp`, rebuilt from the pip cache
+  with the 68 pins Sprint 5 recorded; `pip freeze --all` equals the pin list
+  exactly (Python 3.14.0, pandas 3.0.6, numpy 2.5.4, statsmodels 0.15.0,
+  prophet 1.5.0, torch 2.14.1, chronos-forecasting 2.3.2).
+- `data/raw` copied from the `interval-calibration` worktree: its 69 files'
+  SHA-256 equal PR #145's worktree's. Store rebuilt with
+  `machine_learning_files/merge_pipeline.py` and
+  `Processing/feature_engineering.py`; both stores and the three splits
+  `assert_frame_equal` to PR #145's.
+- PR #145's 206 cached forecasts copied. The study at 1e27507, run from a
+  clean export, refit nothing and reproduced all 11 outputs (Sprint 5's six
+  `adaptive_*` files and `deployed_calibrators.yaml`, PR #138's four
+  `validation_*.csv`) byte-identical.
+- Spot refit in this env of each model's 2024-12-31 forecast (window V):
+  300/300 rows, largest difference from the cache 0.0 for all four models.
+- Reference leaderboard for the gates: PR #145's, written 04:15:31 on
+  2026-10-24 by `benchmarks.py` as at 3eb7b2c (unchanged at 1e27507).
 
 ## Sprint 5 — Interval calibration that tracks recent errors (opened 2026-10-24)
 
