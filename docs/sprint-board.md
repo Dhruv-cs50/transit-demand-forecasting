@@ -16,6 +16,196 @@ store say. No model or number change.
 | S4g.1 | Correct every "ends 2023" claim in `website/` and `README.md` | orchestrator | — | grep finds none; each new sentence traces to `data/MANIFEST.md`, the store or model code; render shows 0 console errors | done (f5db1eb) |
 | S4g.2 | Push; open PR (no merge) | orchestrator | S4g.1 | PR open with claim → evidence table | done — PR #154 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/154), not merged |
 | S4g.3 | Retitle Rec 01 to the covariate result (the user's decision, 2026-10-26) | orchestrator | S4g.2, #146 | Title consistent with `docs/covariate-experiment.md`; render 0 console errors | done — "Keep weather and Sharks games out of the monthly forecast." |
+| S4g.4 | Merge the PR | orchestrator | S4g.3 | Base merged in, conflicts resolved, render 0 console errors | done — base e28964e (#145) merged in; `sections.jsx?v=16` (15 is on two open branches); merged at the user's request |
+
+## Sprint 5 — Interval calibration that tracks recent errors (opened 2026-10-24)
+
+**Goal.** Close the gap PR #138 left (test coverage Prophet 74.7%, Chronos-1
+72.7%; SARIMA 96.7% and SeasonalNaive 94.3% on their own bands) with
+calibrations that weight recent errors, without changing a point forecast.
+Methods are measured on data up to `val_end` only; the test split is scored
+once, and only if a model's method changes. Branch
+`feat/adaptive-interval-calibration`, stacked on `feat/interval-calibration`
+(PR #138 open).
+
+**Environment.** `/tmp/tdf-venv` was found damaged on 2026-10-24 (files
+removed by macOS's `/tmp` cleanup at 00:36; `import pandas` fails). Every
+gate in this sprint runs on a private rebuild with the same 68 pinned
+packages (Python 3.14.0, pandas 3.0.6, numpy 2.5.4, statsmodels 0.15.0,
+prophet 1.5.0, torch 2.14.1, chronos-forecasting 2.3.2). The feature store
+rebuilt from `data/raw` is identical to PR #138's (`assert_frame_equal`, both
+files), and `interval_study.py --refresh` on the rebuild reproduces PR #138's
+four validation CSVs byte-identical.
+
+**Decision rules, fixed before any new number was seen** (user's "go ahead
+with the defaults", 2026-10-24):
+
+*Calibration data.* Rolling monthly forecast origins from 2023-12-31, each
+forecasting 6 months through the code path `benchmarks.py` uses for that
+model. 2023-12-31 is the first origin every model can use as deployed:
+SARIMA's airline model needs 24 observations, Prophet drops its yearly term
+under 18, and Chronos's 24-month context would otherwise reach 2019 rows. For
+a window scored from origin T, the calibration pool is every row from origins
+2023-12-31 … T − 1 month whose target month is on or before T. Each row
+carries `horizon` = months from its origin to its target (an explicit column,
+required whenever origins are pooled) and `age` = months from its target to
+T. The store a forecast sees is cut at min(origin + 6 months, T).
+
+*Scored windows* (both before `val_end`; the store is cut at `val_end` and
+asserted, as in PR #138): **B** = 2024-H2 from origin 2024-06-30 (pool: 6
+origins), **V** = 2025-H1 from origin 2024-12-31 (pool: 12 origins), 300
+station-months per model each.
+
+*Eligible candidates, 10 per model, settings fixed now:*
+- `incumbent`: the model's current `configs/model.yaml` entry (Prophet
+  `scaled/horizon`, Chronos-1 `relative/pooled`, each fit on the previous
+  half-year as in PR #138; SARIMA and SeasonalNaive their own band).
+- `rolling_hl6` × score {`scaled`, `relative`, `asym_relative`} × group
+  {`pooled`, `horizon`} (6): weighted split-conformal quantile (Barber et al.
+  2023) over the pool, weight 0.5^(age/6), the scored point weighted 1. The
+  quantile is the smallest score s with Σ_{s_i ≤ s} w_i ≥ level·(Σ w_i + 1),
+  +∞ if none. `asym_relative` calibrates each tail at 0.1 as in PR #138.
+- `aci_origin` × score {`scaled`, `relative`, `asym_relative`}, pooled (3):
+  adaptive conformal inference (Gibbs & Candès 2021) over monthly batches.
+  For each target month m from the second month in the pool through T, in
+  order: the band for the batch (pool rows whose target is m) uses the
+  unweighted conformal quantile of the pool rows whose target is before m, at
+  level 1 − α_m; err_m = the batch's miss rate; α_{m+1} = α_m + 0.1·(0.2 −
+  err_m). α starts at 0.2 and is clipped to [1/(n+1), 0.5], n = rows in that
+  quantile's pool, so the quantile stays finite. `asym_relative` runs one α per
+  tail, starting at 0.1 and targeting 0.1. The scored window's band uses the
+  final α on the whole pool.
+
+*Measured and reported, not eligible:* `rolling_eq` (equal weights, 3 scores
+× 2 groups); PR #138's other single-window variants; and two methods that
+revise the band inside the scored window with that window's earlier actuals,
+which a band fixed at the forecast origin cannot use, both pooled, 3 scores
+each: `aci_window` (scored month k uses `rolling_hl6`'s weighted quantile at
+level 1 − α_k, α_1 = 0.2 or 0.1 per tail, updated after each month with that
+month's miss rate as in `aci_origin`) and `monthly_recal` (`rolling_hl6`
+refit before each scored month with every row resolved by then from origins
+≤ T, ages counted from the latest resolved month).
+
+*Qualification and choice.* A candidate qualifies for a model if, on **both**
+B and V, coverage is 75–85% and neither tail has more than 15% misses.
+Qualifiers rank by the mean of their B and V interval scores (Winkler, α =
+0.2, summed and divided by total ridership, as in PR #138). If one
+non-incumbent candidate qualifies for all four models, the one with the
+lowest mean score across models is used for all; otherwise each model takes
+its own lowest-scoring qualifier; a model with no qualifier keeps its current
+entry. Prophet MCMC stays ineligible. Known weakness, accepted with the rule:
+SARIMA's B pool comes from 24–29-observation fits and horizon 6 from a single
+origin, and Prophet's and SARIMA's settings were picked by inspecting 2024-H2,
+so B can fail a model for reasons that do not apply to the deployed fit (it
+then keeps its current entry).
+
+*Test.* Scored once, after the choice is committed, only if some model's
+method changes. Deployed mirror of the study one step later: origins
+2023-12-31 … 2025-05-31, pool targets ≤ `val_end`, forecasts made after the
+test forecasts. The website's "not calibrated" wording changes only if every
+model's calibrated test coverage is 75–85% (Sprint 4 rule, unchanged).
+
+**Gates.** Point metrics (WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected)
+identical to PR #138's leaderboard; `Coverage_raw_%` = 96.67 / 46.0 / 51.0 /
+94.33; two runs byte-identical; unit tests pass; `py_compile` passes.
+
+| ID | Goal | Role | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|
+| S5.1 | Rebuild env and store; reproduce PR #138's validation CSVs | orchestrator | — | Four CSVs byte-identical | done — see Environment above |
+| S5.2 | Fix the rule and candidate definitions before measuring | orchestrator | S5.1 | Board committed before any new number | done (6daa610, committed 03:18:18; no Sprint 5 number existed until the S5.4 run after 122fc9c) |
+| S5.3 | `evaluation/calibration.py`: weighted quantile, rolling-pool fit (explicit horizon required), ACI | implementer (orchestrator) | S5.2 | Tests written first, pass | done (a244698) — 19 new tests in `tests/test_adaptive_calibration.py`, written and failing first; 47 calibration tests pass |
+| S5.4 | `evaluation/interval_study.py`: rolling origins, windows B and V, eligible and diagnostic candidates, selection by the S5.2 rule | implementer (orchestrator) | S5.3 | Store cut at `val_end` and asserted; CSVs written | done — code committed (122fc9c) before its first run; store-cut check 0.0 (made strict in the S5.7 fix round); PR #138's four CSVs still byte-identical. One diagnostic bug found in the results and fixed (2589ed8: `aci_window` clipped α to the row count, not the total weight); every eligible result and the decision byte-identical before and after |
+| S5.5 | Apply the rule; write-up; commit the choice before any test run | orchestrator | S5.4 | Commit precedes S5.6's run | done (7cdfd11, committed 03:40:53; first test run started 03:41) — no candidate qualified for every model; per model: SeasonalNaive `rolling_hl6 asym_relative/horizon`, Prophet `rolling_hl6 relative/pooled`; SARIMA and Chronos-1 no qualifier, Sprint 4 entries kept. Deployed quantiles computed from data to `val_end` in the study: SeasonalNaive q_lo −0.0129…−0.0150, q_hi 0.1686…0.1700 by horizon; Prophet q = 0.0789 (n = 4,650 each) |
+| S5.6 | If a method changes: wire into `benchmarks.py`, gates, score test once | implementer (orchestrator) | S5.5 | All gates green | done — `scheme: rolling` wired for SeasonalNaive and Prophet with 5 tests written first (7cdfd11); test scored once at 7cdfd11: SeasonalNaive 94.33% → 83.67%, Prophet 74.67% → 74.00%, SARIMA 96.67% and Chronos-1 72.67% unchanged. Gates below. Write-up, README and `model_comparison.json` follow the result; website wording stays "not calibrated" by Sprint 4's rule |
+| S5.7 | Review the sprint diff | code-reviewer | S5.6 | No BLOCKER open | done — review of 292f0aa..8e269c2: spec PASS, 0 BLOCKER, 3 MAJOR, 10 MINOR; no published number wrong. Fix round 3eb7b2c; scoped re-review of it: spec PASS, quality PASS, 3 MINOR, closed in fix round 2 (below) |
+| S5.8 | Audit board against git; push; open PR against `feat/interval-calibration` (not merged) | delivery-auditor, orchestrator | S5.7 | Audit clean; PR open | done — audit of 292f0aa..bfd8362: 1 MEDIUM, 3 LOW, none changing a choice or a number; all four addressed in this commit (a Sprint 5 row that a string replace had also inserted into Sprint 4's gate table is removed; study re-run and test-split access wording made exact; #138's two later doc commits, 29c5c18 and 626b829, merged in at a303f20; fixes in 5d0254a). Done: branch pushed with an explicit refspec (its upstream had been PR #138's branch, which stays at 626b829); PR #145 opened against `feat/interval-calibration` (stacked: #136 → #138 → #145), not merged |
+
+**Gate results (S5.6, 2026-10-24, rebuilt pinned env, code at 7cdfd11).**
+
+| Gate | Result |
+|---|---|
+| Point metrics | WAPE, MAE, RMSE, MAPE, sMAPE, MASE, n, n_expected identical to PR #138's leaderboard on every slice (`assert_frame_equal`); column and row order unchanged |
+| Raw coverage | `Coverage_raw_%` = 96.67 / 46.0 / 51.0 / 94.33 |
+| Determinism | Two consecutive runs: leaderboard, results CSV and LaTeX byte-identical |
+| Deployed quantiles | Logged by `benchmarks.py` equal to the study's pre-test values (SeasonalNaive q_hi − q_lo 0.1829–0.1840, Prophet q = 0.0789, n = 4,650) |
+| Calibrated test coverage (scored once) | SeasonalNaive 83.67% (3.3% / 13.0%), Prophet 74.00% (13.0% / 13.0%); SARIMA 96.67%, Chronos-1 72.67% unchanged. `scripts/interval_test_breakdown.py` reproduces both new coverages and PR #138's previous ones exactly |
+| Website rule | Not every model in 75–85%: "not calibrated" stays; range 73–97% unchanged |
+| Tests / compile | 53 calibration tests pass; `py_compile` passes on every touched .py |
+| Test-split access | Five `benchmarks.py` runs, all at the chosen configuration: run 1 scored (7cdfd11), run 2 its determinism check, run 3 a confirmation after the review fix round, run 4 a confirmation after merging `sprint3/pr-backlog` (working tree, see below), run 5 the same confirmation on a clean checkout of bdda3b7. `scripts/interval_test_breakdown.py` reads the test split to describe that result and chooses nothing. `scripts/export_website_data.py` ran once (03:48, after the scored run) and loads the full store for the station JSONs; only `model_comparison.json`, built from the leaderboard, was committed |
+| After the review fix round | Same configuration re-run: leaderboard and results CSV byte-identical to the scored run; LaTeX differs only by the corrected caption; the breakdown script reproduces every test figure; 62 unit tests pass (65 after fix round 2) |
+| After merging `sprint3/pr-backlog` (084e5a1: #138, #144's saved calibrators and `serve_band`, #147's store with 2019–2025 weather/events) | `scheme` carried through `interval_plan`, `calibrate_intervals`' save path and `serve_band` (rolling calibrators record `fit_end` = `val_end`); enriched store rebuilt from the tracked store (`aa02436d…`); `interval_study.py --refresh` refit on it: all 11 outputs byte-identical to the old store's; run 4: leaderboard and LaTeX byte-identical to run 3, results CSV identical on every existing row plus `game_day` / `rainy_day` slices that #147's 2025 weather and events populate; SeasonalNaive and Prophet calibrators saved (fit_end 2025-06-30, scheme rolling, half-life 6) and served by `serve_band`; 170 tests pass |
+| Correction: the merge as pushed was broken | 084e5a1 left out `evaluation/calibration.py` (its `interval_plan` returned no `scheme`), so the pushed heads 084e5a1 and d37bfd1 raised `KeyError: 'scheme'` in `calibrate_intervals` and failed 20 tests on a clean checkout (found by the PR #138 session). The row above was measured on the working tree, which had the change. Fixed in bdda3b7. Verified on a clean `git worktree` of bdda3b7 (enriched store rebuilt from the tracked `aa02436d…`): 170 tests pass (153 without `test_api`); run 5's leaderboard, results CSV and LaTeX byte-identical to run 4, leaderboard byte-identical to the scored run 1; quantiles and saved calibrators as above. Rule adopted: verify from a clean checkout of the pushed commit, never the working tree |
+
+**Review fix round (S5.7).** None of these changes the decision or a published
+test number; the study re-run after them gives identical values for every
+existing candidate row and an identical `adaptive_decision.yaml`.
+- MAJOR, fixed:
+  - the LaTeX caption, the `calibrate_intervals` docstring and an export
+    comment still said "split-conformal, fit on the validation split";
+  - README overclaimed ("dependable 80% interval" on one window) and said
+    Prophet uses "the same method" as seasonal naive (only the scheme is
+    shared);
+  - the store-cut check used `nanmax` and could not fail. It now stops on a
+    missing forecast at or before T and on any difference, and reports rows
+    actually compared (fix round 2: only origins whose window runs past T,
+    5 per window; 1,500 rows, or 750 for SeasonalNaive).
+- MINOR, fixed:
+  - the selection rule moved into `rule_table` / `apply_rule` with 8 tests:
+    an infinite band (NaN score) never qualifies, ties break by name, sorting
+    is stable;
+  - `scheme: rolling` without `half_life` now fails loudly instead of meaning
+    equal weights (test added);
+  - the breakdown script stops instead of refitting when a cached forecast is
+    missing, and stops on a missing bound; its description is corrected;
+  - doc numbers: monthly_recal 22.96 (not 22.97), "unit weights" (not
+    "equal"), Prophet's Sprint 4 drop was 7.3 points;
+  - `station` added to the single-window diagnostics, as the rule's "other
+    single-window variants" includes it;
+  - `--refresh` refits each forecast once per run;
+  - dead code removed;
+  - deployed calibrators written to `deployed_calibrators.yaml`;
+  - the doc's tables are written by `interval_study.py` (`adaptive_tables.md`);
+  - this table moved below the story table.
+- Fix round 2, after the scoped re-review (3 MINOR):
+  - the study pins windows B and V (`SPRINT5_WINDOWS`) and stops if the
+    config moves them;
+  - `check_config_matches_decision` stops the study if a `configs/model.yaml`
+    entry is not the validated choice (or the incumbent where nothing
+    qualified): method, group, scheme, half_life and first_origin. 3 tests;
+  - the study's deployed block requires `half_life`, as `benchmarks.py` does;
+  - the store-cut counts exclude origins whose cut changes nothing;
+  - the doc's Rule section names the three implementation choices added after
+    results (finite score, unrounded mean, ties by name).
+  - Study re-run: 6 of the 7 adaptive output files byte-identical;
+    `adaptive_checks.csv` changed as intended (new `origins_cut` column, the
+    corrected counts); PR #138's four validation CSVs unchanged. (bfd8362's
+    commit message says "all six output files", which is imprecise in the
+    same way.)
+- Disclosed, not changed:
+  - `benchmarks.py` does not itself check the config against the study; the
+    study does;
+  - tests and implementation landed in the same commits (a244698, 7cdfd11),
+    so "tests written first" rests on the session record: each new test file
+    was run and failed before the implementation existed;
+  - the 1e-9 clip margin came after results were seen, and only touches the
+    `aci_window` diagnostic (2589ed8).
+
+**Follow-ups (Sprint 5, not fixed here).**
+- SARIMA's errors change sign between half-years and Chronos-1's band misses
+  its upper tail; neither has a qualifying calibration. A monthly
+  re-estimated bias correction of the band (P50 untouched) would be a new
+  candidate set under a new rule.
+- `interval_study.py` caches forecasts by model family and origin only. A
+  different Chronos-1 checkpoint would reuse chronos-t5-small's forecasts
+  under the new label (pre-existing, from PR #138).
+- Month arithmetic (`origin + DateOffset(months=6)`) assumes month-start
+  timestamps, which the store has.
+- SeasonalNaive's test forecast covers every row after `val_end`. If the
+  store grows past 2025-12, `group: horizon` has no quantile for horizon 7 and
+  beyond, and its coverage goes NaN (loudly).
+- The serving path (API, `forecasts.json`) still publishes raw bands.
+- `/tmp/tdf-venv` should be rebuilt, or moved out of `/tmp`; anything there
+  is removed after 3 days without access.
 
 ## Sprint 4h — EDA section rebuilt from the current store (opened 2026-10-24)
 
@@ -70,6 +260,7 @@ and section 5 now covers three year pairs. `sections.jsx?v=13` (the base has 12)
   is added to plot 01; unasserted trend words ("climbs", "fell") replaced by endpoint values; the
   site check pairs each caption with its file instead of a substring search; legend "No source
   data"; the lede's notebook path wraps at 375 px.
+
 
 ## Sprint 4d — Reconcile what #137, #138 and #139 publish together (opened 2026-10-24)
 
