@@ -461,3 +461,147 @@ def describe(calibrator: dict) -> str:
         return f"{head}: {len(qs)} groups, q_hi - q_lo range {min(spans):.4f}–{max(spans):.4f}"
     vals = list(qs.values())
     return f"{head}: {len(qs)} groups, q range {min(vals):.4f}–{max(vals):.4f}"
+
+
+# ── Bias-shifted bands (Sprint 6) ─────────────────────────────────────────────
+#
+# Sprint 5's rolling quantile covers a model's bias by widening a band that
+# stays centred on P50. For a model whose misses fall almost all on one side,
+# that buys coverage with width. The shift band moves the centre instead and
+# keeps Sprint 5's rolling width around it:
+#
+#   bias    m: the lower weighted median of r = (y - p50) / p50 over the pool
+#           rows resolved by the date of the estimate (origin before it, target
+#           on or before it), weight 0.5**(age / bias_half_life), age counted
+#           to that date. Estimated once at the band's origin T, per group
+#           (bias_at="as_of"); or, to score each pool row, at that row's own
+#           forecast origin (bias_at="origin", pooled only), so the width also
+#           absorbs how far the bias moved between estimate and target.
+#   width   w: Sprint 5's weighted split-conformal quantile of s = |r - m|,
+#           weight 0.5**(age / half_life), age counted to T.
+#   band    P50 * (1 + m - w), P50 * (1 + m + w), stored as the asym_relative
+#           calibrator q = (m - w, m + w). The centre is always m at T.
+#
+# apply_conformal applies it unchanged: it orders (P10 <= P50 <= P90) and
+# floors (P10 >= 0) the band as for any calibrator, and P50 is never touched.
+
+SHIFT_BIAS_AT = ("as_of", "origin")
+
+
+def weighted_median(values, weights) -> float:
+    """Lower weighted median: with the values sorted ascending, the smallest
+    v_(k) with sum(w_(j) : j <= k) >= 0.5 * sum(w). NaN for empty input.
+
+    Tied values are ordered by weight and the total is the last cumulative
+    sum, so the result does not depend on the input order, to the last bit."""
+    v = np.asarray(values, dtype=float)
+    w = np.asarray(weights, dtype=float)
+    if len(v) == 0:
+        return float("nan")
+    order = np.lexsort((w, v))
+    v, cum = v[order], np.cumsum(w[order])
+    idx = int(np.searchsorted(cum, 0.5 * cum[-1], side="left"))
+    return float(v[idx])
+
+
+def _is_positive_number(x) -> bool:
+    return (isinstance(x, (int, float, np.integer, np.floating)) and not isinstance(x, bool)
+            and bool(x > 0))
+
+
+def _bias_at_each_origin(df: pd.DataFrame, r: np.ndarray, bias_half_life: float) -> np.ndarray:
+    """Per row, the bias m(o) at the row's own origin o: the lower weighted
+    median of r over the rows of df resolved by o (origin before o, target on
+    or before o), weight 0.5**(age_o / bias_half_life), age_o = months from
+    target to o. NaN for the rows of an origin with no resolved row. Computed
+    once per distinct origin."""
+    origin = pd.to_datetime(df["origin"])
+    ts = pd.to_datetime(df["timestamp"])
+    out = np.full(len(df), np.nan)
+    for o in pd.unique(origin):
+        o = pd.Timestamp(o)
+        seen = ((origin < o) & (ts <= o)).to_numpy()
+        if seen.any():
+            age_o = months_between(ts[seen], o).to_numpy(dtype=float)
+            out[(origin == o).to_numpy()] = weighted_median(r[seen], 0.5 ** (age_o / bias_half_life))
+    return out
+
+
+def fit_shift_conformal(
+    pool: pd.DataFrame,
+    group: str,
+    level: float,
+    as_of,
+    bias_half_life: float,
+    half_life: float | None,
+    bias_at: str = "as_of",
+) -> dict:
+    """Bias-shifted band from a rolling-origin pool, as an asym_relative
+    calibrator q = (m - w, m + w) per group.
+
+    pool: forecasts from several origins with `origin` and `horizon` columns
+        (with_origin_horizon) and the actual in `ridership`. Only rows resolved
+        by `as_of` are used (rolling_pool); a row without an actual is left
+        out, and one with an actual but a missing band value raises.
+    group: "pooled" or "horizon" (the explicit column, never a rank).
+    bias_half_life: months, a positive number; bias weight 0.5**(age / bias_half_life).
+    half_life: months; width weight 0.5**(age / half_life), age counted to
+        as_of. None gives equal weights.
+    bias_at: "as_of" scores every row against its group's bias at as_of.
+        "origin" scores each row against the bias at its own origin and leaves
+        out the rows whose origin has no resolved row (n_no_bias); it is pooled
+        only, since on a short pool the longest horizon has no earlier
+        same-horizon estimate and its width would be infinite by construction.
+        In both, the band's centre m is the bias at as_of over all rows.
+
+    Returns the calibrator with, besides q: the centre ("bias") and half-width
+    ("width") per group, the rows scored for the width ("n", "n_by_group") and
+    their weight ("weight_sum"), and "clipped_groups", the groups with
+    |m| > w, where apply_conformal's ordering sets one bound to P50.
+    """
+    if group not in ("pooled", "horizon"):
+        raise ValueError(f"shift calibration groups are 'pooled' or 'horizon', not {group!r}")
+    if bias_at not in SHIFT_BIAS_AT:
+        raise ValueError(f"bias_at must be one of {SHIFT_BIAS_AT}, not {bias_at!r}")
+    if bias_at == "origin" and group != "pooled":
+        raise ValueError("bias_at='origin' is pooled only: on a short pool the longest horizon has "
+                         "no earlier same-horizon bias, so its width is infinite by construction")
+    if not _is_positive_number(bias_half_life):
+        raise ValueError(f"bias_half_life must be a positive number of months, not {bias_half_life!r}")
+
+    df = rolling_pool(pool, as_of)
+    df = df[df["ridership"].notna()]
+    r = _pool_scores(df, "asym_relative")
+    age = df["age"].to_numpy(dtype=float)
+    w_bias = 0.5 ** (age / float(bias_half_life))
+    w_width = (np.ones(len(df)) if half_life is None
+               else 0.5 ** (age / float(half_life)))
+    keys = (np.full(len(df), "all", dtype=object) if group == "pooled"
+            else df["horizon"].to_numpy())
+    groups = pd.unique(keys)
+
+    bias = {_plain(g): weighted_median(r[keys == g], w_bias[keys == g]) for g in groups}
+    if bias_at == "as_of":
+        centre = np.empty(len(df))
+        for g in groups:
+            centre[keys == g] = bias[_plain(g)]
+    else:
+        centre = _bias_at_each_origin(df, r, float(bias_half_life))
+    scored = ~np.isnan(centre)
+    s = np.abs(r - centre)
+
+    q, width, n_by, clipped = {}, {}, {}, []
+    for g in groups:
+        key, m = _plain(g), (keys == g) & scored
+        w = weighted_conformal_quantile(s[m], w_width[m], level)
+        width[key] = w
+        n_by[key] = int(m.sum())
+        q[key] = (float(bias[key] - w), float(bias[key] + w))
+        if abs(bias[key]) > w:
+            clipped.append(key)
+    return {"method": "asym_relative", "group": group, "level": level, "n": int(scored.sum()),
+            "q": q, "scheme": "shift", "bias_at": bias_at, "bias_half_life": bias_half_life,
+            "half_life": half_life, "as_of": str(pd.Timestamp(as_of).date()),
+            "bias": bias, "width": width, "n_by_group": n_by,
+            "weight_sum": float(w_width[scored].sum()), "n_no_bias": int((~scored).sum()),
+            "clipped_groups": clipped}
