@@ -128,7 +128,9 @@ unit tests pass; `py_compile` passes.
 | S6.3 | `evaluation/calibration.py`: weighted median, `fit_shift_conformal` (bias at T or at each origin) | implementer | S6.2 | Tests written first, fail, then pass | done — tests d787b16 (committed failing: `ImportError: cannot import name 'fit_shift_conformal'`), implementation e175f79; additions only to `calibration.py` |
 | S6.4 | `evaluation/interval_study.py`: `shift_study` with its own outputs, per-model rule, config check layered over Sprint 5's | implementer | S6.3 | Sprint 5 / PR #138 outputs byte-identical; tests | done — tests 36e0607 (committed failing: `ImportError: cannot import name 'SHIFT_CANDIDATES'`), implementation e2397f8; 124 tests pass; old vs new module on synthetic pools: 63 equivalence checks pass; on real data the 10 Sprint 5 / PR #138 files are byte-identical (S6.5 run) |
 | S6.5 | Run the study; apply the rule; write-up; commit the choice before any test run | orchestrator | S6.1, S6.4 | Commit precedes S6.6's run | done (this commit) — Chronos-1 `shift_hl1 relative/horizon`; SARIMA no qualifier, own band kept. See S6.5 notes below |
-| S6.6 | Chronos-1 qualified: `benchmarks.py` wiring for `shift_relative` (tests first, no benchmark run by the implementer); orchestrator scores the test once, then the determinism rerun | implementer, orchestrator | S6.5 | All gates green; logged calibrator equals the study's deployed one, all 6 horizons, full precision | blocked (on merging PR #145's moved base, 1c5d0b1: it now carries #144's interval_plan / serve_band and #147's store; the wiring dispatch was stopped before it changed any file) |
+| S6.6a | `shift_relative` through #144's path: `interval_plan` label and `band_method`, `calibrate_intervals` fit + save (provenance `method_config`, `bias_half_life`, `bias_at`), `serve_band` checks; Chronos-1 rolling pool in `run_benchmarks`; tests first; the implementer runs no benchmark, export or API | implementer | S6.5, merge ea6bde4 | 229+ tests pass; saved calibrator served identically | in progress (dispatched 2026-10-25) |
+| S6.6b | `scripts/interval_test_breakdown.py` describes Chronos-1's band too (reproduces the leaderboard's coverage and Sprint 4's 72.67); not run by the implementer | implementer | S6.5 | py_compile; SN/Prophet output unchanged by reading | in progress (dispatched 2026-10-25, parallel with S6.6a: file sets disjoint) |
+| S6.6c | Score the test split once; determinism rerun; gates; breakdown; export `model_comparison.json` + `forecasts.json`; README and write-up | orchestrator | S6.6a, S6.6b, the merged study re-verification | All gates green; logged calibrator equals the study's deployed one at full precision | todo |
 | S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | todo |
 | S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | todo |
 
@@ -160,6 +162,30 @@ unit tests pass; `py_compile` passes.
   gate): n = 4,650; bias by horizon 1–6 = 0.034851, 0.100458, 0.096520,
   0.103179, 0.090771, 0.089513; width = 0.086624, 0.111627, 0.106900,
   0.110687, 0.111075, 0.114898; no clipped horizon.
+
+**Merge of PR #145's moved base (ea6bde4, after S6.5, before any test-split access).**
+- The Sprint 5 session moved `feat/adaptive-interval-calibration` to
+  1c5d0b1 while S6.5 ran: it merges `sprint3/pr-backlog` (#138, #144's
+  saved calibrators with `interval_plan` / `serve_band`, #147's store with
+  2019–2025 weather and events). Merged at ea6bde4; one conflict
+  (`evaluation/calibration.py`, both sides appended a section; both kept).
+- The tracked store is now `aa02436d…`; the enriched store rebuilt from it
+  with `Processing/feature_engineering.py` is byte-identical (SHA-256
+  `60df3541…`) to the Sprint 5 session's post-merge build, and `ridership`
+  equals the pre-merge store's on all 3,000 rows.
+- 229 tests pass on the merge (the pinned env plus pytest 9.1.1, fastapi
+  0.162.0 and httpx 0.28.1 for tests only; `pip freeze` still contains all
+  68 pins unchanged).
+- Sprint 6's study ran on the pre-merge base. It is re-run on the merge
+  with `--refresh` (every forecast refit on the new store); every output
+  and cached forecast must equal the S6.5 run's before the choice stands.
+- Under #144's flow, `shift_relative` must also be labelled, saved and
+  served (the website export calls `serve_band` for Chronos-1), so S6.6 is
+  split into S6.6a / S6.6b / S6.6c. The stopped S6.6 dispatch had changed no
+  file.
+- Gate reference after the merge: the Sprint 5 session's post-merge run
+  (leaderboard byte-identical to PR #145's scored run; results CSV gains the
+  `game_day` / `rainy_day` slices #147's data populates).
 
 **Environment (S6.1, 2026-10-25; produces no Sprint 6 number).**
 - Venv `~/.venvs/tdf-pinned`, outside `/tmp`, rebuilt from the pip cache
