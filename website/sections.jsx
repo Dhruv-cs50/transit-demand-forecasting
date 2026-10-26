@@ -35,7 +35,7 @@ const Reveal = ({ as: Tag = 'div', className = '', children, delay, ...rest }) =
 const Nav = ({ dark, onToggleDark }) => {
   const links = [
     ['overview','Overview'], ['method','Method'], ['data','Data'],
-    ['results','Results'], ['demo','Demo'], ['recs','Recommendations'], ['about','About']
+    ['results','Results'], ['demo','Demo'], ['recs','Recommendations'], ['eda','EDA'], ['about','About']
   ];
   const extLinks = [
     { href:'transit-demo.html', label:'Map Demo ↗' },
@@ -156,7 +156,7 @@ const AtAGlance = () => {
 const Method = () => {
   const steps = [
     { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public ridership reports (bart.gov workbooks, 2019 + 2022–2025; BART published none for 2020–21), joined with Open-Meteo weather aggregated to months and a San Jose Sharks home-game schedule. Weather covers every month in the store; the schedule starts in September 2019, so the January–May 2019 games are missing. Stored as Parquet in a local feature store.", tools:['BART reports','Open-Meteo','Parquet'] },
-    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built lag and rolling-mean features, calendar flags, monthly weather summaries and Sharks game-day indicators. The weather and game data reach December 2025, the test window included; that weather is observed, so for the test window it is hindsight, not a forecast. No ranked model reads these features: SARIMA and the seasonal-naive baseline are univariate, Prophet uses only a US federal holiday calendar, and the Chronos-1 checkpoint cannot accept covariates.', tools:['pandas'] },
+    { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built lag and rolling-mean features, calendar flags, monthly weather summaries and Sharks game-day indicators. The weather and game data reach December 2025, the test window included; that weather is observed, so for the test window it is hindsight, not a forecast. No ranked model reads these features: SARIMA and the seasonal-naive baseline are univariate, Prophet uses only a US federal holiday calendar, and the Chronos-1 checkpoint cannot accept covariates. A separate experiment that adds them to SARIMA does not improve it.', tools:['pandas'] },
     { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline. AutoGluon fine-tuning is scaffolded but has never been run — autogluon.timeseries will not install on this Python.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
     { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations. Intervals are not yet calibrated.', tools:['WAPE','MAE'] },
     { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station). The website reads JSON exported from the pipeline: forecasts, actuals, station levels and the model comparison.', tools:['FastAPI','React','JSON'] },
@@ -241,7 +241,7 @@ const Dataset = () => {
           </div>
           <div className="divider" />
           <p className="text-muted" style={{ fontSize: 13 }}>
-            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data: weather for every month in the store; Sharks games from September 2019, so January–May 2019 reads as months without a game. Lags and rolling windows count calendar months; a lag that lands in 2020–21 is empty; a rolling window uses only the months in it that have data, and is empty when too few do. No ranked model reads any of these columns, so their influence on the forecasts has not been measured.
+            <span className="mono" style={{ color:'var(--ink)' }}>●</span> external data: weather for every month in the store; Sharks games from September 2019, so January–May 2019 reads as months without a game. Lags and rolling windows count calendar months; a lag that lands in 2020–21 is empty; a rolling window uses only the months in it that have data, and is empty when too few do. No ranked model reads any of these columns. A separate, pre-registered experiment that added weather and Sharks games to SARIMA found no improvement (docs/covariate-experiment.md).
           </p>
         </Reveal>
       </div>
@@ -275,19 +275,25 @@ const Results = () => {
   const [chart, setChart] = useState('roc');
   // Best-model tile is derived from the same file the WAPE chart and the
   // Benchmarks table read, so its model name, WAPE and model count cannot drift.
-  const [cmp, setCmp] = React.useState(null);
-  React.useEffect(() => {
-    fetch('data/model_comparison.json').then(r => r.json()).catch(() => []).then(setCmp);
-  }, []);
-  const cmpRows = Array.isArray(cmp) ? cmp.filter(r => r.WAPE_pct != null) : [];
+  const cmpRes = useSiteData('model_comparison.json');
+  const fcRes = useSiteData('forecasts.json');
+  const split = comparisonSplit(fcRes, cmpRes);
+  const cmpRows = siteRows(cmpRes).filter(r => r && r.WAPE_pct != null);
   const bestRow = cmpRows.length ? cmpRows.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a)) : null;
+  const bestNote = bestRow ? `best of ${cmpRows.length} models`
+    : !cmpRes ? 'loading…'
+    : siteFailed(cmpRes) ? 'model_comparison.json could not be loaded'
+    : 'no scored models in model_comparison.json';
+  // WAPE chart subtitle: split, window and station-months all come from the data.
+  const wapeSub = !split ? 'Loading the model comparison…'
+    : siteFailed(cmpRes) ? 'model_comparison.json could not be loaded'
+    : `${split.label[0].toUpperCase()}${split.label.slice(1)}${split.n != null ? ` · ${split.n.toLocaleString('en-US')} station-months` : ''} · lower WAPE is better`;
   // The Intervals chart (charts.jsx Calibration) draws forecasts.json's
   // P10/P90; its subtitle names that band. Loading, an unreadable file, an
   // unlabelled (older) export or mixed labels keep the plain subtitle.
-  const [fcRecords, setFcRecords] = React.useState(null);
-  React.useEffect(() => {
-    fetch('data/forecasts.json').then(r => r.json()).catch(() => []).then(setFcRecords);
-  }, []);
+  // forecasts.json comes from the shared loader (fcRes above), so the page
+  // still makes one request for it.
+  const fcRecords = siteRows(fcRes);
   const chartBand = bandKind(fcRecords);
   const chartBandNote = chartBand.conformal
     ? ` · P10–P90 range set from the model's errors on ${BAND_FIT_WINDOW}, not a validated 80% interval`
@@ -309,7 +315,7 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>{chart === 'roc' ? 'WAPE by model — test set' : 'Forecast intervals — Embarcadero'}</h3>
-                <p>{chart === 'roc' ? 'Jul–Dec 2025 test split · 300 station-months · lower WAPE is better' : `P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders${chartBandNote} · Embarcadero (highest-volume BART station)`}</p>
+                <p>{chart === 'roc' ? wapeSub : `P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders${chartBandNote} · Embarcadero (highest-volume BART station)`}</p>
               </div>
               <div className="chip-grp">
                 <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>WAPE</button>
@@ -326,7 +332,7 @@ const Results = () => {
               </div>
             </div>
             <div className="cm">
-              <div className="cm-cell tp"><div className="v">{bestRow ? bestRow.WAPE_pct.toFixed(1) + '%' : '—'}</div><div className="l">WAPE · {bestRow ? bestRow.model : 'best model'}</div><div className="text-muted" style={{ fontSize:11 }}>{bestRow ? `best of ${cmpRows.length} models` : 'loading…'}</div></div>
+              <div className="cm-cell tp"><div className="v">{bestRow ? bestRow.WAPE_pct.toFixed(1) + '%' : '—'}</div><div className="l">WAPE · {bestRow ? bestRow.model : 'best model'}</div><div className="text-muted" style={{ fontSize:11 }}>{bestNote}</div></div>
               <div className="cm-cell tn"><div className="v">3.1k</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>vs 5.5k Prophet</div></div>
               <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>73–97% vs nominal 80%</div></div>
               <div className="cm-cell fn"><div className="v">50 sta.</div><div className="l">all BART stations</div><div className="text-muted" style={{ fontSize:11 }}>no station excluded</div></div>
@@ -386,7 +392,7 @@ const Demo = () => {
               style={{
                 display:'inline-flex', alignItems:'center', gap:8,
                 padding:'12px 24px', borderRadius:10, background:'var(--primary)',
-                color:'#fff', fontWeight:600, fontSize:15, textDecoration:'none',
+                color:'var(--bg)', fontWeight:600, fontSize:15, textDecoration:'none',
                 fontFamily:'var(--display)',
               }}>
               Open Interactive Map ↗
@@ -403,10 +409,9 @@ const Demo = () => {
 
 /* ── Benchmarks + Recommendations ──────────────────────────────── */
 const Benchmarks = () => {
-  const [cmpData, setCmpData] = React.useState(null);
-  React.useEffect(() => {
-    fetch('data/model_comparison.json').then(r => r.json()).catch(() => []).then(setCmpData);
-  }, []);
+  const cmpRes = useSiteData('model_comparison.json');
+  const cmpFailed = siteFailed(cmpRes);
+  const cmpData = cmpRes ? siteRows(cmpRes).filter(Boolean) : null;
 
   const fmtN = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n));
 
@@ -416,9 +421,8 @@ const Benchmarks = () => {
     'SeasonalNaive': 'Seasonal naive',
   };
 
-  const bestWAPE = cmpData
-    ? Math.min(...cmpData.map(r => r.WAPE_pct).filter(v => v != null))
-    : null;
+  const scoredWAPEs = cmpData ? cmpData.map(r => r.WAPE_pct).filter(v => v != null) : [];
+  const bestWAPE = scoredWAPEs.length ? Math.min(...scoredWAPEs) : null;
 
   const dataRows = cmpData ? [
     ...cmpData.map(r => ({
@@ -433,7 +437,7 @@ const Benchmarks = () => {
   ] : [];
 
   const recs = [
-    { n:'01', t:'Extend event and weather data through the forecast window.', d:"The only event data ingested is a Sharks home-game schedule (the pipeline has no Ticketmaster key). It and the weather now run through December 2025, the end of the test window, but no ranked model reads either. Fitting a model that accepts covariates is what would let surge effects be measured at all; flagging them ahead of time also needs schedules and weather forecasts for the months being forecast.", who:'Operations Control' },
+    { n:'01', t:'Extend event and weather data through the forecast window.', d:"The only event data ingested is a Sharks home-game schedule (the pipeline has no Ticketmaster key). It and the weather now run through December 2025, the end of the test window. A pre-registered experiment added them to the leaderboard SARIMA: observed weather made the test forecast worse (3.79% against 3.21% WAPE) and Sharks games made no measurable difference, so at monthly station totals they do not help. Not tested: a daily or hourly grain, a model that pools one effect across stations, and events other than Sharks games.", who:'Operations Control' },
     { n:'02', t:'Fine-tune Chronos per station cluster.', d:'Zero-shot Chronos-1 (chronos-t5-small) scores 9.7% WAPE here — ahead of seasonal-naïve at 10.8%, behind both classical baselines. It also runs univariate, since the pipeline cannot pass covariates to this checkpoint. Fixing that, then fine-tuning per station cluster, is the path worth testing.', who:'Data / ML' },
     { n:'03', t:'Test fresher data sources.', d:"The model trains on BART's monthly ridership reports. The 511 SF Bay API offers real-time stop monitoring and historical stop observations (arrival times, not ridership counts); the repo has a fetcher for them, but nothing joins them into the feature store yet. Whether they would cut data staleness, and how much of the residual error staleness accounts for, has not been measured.", who:'Data / IT' },
   ];
@@ -456,6 +460,8 @@ const Benchmarks = () => {
               <tbody>
                 {cmpData === null ? (
                   <tr><td colSpan={5} style={{ textAlign:'center', color:'var(--ink-muted)', padding:'20px 10px' }}>Loading…</td></tr>
+                ) : cmpFailed ? (
+                  <tr><td colSpan={5} style={{ textAlign:'center', color:'var(--ink-muted)', padding:'20px 10px' }}>The model comparison (model_comparison.json) could not be loaded. Reload the page to try again.</td></tr>
                 ) : dataRows.map((r,i) => (
                   <tr key={i} className={r.best?'best':''}>
                     <td className="model">
@@ -502,6 +508,57 @@ const Benchmarks = () => {
         </div>
       </section>
     </>
+  );
+};
+
+/* ── EDA Visualizations ────────────────────────────────────────── */
+// PNGs and captions come from transit_eda/notebooks/eda_complete.ipynb. When the
+// notebook is rerun, its last cell fails unless each caption below (and EDA_NOTE)
+// matches its own output exactly, under the same file. Edit captions there, not here.
+const EDA_PLOTS = [
+  { file:'01_ridership_levels.png', tab:'Network level', title:'Network Total Trips per month, 2019 and 2022–2025',
+    desc:'Total Trips per month, summed over all 50 stations. Yearly totals as a share of 2019: 2022 35.0%, 2023 40.5%, 2024 43.1%, 2025 47.3%, rising every year. Berryessa/North San José and Milpitas record 0 trips in 2019; over the other 48 stations 2025 is 46.5% of 2019. The store has no rows for 2020 or 2021, so the line breaks there: the fall between 2019 and 2022 is not observed month by month.' },
+  { file:'02_monthly_seasonality.png', tab:'Seasonality', title:'Seasonal index by month and year',
+    desc:'Each cell is one month of network Total Trips divided by the mean monthly total of the same year. In all 5 years December, January and February are below 1 and August, September and October are above 1, also after dividing by the days in each month. Leaving out 2022, the December to February cells run from 0.84 to 0.97 and the August to October cells from 1.01 to 1.15. The 2022 row spans 0.64 (January) to 1.19 (September), the widest of the five years, partly from growth during 2022: January 2023 was 51.4% above January 2022, December 2023 only 9.8% above December 2022.' },
+  { file:'03_station_ranking.png', tab:'Station ranking', title:'Station ranking, 2022–2025 vs 2019',
+    desc:'Median monthly Total Trips per station over 2022 to 2025 (bars, top 20 of 50) and in 2019 (circles). Embarcadero (349k), Powell St. (327k) and Montgomery St. (287k) lead. Montgomery St. had the highest 2019 median (974k). The four busiest stations carry 29.2% of all 2022 to 2025 trips.' },
+  { file:'04_data_coverage.png', tab:'Data coverage', title:'Data coverage by month',
+    desc:'Each column is one month from January 2019 to December 2025. All 50 stations have a row in each of the 60 months in the store; the 24 months of 2020 and 2021 are not in it. Berryessa/North San José (BE) and Milpitas (ML) record 0 trips in every 2019 month. Weather is filled for every month in the store. The Sharks schedule files run from 2019-09-17 to 2025-12-31, so the game flags for the 8 store months outside that window (January to August 2019) are False for lack of data, not observed zeros.' },
+];
+const EDA_NOTE = 'No weather or Sharks-game plot. Comparing each month with the same month a year earlier, for the 3 pairs of consecutive years with both (2022 to 2023, 2023 to 2024, 2024 to 2025), the correlation of growth with extra rain is +0.82, -0.27, +0.26 and with extra home games -0.05, +0.41, +0.20. Neither keeps one sign across the pairs, and each value rests on 12 months, so neither is plotted (notebook section 5). Hourly, day-of-week and game-night views need hourly or daily rows; the store has one row per station per month (section 6).';
+
+const EDAViz = () => {
+  const [active, setActive] = React.useState(0);
+  const plot = EDA_PLOTS[active];
+  return (
+    <section id="eda" style={{ background:'var(--bg)' }}>
+      <div className="wrap">
+        <div className="section-h">
+          <Reveal><div className="eyebrow"><span className="pip" /> Exploratory Analysis</div></Reveal>
+          <Reveal delay="1"><div className="row">
+            <h2>Patterns in the data.</h2>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Four views of the feature store at its own grain, one row per station per month: the 2019 and 2022–2025 levels, seasonality, the station ranking and the gaps. Each caption is written by the EDA notebook (<code style={{ overflowWrap:'anywhere' }}>transit_eda/notebooks/eda_complete.ipynb</code>) from numbers it prints.</p>
+          </div></Reveal>
+        </div>
+        <div className="chip-grp" role="tablist" aria-label="EDA plots" style={{ marginTop:32, flexWrap:'wrap' }}>
+          {EDA_PLOTS.map((p, i) => (
+            <button key={p.file} role="tab" aria-selected={i === active}
+              className={i === active ? 'on' : ''} onClick={() => setActive(i)}>{p.tab}</button>
+          ))}
+        </div>
+        <Reveal key={active}>
+          <div className="card" style={{ padding:0, overflow:'hidden', marginTop:16 }}>
+            <img src={`data/eda_plots/${plot.file}`} alt={plot.title}
+              style={{ width:'100%', display:'block', background:'#fff' }} />
+            <div style={{ padding:'16px 20px' }}>
+              <h4 style={{ margin:0 }}>{plot.title}</h4>
+              <p style={{ margin:'6px 0 0', color:'var(--ink-muted)', fontSize:14 }}>{plot.desc}</p>
+            </div>
+          </div>
+        </Reveal>
+        <p style={{ marginTop:16, color:'var(--ink-muted)', fontSize:13, maxWidth:'80ch' }}>{EDA_NOTE}</p>
+      </div>
+    </section>
   );
 };
 
@@ -580,12 +637,20 @@ const Footer = () => (
 const API_BASE = 'https://transit-api-308878596074.us-west2.run.app';
 
 const BARTForecasts = () => {
-  const [forecasts, setForecasts] = React.useState([]);
-  const [actuals, setActuals]     = React.useState([]);
-  const [meta, setMeta]           = React.useState([]);
+  // Each file's load result is kept, so a failed fetch is told apart from a
+  // file that loaded and is empty.
+  const fcRes   = useSiteData('forecasts.json');
+  const acRes   = useSiteData('ridership_actuals.json');
+  const cmpRes  = useSiteData('model_comparison.json');
+  const metaRes = useSiteData('stations_meta.json');
+  const loading = !fcRes || !acRes || !cmpRes || !metaRes;
+  const forecasts  = siteRows(fcRes).filter(r => r && typeof r.month === 'string');
+  const actuals    = siteRows(acRes).filter(r => r && typeof r.month === 'string');
+  const comparison = siteRows(cmpRes).filter(Boolean);
+  const meta       = siteRows(metaRes).filter(m => m && m.bart_id);
+  const fcFailed = siteFailed(fcRes);
+  const acFailed = siteFailed(acRes);
   const [station, setStation]     = React.useState('EM');
-  const [loading, setLoading]     = React.useState(true);
-  const [comparison, setComparison] = React.useState([]);
   const [liveData, setLiveData]   = React.useState(null);
   const [liveFetching, setLiveFetching] = React.useState(false);
   const [liveError, setLiveError] = React.useState(null);
@@ -600,21 +665,6 @@ const BARTForecasts = () => {
     { id:'BE', name:'Berryessa' },
     { id:'FM', name:'Fremont' },
   ];
-
-  React.useEffect(() => {
-    Promise.all([
-      fetch('data/forecasts.json').then(r => r.json()).catch(() => []),
-      fetch('data/ridership_actuals.json').then(r => r.json()).catch(() => []),
-      fetch('data/model_comparison.json').then(r => r.json()).catch(() => []),
-      fetch('data/stations_meta.json').then(r => r.json()).catch(() => []),
-    ]).then(([fc, ac, cmp, sm]) => {
-      setForecasts(Array.isArray(fc) ? fc : []);
-      setActuals(Array.isArray(ac) ? ac : []);
-      setComparison(Array.isArray(cmp) ? cmp : []);
-      setMeta(Array.isArray(sm) ? sm.filter(m => m && m.bart_id) : []);
-      setLoading(false);
-    });
-  }, []);
 
   // Each live request gets a sequence number; changing station bumps it, so a
   // response (or error) for a previously selected station is dropped.
@@ -678,24 +728,42 @@ const BARTForecasts = () => {
     1
   );
 
-  // The forecast months named in the copy come from forecasts.json (min/max
-  // month over all records); "through" is the month before the first one.
-  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const parseYM = ym => {
-    const m = /^(\d{4})-(0[1-9]|1[0-2])/.exec(typeof ym === 'string' ? ym : '');
-    return m ? { y: +m[1], m: +m[2] } : null;
-  };
-  const fcMonths = forecasts.map(r => r && parseYM(r.month)).filter(Boolean)
-    .sort((a, b) => a.y - b.y || a.m - b.m);
-  const fcFirst = fcMonths[0];
-  const fcLast = fcMonths[fcMonths.length - 1];
-  const fcRange = !fcFirst ? null
-    : fcFirst.y !== fcLast.y ? `${MON[fcFirst.m-1]} ${fcFirst.y}–${MON[fcLast.m-1]} ${fcLast.y}`
-    : fcFirst.m !== fcLast.m ? `${MON[fcFirst.m-1]}–${MON[fcLast.m-1]} ${fcFirst.y}`
-    : `${MON[fcFirst.m-1]} ${fcFirst.y}`;
-  const fcThrough = !fcFirst ? null
-    : fcFirst.m === 1 ? `Dec ${fcFirst.y - 1}` : `${MON[fcFirst.m-2]} ${fcFirst.y}`;
-  const fcCount = new Set(fcMonths.map(p => p.y * 12 + p.m)).size;
+  // Every month and year named in the copy comes from the data: the forecast
+  // months from forecasts.json (first to last; "through" is the month before
+  // the first), the actuals' years from ridership_actuals.json.
+  const fcSpan = monthSpan(forecasts);
+  const fcRange = fcSpan ? fcSpan.range : null;
+  const fcThrough = fcSpan ? fcSpan.through : null;
+  const fcCount = fcSpan ? fcSpan.count : 0;
+  const acYears = yearSpan(actuals.filter(r => r.ridership != null));
+  // "Scored in the model comparison below" only when that comparison has the
+  // Chronos row these forecasts were scored as (see scoredForecasts).
+  const fcScored = scoredForecasts(fcRes, cmpRes);
+  const split = comparisonSplit(fcRes, cmpRes);
+  const reloadHint = fcFailed || acFailed ? ' Reload the page to try again.' : '';
+
+  const forecastSentence = fcFailed
+    ? `The forecast export (forecasts.json) could not be loaded${acFailed ? '.' : ', so the table shows actual ridership only.'}`
+    : fcRange
+      ? `Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}${fcScored ? ': the predictions scored in the model comparison below.' : '.'}`
+      : `No forecasts are published in the static export (forecasts.json)${acFailed ? '.' : ', so the table shows actual ridership only.'}`;
+  const actualsSentence = acFailed
+    ? 'The actual ridership (ridership_actuals.json) could not be loaded, so no actuals are shown.'
+    : acYears
+      ? `Actuals are BART monthly Total Trips boardings per entry station, ${acYears}.`
+      : 'No actual ridership is published (ridership_actuals.json).';
+  const tableNote = fcRange
+    ? acFailed
+      ? `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue with P10/P50/P90. Bars sized by P50 (coral).`
+      : `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue, each with its actual riders beside P10/P50/P90. Bars sized by ridership volume: blue = actual, coral = P50.`
+    : fcFailed
+      ? `Forecasts could not be loaded (forecasts.json), so ${acFailed ? 'there is nothing to show' : 'the table shows the last 12 actual months. Bars sized by ridership volume'}.`
+      : `No forecasts are published, so the table shows the last 12 actual months. Bars sized by ridership volume.`;
+  const actualsNote = acFailed
+    ? 'Actuals could not be loaded (ridership_actuals.json).'
+    : acYears
+      ? `Actuals are BART monthly Total Trips boardings per entry station (ridership_actuals.json: ${acYears}).`
+      : 'No actuals are published (ridership_actuals.json).';
 
   // Which band P10/P90 is (bandKind, above Results). A coverage figure is
   // shown only when the Chronos leaderboard row carries the same label, so
@@ -727,16 +795,14 @@ const BARTForecasts = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Real BART Data</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>{loading ? 'Model outputs — 50 stations.'
+              : fcFailed ? 'Model outputs — 50 stations, forecasts unavailable.'
               : fcCount ? `Model outputs — 50 stations, ${fcCount}-month forecast.`
               : 'Model outputs — 50 stations, no forecasts published.'}</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
               {loading
                 ? 'Loading the static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) forecasts…'
-                : fcRange
-                  ? `Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}: the predictions scored in the model comparison below. ${bandNote}`
-                  : 'No forecasts are published in the static export (forecasts.json), so the table shows actual ridership only.'}
-              {' '}Actuals are BART monthly Total Trips boardings per entry station, 2019 and 2022–2025.
-              The button below requests a forecast from the Cloud Run API.
+                : `${forecastSentence}${!fcFailed && fcRange ? ` ${bandNote}` : ''} ${actualsSentence}${reloadHint}`}
+              {' '}The button below requests a forecast from the Cloud Run API.
             </p>
           </div></Reveal>
         </div>
@@ -749,7 +815,7 @@ const BARTForecasts = () => {
                 style={{
                   padding:'6px 14px', borderRadius:6, border:'1.5px solid var(--line)',
                   background: station===s.id ? 'var(--primary)' : 'transparent',
-                  color: station===s.id ? '#fff' : 'var(--ink)',
+                  color: station===s.id ? 'var(--bg)' : 'var(--ink)',
                   cursor:'pointer', fontSize:13, fontWeight:500,
                 }}>
                 {metaById[s.id]?.station_name || s.name}
@@ -775,7 +841,7 @@ const BARTForecasts = () => {
               style={{
                 marginLeft:'auto', padding:'6px 16px', borderRadius:6,
                 border:'1.5px solid var(--accent)', background: liveFetching ? 'var(--bg-muted)' : 'var(--accent)',
-                color:'#fff', cursor: liveFetching ? 'default' : 'pointer', fontSize:13, fontWeight:600,
+                color: liveFetching ? 'var(--ink-muted)' : 'var(--bg)', cursor: liveFetching ? 'default' : 'pointer', fontSize:13, fontWeight:600,
                 opacity: liveFetching ? 0.7 : 1,
               }}>
               {liveFetching ? 'Calling API…' : '⚡ Fetch Live from API'}
@@ -783,12 +849,12 @@ const BARTForecasts = () => {
           </div>
 
           {liveError && (
-            <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8, background:'rgba(238,108,77,0.12)', color:'var(--accent)', fontSize:13 }}>
+            <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8, background:'color-mix(in oklab, var(--accent) 12%, transparent)', color:'var(--accent)', fontSize:13 }}>
               API error: {liveError}
             </div>
           )}
           {liveData && (
-            <div style={{ marginBottom:20, padding:'14px 16px', borderRadius:8, background:'rgba(42,47,143,0.07)', border:'1px solid rgba(42,47,143,0.2)' }}>
+            <div style={{ marginBottom:20, padding:'14px 16px', borderRadius:8, background:'color-mix(in oklab, var(--primary) 7%, transparent)', border:'1px solid color-mix(in oklab, var(--primary) 20%, transparent)' }}>
               <div style={{ fontSize:12, color:'var(--primary)', fontWeight:700, marginBottom:8, letterSpacing:'.04em', textTransform:'uppercase' }}>
                 ⚡ Live Cloud Run Response — {nameFor(station)}
               </div>
@@ -827,7 +893,7 @@ const BARTForecasts = () => {
                 </thead>
                 <tbody>
                   {tableRows.map(row => row.fc ? (
-                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', background:'rgba(42,47,143,0.04)' }}>
+                    <tr key={row.month} style={{ borderBottom:'1px solid var(--line)', background:'color-mix(in oklab, var(--primary) 4%, transparent)' }}>
                       <td style={{ padding:'5px 10px', fontFamily:'var(--mono)', fontSize:12, color:'var(--primary)' }}>{row.month} ▶</td>
                       <td style={{ textAlign:'right', padding:'5px 10px', fontWeight:600, color: row.actual != null ? 'var(--ink)' : 'var(--ink-muted)' }}>{row.actual != null ? fmt(row.actual) : '—'}</td>
                       <td style={{ textAlign:'right', padding:'5px 10px', color:'var(--accent)', fontFamily:'var(--mono)' }}>{row.fc.p10 != null ? fmt(row.fc.p10) : '—'}</td>
@@ -854,11 +920,13 @@ const BARTForecasts = () => {
                   ))}
                 </tbody>
               </table>
+              {tableRows.length === 0 && (
+                <div style={{ textAlign:'center', color:'var(--ink-muted)', padding:'24px 10px', fontSize:13 }}>
+                  No ridership or forecasts to show for {nameFor(station)}.
+                </div>
+              )}
               <div style={{ marginTop:12, fontSize:12, color:'var(--ink-muted)' }}>
-                {fcRange
-                  ? `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue, each with its actual riders beside P10/P50/P90. Bars sized by ridership volume: blue = actual, coral = P50.`
-                  : 'No forecasts are published, so the table shows the last 12 actual months. Bars sized by ridership volume.'}
-                {' '}Actuals are BART monthly Total Trips boardings per entry station (ridership_actuals.json: 2019 and 2022–2025).
+                {tableNote}{' '}{actualsNote}{reloadHint}
               </div>
             </div>
           )}
@@ -866,7 +934,7 @@ const BARTForecasts = () => {
 
         {comparison.length > 0 && (
           <Reveal className="card" style={{ padding:'24px' }}>
-            <h3 style={{ fontSize:16, marginBottom:16 }}>Model comparison — Jul–Dec 2025 test split, 50 stations</h3>
+            <h3 style={{ fontSize:16, marginBottom:16 }}>Model comparison — {split ? split.label : 'held-out split'}{split && split.stations ? `, ${split.stations} stations` : ''}</h3>
             <table style={{ width:'100%', fontSize:13, borderCollapse:'collapse' }}>
               <thead>
                 <tr style={{ borderBottom:'1px solid var(--line)' }}>
@@ -879,7 +947,7 @@ const BARTForecasts = () => {
               </thead>
               <tbody>
                 {comparison.map((r, i) => (
-                  <tr key={i} style={{ borderBottom:'1px solid var(--line)', background: i===0 ? 'rgba(42,47,143,0.04)' : 'transparent' }}>
+                  <tr key={i} style={{ borderBottom:'1px solid var(--line)', background: i===0 ? 'color-mix(in oklab, var(--primary) 4%, transparent)' : 'transparent' }}>
                     <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.model}</td>
                     <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.MAPE_pct != null ? r.MAPE_pct.toFixed(1)+'%' : '—'}</td>
                     <td style={{ textAlign:'right', padding:'6px 10px', fontFamily:'var(--mono)' }}>{r.WAPE_pct != null ? r.WAPE_pct.toFixed(1)+'%' : '—'}</td>
@@ -896,4 +964,4 @@ const BARTForecasts = () => {
   );
 };
 
-Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, About, Footer, BARTForecasts });
+Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, EDAViz, About, Footer, BARTForecasts });
