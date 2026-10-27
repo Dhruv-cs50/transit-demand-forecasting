@@ -128,7 +128,7 @@ See `updates/` for the audit trail.
 |   `-- processed/                 # feature stores, splits, and validation reports
 |-- machine_learning_files/
 |   |-- fetch_511_transit.py       # 511 SF Bay transit feed ingestion
-|   |-- fetch_bart_od.py           # BART OD ridership report ingestion
+|   |-- fetch_bart_od.py           # BART OD report downloader; bart.gov answers it with HTTP 403, so the pipeline uses bart_od_from_xlsx.py
 |   |-- bart_od_from_xlsx.py       # BART OD parquet builder from the hand-downloaded bart.gov Ridership_YYYYMM.xlsx workbooks (see data/MANIFEST.md)
 |   |-- bart_od_from_csv.py        # Legacy fallback from bart_clean.csv; has no Total block, so merge_pipeline.py rejects its output
 |   |-- fetch_weather_openmeteo.py # Open-Meteo station weather ingestion

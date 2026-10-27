@@ -7,7 +7,8 @@ This folder contains the ingestion, feature-store, zero-shot forecasting, API, a
 | File | Purpose | Main inputs | Main outputs |
 | --- | --- | --- | --- |
 | `fetch_511_transit.py` | Pull 511 SF Bay transit feed data. | `configs/sources.yaml` | `data/raw/transit/` |
-| `fetch_bart_od.py` | Download and parse BART origin-destination ridership reports. | BART ridership reports | `data/raw/transit/bart/bart_od_*.parquet` |
+| `bart_od_from_xlsx.py` | Build the monthly BART origin-destination parquets from the bart.gov Ridership workbooks, downloaded by hand (see `data/MANIFEST.md`). | `--zips <zips>` or `--dir <workbooks>` | `data/raw/transit/bart/bart_od_*.parquet` |
+| `fetch_bart_od.py` | Meant to download and parse BART OD ridership reports; it cannot, because bart.gov answers automated requests with HTTP 403. Use `bart_od_from_xlsx.py`. | bart.gov ridership reports | none |
 | `fetch_weather_openmeteo.py` | Fetch station weather from Open-Meteo. | `configs/sources.yaml` station coordinates | `data/raw/weather/weather_all_stations_*.parquet` |
 | `fetch_events.py` | Fetch Sharks and Ticketmaster event calendars. | NHL API, Ticketmaster API | `data/raw/events/events_*.parquet` |
 | `merge_pipeline.py` | Merge raw ridership, weather, events, and calendar features. | `data/raw/*`, `configs/*.yaml` | `data/processed/feature_store.parquet`, `data/processed/splits/*.parquet` |
@@ -122,7 +123,7 @@ because no method passed validation:
 
 - `configs/model.yaml` controls the modeled frequency, context length, forecast horizon, chronological split dates, quantile levels, and AutoGluon training settings.
 - `configs/sources.yaml` controls source endpoints, API-key placeholders, venue IDs, agency IDs, and weather station coordinates.
-- The API does not use Chronos or any forecast cache. Each `/forecast` fits SARIMA(0,1,1)(0,1,1,12) for one station on months from `data.train_start` up to `as_of` (default: the latest month in the store), with the same code and settings `benchmarks.py` scores for the leaderboard. Tests: `python -m pytest tests/`.
+- The API does not use Chronos or any forecast cache. Each `/forecast` fits SARIMA(0,1,1)(0,1,1,12) for one station on months from `data.train_start` up to `as_of` (default: the latest month in the store), with the same code and settings `benchmarks.py` scores for the leaderboard. Tests: in the Setup environment run `python -m pytest tests/ --ignore=tests/test_api.py` (`tests/test_api.py` needs the serving stack, which the lock leaves out); run `tests/test_api.py` in the separate Python 3.11 environment described in the root README's [Forecast API](../README.md#forecast-api) section.
 - `scripts/run_pipeline.sh` runs `.venv311/bin/python` if that file exists and `python3` from `PATH` otherwise, so activate the Setup venv first; a leftover `.venv311/` takes precedence over it.
 
 ## Troubleshooting

@@ -20,7 +20,7 @@ Review `configs/sources.yaml` before running ingestion. Replace placeholder keys
 
 | Source | Script | Notes |
 | --- | --- | --- |
-| BART OD ridership | `machine_learning_files/fetch_bart_od.py` | Current primary target source. Parsed outputs are expected under `data/raw/transit/bart/`. |
+| BART OD ridership | `machine_learning_files/bart_od_from_xlsx.py` | Current primary target source. bart.gov answers automated requests with HTTP 403, so the Ridership workbooks are downloaded by hand (see `data/MANIFEST.md`); this script converts them into `data/raw/transit/bart/`. `fetch_bart_od.py` exists but cannot download them. |
 | 511 SF Bay transit | `machine_learning_files/fetch_511_transit.py` | Requires a 511 API key. Used for future higher-frequency expansion. |
 | Open-Meteo weather | `machine_learning_files/fetch_weather_openmeteo.py` | No API key required. Uses station coordinates from `configs/sources.yaml`. |
 | NHL and Ticketmaster events | `machine_learning_files/fetch_events.py` | NHL API is public; Ticketmaster requires an API key. |
@@ -30,10 +30,10 @@ Review `configs/sources.yaml` before running ingestion. Replace placeholder keys
 
 ### 1. Fetch raw data
 
-Run only the fetchers needed for your current experiment:
+Run only the fetchers needed for your current experiment. BART's Ridership workbooks are downloaded by hand first (see `data/MANIFEST.md`); the first command converts them:
 
 ```bash
-python machine_learning_files/fetch_bart_od.py
+python machine_learning_files/bart_od_from_xlsx.py --zips /path/to/*.zip   # or --dir /path/to/workbooks
 python machine_learning_files/fetch_weather_openmeteo.py
 python machine_learning_files/fetch_events.py
 ```
