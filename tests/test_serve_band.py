@@ -547,8 +547,8 @@ class ClearSavedCalibratorsTest(unittest.TestCase):
         # empty", before any model is fitted or any calibrator saved.
         ts = pd.date_range("2024-01-01", "2025-06-01", freq="MS")
         df = pd.DataFrame({"timestamp": ts, "station_id": "S0", "ridership": 1000.0})
-        cfg = {"data": {"train_end": FIT_END, "val_end": "2025-06-30", "resample_freq": "MS",
-                        "forecast_horizon_steps": 6}}
+        cfg = {"data": {"train_end": FIT_END, "val_end": "2025-06-30", "test_end": "2025-12-31",
+                        "resample_freq": "MS", "forecast_horizon_steps": 6}}
         with mock.patch.multiple(benchmarks, EVAL_DIR=Path(self.tmp.name) / "outputs",
                                  CALIBRATOR_DIR=self.dir):
             self.assertTrue(benchmarks.run_benchmarks(df, cfg).empty)

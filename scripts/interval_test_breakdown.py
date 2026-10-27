@@ -56,7 +56,7 @@ from evaluation.interval_study import (  # noqa: E402
     OUT_DIR, _target_window, cache_tag, cached_forecast, chronos_label, load_validation_store,
     month_ends, rolling_forecasts, with_actuals,
 )
-from models.baselines.benchmarks import seasonal_naive_forecast  # noqa: E402
+from models.baselines.benchmarks import seasonal_naive_forecast, select_test_window  # noqa: E402
 
 LEADERBOARD = Path("evaluation/outputs/benchmark_leaderboard.csv")
 PROPHET_TEST = Path("models/baselines/outputs/prophet/prophet_forecasts.parquet")
@@ -124,7 +124,10 @@ def main():
 
     store = pd.read_parquet("data/processed/feature_store_enriched.parquet")
     store["timestamp"] = pd.to_datetime(store["timestamp"])
-    test = store[store["timestamp"] > val_end]
+    # The leaderboard's test split, val_end < ts <= test_end (raises when
+    # data.test_end is missing), so the coverage check below compares the
+    # same rows benchmarks.py scored.
+    test = select_test_window(store, cfg)
     train = store[(store["timestamp"] >= pd.Timestamp(cfg["data"]["train_start"]))
                   & (store["timestamp"] <= val_end)]
     leaderboard = pd.read_csv(LEADERBOARD).set_index("model")
