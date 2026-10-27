@@ -99,6 +99,15 @@ class ConfigMatchesDecisionTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=change):
                 check_config_matches_decision("Prophet", {**self.ROLLING, **change}, self.CHOSEN, {})
 
+    def test_choosing_the_incumbent_is_keeping_it(self):
+        # apply_rule can return "incumbent" as a model's lowest-scoring
+        # qualifier; the incumbent is the current entry, so it is a keep.
+        check_config_matches_decision("SARIMA", {"method": "none", "reason": "x"},
+                                      {"choice": "incumbent"}, {"method": "none"})
+        with self.assertRaisesRegex(ValueError, "study validated"):
+            check_config_matches_decision("Chronos", self.ROLLING, {"choice": "incumbent"},
+                                          {"method": "relative", "group": "pooled"})
+
     def test_keeping_the_entry_means_the_incumbent(self):
         with self.assertRaises(ValueError):
             check_config_matches_decision("Chronos", self.ROLLING, {"choice": "keep current entry"},

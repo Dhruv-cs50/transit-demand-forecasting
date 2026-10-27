@@ -259,6 +259,9 @@ def _run_forecast(
     pred_df, plan = serve_band(
         pred_df, CALIBRATION_KEY, cfg,
         calibrator_path=CALIBRATOR_DIR / f"{CALIBRATION_KEY}.json",
+        # Months ahead count from the last fitted month, as benchmarks.py
+        # counts them from its forecast origin.
+        forecast_origin=last_ts,
     )
 
     rows = [

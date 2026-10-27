@@ -43,6 +43,19 @@ rule fixed on docs/sprint-board.md before any of these numbers existed.
   diagnostic  rolling_eq, single-window variants, aci_window, monthly_recal
               (the last two use the scored window's own earlier actuals)
 
+Sprint 6 (shift_study): bias-shifted bands for SARIMA and Chronos-1, under the
+rule fixed on docs/sprint-board.md (ab8183c) before any of these numbers existed.
+  pool        exactly Sprint 5's, windows B and V exactly Sprint 5's
+  band        P50 * (1 + m -/+ w), fixed at T: m the lower weighted median of
+              r = (y - P50) / P50 (bias half-life 1 or 3 months), w the weighted
+              conformal quantile of |r - m| (half-life 6 months)
+  eligible    SARIMA and Chronos-1 only: incumbent, shift_hl{1,3} relative/
+              {pooled, horizon} (bias at T), shift_origin_hl{1,3} relative/pooled
+              (each pool row scored against the bias at its own origin)
+  diagnostic  the same six candidates for SeasonalNaive and Prophet
+  rule        per model, no one-method-for-every-model clause: the qualifier
+              with the lowest mean B/V interval score; none -> keep the entry
+
 Usage:
     python evaluation/interval_study.py            # reuse cached forecasts
     python evaluation/interval_study.py --refresh  # refit every model
@@ -64,7 +77,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from evaluation.calibration import (  # noqa: E402
     GROUPS, METHODS, clip_alpha, default_alphas, add_horizon, apply_conformal, describe,
-    fit_aci_conformal, fit_conformal, fit_rolling_conformal, no_calibration, with_origin_horizon,
+    fit_aci_conformal, fit_conformal, fit_rolling_conformal, fit_shift_conformal, no_calibration,
+    with_origin_horizon,
 )
 from evaluation.metrics import coverage  # noqa: E402
 
@@ -101,6 +115,19 @@ INCUMBENT = {
     "Prophet": {"method": "scaled", "group": "horizon"},
     "Chronos": {"method": "relative", "group": "pooled"},
 }
+
+# Sprint 6, fixed on docs/sprint-board.md (ab8183c) before measuring. Pools and
+# windows are Sprint 5's; the width keeps HALF_LIFE, the level LEVEL.
+SHIFT_ELIGIBLE = ("SARIMA", "Chronos")     # model keys; SeasonalNaive and Prophet are diagnostics
+SHIFT_CANDIDATES = {
+    "shift_hl1 relative/pooled": {"bias_at": "as_of", "bias_half_life": 1, "group": "pooled"},
+    "shift_hl3 relative/pooled": {"bias_at": "as_of", "bias_half_life": 3, "group": "pooled"},
+    "shift_hl1 relative/horizon": {"bias_at": "as_of", "bias_half_life": 1, "group": "horizon"},
+    "shift_hl3 relative/horizon": {"bias_at": "as_of", "bias_half_life": 3, "group": "horizon"},
+    "shift_origin_hl1 relative/pooled": {"bias_at": "origin", "bias_half_life": 1, "group": "pooled"},
+    "shift_origin_hl3 relative/pooled": {"bias_at": "origin", "bias_half_life": 3, "group": "pooled"},
+}
+SHIFT_KEYS = ("bias_half_life", "bias_at")   # config keys only a shift_relative entry carries
 
 
 def load_config() -> dict:
@@ -380,10 +407,9 @@ def _q_summary(calib: dict) -> str:
     return text
 
 
-def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
-                   model_keys: dict, horizon: int, refresh: bool, val_end: pd.Timestamp) -> dict:
-    """Score every Sprint 5 candidate on windows B and V and apply the rule
-    fixed on docs/sprint-board.md. Returns the tables and the decision."""
+def scored_windows(cfg: dict, horizon: int) -> dict:
+    """Windows B and V, as Sprint 5 fixed them (Sprint 6 reuses them), from
+    configs/model.yaml. Raises if the config moves them off the fixed dates."""
     train_end = pd.Timestamp(cfg["data"]["train_end"]) + pd.offsets.MonthEnd(0)
     windows = {
         # name: (scored origin T, frame key of the scored window, frame key of the previous half-year)
@@ -396,6 +422,14 @@ def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
         raise ValueError(f"configs/model.yaml moves the Sprint 5 windows ({moved}); they were fixed "
                          f"on the board at {({w: f'{t:%Y-%m-%d}' for w, t in SPRINT5_WINDOWS.items()})} "
                          f"and a change needs a new rule")
+    return windows
+
+
+def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
+                   model_keys: dict, horizon: int, refresh: bool, val_end: pd.Timestamp) -> dict:
+    """Score every Sprint 5 candidate on windows B and V and apply the rule
+    fixed on docs/sprint-board.md. Returns the tables and the decision."""
+    windows = scored_windows(cfg, horizon)
     rows, checks = [], []
     for model in models:
         mcfg = INCUMBENT[model_keys[model]]
@@ -454,25 +488,131 @@ def adaptive_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
             "checks": pd.DataFrame(checks), "decision": decision}
 
 
+# ── Sprint 6: bias-shifted bands ──────────────────────────────────────────────
+
+def _shift_scheme(spec: dict) -> str:
+    return "shift" if spec["bias_at"] == "as_of" else "shift_origin"
+
+
+def _shift_summary(calib: dict) -> str:
+    """describe() plus the centre and half-width: one value for a pooled band,
+    the min–max range over the horizons otherwise."""
+    def values(d: dict) -> str:
+        v = list(d.values())
+        return f"{v[0]:.4f}" if calib["group"] == "pooled" else f"{min(v):.4f}–{max(v):.4f}"
+    text = f"{describe(calib)}; bias {values(calib['bias'])}; width {values(calib['width'])}"
+    if calib["bias_at"] == "origin":
+        text += f"; rows without a bias {calib['n_no_bias']}"
+    return text
+
+
+def _clipped_rows(scored: pd.DataFrame, calib: dict) -> int:
+    """Scored rows in a group where |bias| > width, i.e. where apply_conformal's
+    P10 <= P50 <= P90 ordering sets one bound to P50."""
+    keys = scored["horizon"] if calib["group"] == "horizon" else pd.Series("all", index=scored.index)
+    return int(keys.isin(calib["clipped_groups"]).sum())
+
+
+def shift_study(df: pd.DataFrame, cfg: dict, models: list[str], frames: dict,
+                model_keys: dict, horizon: int, refresh: bool, val_end: pd.Timestamp) -> dict:
+    """Score the Sprint 6 candidates on windows B and V, with adaptive_study's
+    pools, and apply the per-model rule fixed on docs/sprint-board.md. Only the
+    SHIFT_ELIGIBLE models are eligible (and get the incumbent row); the others
+    are scored as diagnostics. Returns the tables and the decision."""
+    windows = scored_windows(cfg, horizon)
+    rows, checks = [], []
+    for model in models:
+        key = model_keys[model]
+        eligible = key in SHIFT_ELIGIBLE
+        for wname, (T, scored_key, prev_key) in windows.items():
+            scored = with_origin_horizon(frames[(model, scored_key)], T)
+            origins = month_ends(ROLLING_START, T - pd.offsets.MonthEnd(1))
+            pool = rolling_forecasts(model, df, cfg, origins, horizon, refresh, cut=T)
+            assert pool["timestamp"].max() <= val_end, "a pool row falls after val_end"
+            check = {"model": model, "window": wname, "T": f"{T:%Y-%m-%d}", "origins": len(origins),
+                     "pool_rows_resolved": int(((pool["timestamp"] <= T) & pool["ridership"].notna()).sum())}
+
+            def add(candidate, scheme, method, group, out, calib_text, clipped):
+                rows.append({"model": model, "window": wname, "candidate": candidate, "scheme": scheme,
+                             "method": method, "group": group, "eligible": eligible,
+                             "calibrator": calib_text, "Clipped_rows": clipped, **score(out, val_end)})
+
+            if eligible:
+                # Incumbent exactly as adaptive_study builds it (INCUMBENT, previous half-year).
+                mcfg = INCUMBENT[key]
+                imethod = mcfg.get("method", "none")
+                if imethod in (None, "none"):
+                    add("incumbent", "own band", "-", "-", no_calibration(scored), "own band", 0)
+                else:
+                    igroup = mcfg.get("group", "pooled")
+                    calib = fit_conformal(frames[(model, prev_key)], imethod, igroup, LEVEL)
+                    add("incumbent", "single", imethod, igroup, apply_conformal(scored, calib),
+                        describe(calib), 0)
+
+            for name, spec in SHIFT_CANDIDATES.items():
+                calib = fit_shift_conformal(pool, spec["group"], LEVEL, T, bias_half_life=spec["bias_half_life"],
+                                            half_life=HALF_LIFE, bias_at=spec["bias_at"])
+                add(name, _shift_scheme(spec), "relative", spec["group"], apply_conformal(scored, calib),
+                    _shift_summary(calib), _clipped_rows(scored, calib))
+                if spec["bias_at"] == "origin":
+                    check[f"n_no_bias {name}"] = calib["n_no_bias"]
+            checks.append(check)
+
+    cand = pd.DataFrame(rows)
+    rule_all = rule_table(cand)
+    sel, _, decision = apply_rule(rule_all, [m for m in models if model_keys[m] in SHIFT_ELIGIBLE],
+                                  common=False)
+    return {"candidates": cand, "rule_all": rule_all, "selection": sel, "decision": decision,
+            "checks": pd.DataFrame(checks)}
+
+
+def _config_entry(c: dict) -> tuple:
+    """The calibrator a configs/model.yaml entry deploys, as Sprint 5's check compares it."""
+    return (c.get("method", "none"), c.get("group", "pooled") if c.get("method", "none") != "none" else "-",
+            c.get("scheme", "split"), c.get("half_life"), c.get("first_origin"))
+
+
 def check_config_matches_decision(model: str, mcfg: dict, decision: dict, incumbent: dict) -> None:
     """configs/model.yaml must carry what the study validated: the chosen
     candidate, or the incumbent when nothing qualified. Anything else would
     deploy a calibrator nobody scored, so stop."""
-    def entry(c):
-        return (c.get("method", "none"), c.get("group", "pooled") if c.get("method", "none") != "none" else "-",
-                c.get("scheme", "split"), c.get("half_life"), c.get("first_origin"))
     choice = decision["choice"]
-    if choice == "keep current entry":
-        expected = entry(incumbent)
+    if choice in ("keep current entry", "incumbent"):
+        # The incumbent is the current entry, so choosing it is keeping it.
+        expected = _config_entry(incumbent)
     else:
         scheme, rest = choice.split(" ")
         method, group = rest.split("/")
         if scheme != "rolling_hl6":
             raise ValueError(f"{model}: deploying {choice!r} is not implemented")
         expected = (method, group, "rolling", HALF_LIFE, f"{ROLLING_START:%Y-%m-%d}")
-    if entry(mcfg) != expected:
-        raise ValueError(f"{model}: configs/model.yaml has {entry(mcfg)}, but the study validated "
+    if _config_entry(mcfg) != expected:
+        raise ValueError(f"{model}: configs/model.yaml has {_config_entry(mcfg)}, but the study validated "
                          f"{expected} ({choice})")
+
+
+def check_config_matches_shift_decision(model: str, mcfg: dict, decision: dict, incumbent: dict) -> None:
+    """Sprint 6's check, which supersedes Sprint 5's for the SHIFT_ELIGIBLE
+    models: configs/model.yaml must carry the chosen shift candidate as a
+    shift_relative entry, or, when nothing qualified (or the incumbent itself
+    won), the incumbent with no shift keys. Anything else stops."""
+    choice = decision["choice"]
+    have = _config_entry(mcfg) + tuple(mcfg.get(k) for k in SHIFT_KEYS)
+    if choice in ("keep current entry", "incumbent"):
+        # The incumbent is the current entry, so choosing it is keeping it.
+        expected = _config_entry(incumbent) + (None, None)
+        ok = _config_entry(mcfg) == _config_entry(incumbent) and not any(k in mcfg for k in SHIFT_KEYS)
+    elif choice in SHIFT_CANDIDATES:
+        spec = SHIFT_CANDIDATES[choice]
+        expected = ("shift_relative", spec["group"], "rolling", HALF_LIFE, f"{ROLLING_START:%Y-%m-%d}",
+                    spec["bias_half_life"], spec["bias_at"])
+        ok = have == expected
+    else:
+        raise ValueError(f"{model}: configs/model.yaml has {have}, but the study validated {choice!r}, "
+                         f"which is not a Sprint 6 candidate")
+    if not ok:
+        raise ValueError(f"{model}: configs/model.yaml has {have} (fields: method, group, scheme, half_life, "
+                         f"first_origin, {', '.join(SHIFT_KEYS)}), but the study validated {expected} ({choice})")
 
 
 def store_cut_check(pool: pd.DataFrame, pool_full: pd.DataFrame, T: pd.Timestamp, horizon: int) -> dict:
@@ -526,19 +666,25 @@ def rule_table(cand: pd.DataFrame) -> pd.DataFrame:
     return t.drop(columns=["passes_B", "passes_V"])
 
 
-def apply_rule(rule_all: pd.DataFrame, models: list[str]):
+def apply_rule(rule_all: pd.DataFrame, models: list[str], common: bool = True):
     """The Sprint 5 rule on the eligible rows. Ties on the mean score break
-    by candidate name, so the order never depends on input order."""
+    by candidate name, so the order never depends on input order.
+
+    common=False is Sprint 6's rule: no one-method-for-every-model clause, so
+    each model takes its own lowest-scoring qualifier (the returned frame of
+    common qualifiers is then empty)."""
     order = ["mean_score_exact", "candidate"]
     sel = (rule_all[rule_all["eligible"]].drop(columns=["eligible", "scheme"])
            .sort_values(["model"] + order, kind="stable").reset_index(drop=True))
     q = sel[sel["qualifies"]]
-    common = (q[q["candidate"] != "incumbent"].groupby("candidate")
+    shared = (q[q["candidate"] != "incumbent"].groupby("candidate")
               .agg(models=("model", "nunique"), mean_score=("mean_score_exact", "mean")).reset_index())
-    common = common[common["models"] == len(models)].sort_values(["mean_score", "candidate"], kind="stable")
+    shared = shared[shared["models"] == len(models)].sort_values(["mean_score", "candidate"], kind="stable")
+    if not common:
+        shared = shared.iloc[0:0]
     decision = {}
-    if not common.empty:
-        winner = common.iloc[0]["candidate"]
+    if not shared.empty:
+        winner = shared.iloc[0]["candidate"]
         decision = {m: {"choice": winner, "basis": "one method qualifies for every model"} for m in models}
     else:
         for m in models:
@@ -548,33 +694,45 @@ def apply_rule(rule_all: pd.DataFrame, models: list[str]):
             else:
                 decision[m] = {"choice": qm.iloc[0]["candidate"], "basis": "lowest-scoring qualifier for this model",
                                "mean_IntervalScore_%": float(qm.iloc[0]["mean_IntervalScore_%"])}
-    return sel.drop(columns=["mean_score_exact"]), common, decision
+    return sel.drop(columns=["mean_score_exact"]), shared, decision
+
+
+_MD_LABEL = {"Chronos1_ZeroShot (chronos-t5-small)": "Chronos-1"}
+_MD_ORDER = ["SeasonalNaive", "SARIMA", "Prophet", "Chronos-1"]
+
+
+def _md_fmt(x):
+    if pd.isna(x):
+        return "—"
+    return "∞" if x == float("inf") else f"{x:g}"
+
+
+def _md_table(t: pd.DataFrame) -> list[str]:
+    """One validation table (docs/interval-calibration.md layout) from rule_all rows."""
+    fmt = _md_fmt
+    t = t.assign(model=t["model"].replace(_MD_LABEL))
+    t = t.assign(_m=t["model"].map(_MD_ORDER.index),
+                 _s=t["mean_score_exact"].fillna(np.inf)).sort_values(["_m", "_s", "candidate"], kind="stable")
+    out = ["| Model | Candidate | B coverage % | B below / above % | B score | V coverage % "
+           "| V below / above % | V score | Mean score | Qualifies |",
+           "|---|---|---:|---|---:|---:|---|---:|---:|---|"]
+    for d in t.to_dict("records"):
+        out.append(f"| {d['model']} | {d['candidate']} | {fmt(d['Coverage_%_B'])} | {fmt(d['Below_P10_%_B'])} / "
+                   f"{fmt(d['Above_P90_%_B'])} | {fmt(d['IntervalScore_%_B'])} | {fmt(d['Coverage_%_V'])} | "
+                   f"{fmt(d['Below_P10_%_V'])} / {fmt(d['Above_P90_%_V'])} | {fmt(d['IntervalScore_%_V'])} | "
+                   f"{fmt(d['mean_IntervalScore_%'])} | {'**yes**' if d['qualifies'] else 'no'} |")
+    return out
+
+
+def _md_sections(sections) -> str:
+    lines = []
+    for title, t in sections:
+        lines += [f"<!-- {title} -->", *_md_table(t), ""]
+    return "\n".join(lines)
 
 
 def markdown_tables(rule_all: pd.DataFrame) -> str:
     """The validation tables in docs/interval-calibration.md, from rule_all."""
-    label = {"Chronos1_ZeroShot (chronos-t5-small)": "Chronos-1"}
-    order = ["SeasonalNaive", "SARIMA", "Prophet", "Chronos-1"]
-
-    def fmt(x):
-        if pd.isna(x):
-            return "—"
-        return "∞" if x == float("inf") else f"{x:g}"
-
-    def table(t: pd.DataFrame) -> list[str]:
-        t = t.assign(model=t["model"].replace(label))
-        t = t.assign(_m=t["model"].map(order.index),
-                     _s=t["mean_score_exact"].fillna(np.inf)).sort_values(["_m", "_s", "candidate"], kind="stable")
-        out = ["| Model | Candidate | B coverage % | B below / above % | B score | V coverage % "
-               "| V below / above % | V score | Mean score | Qualifies |",
-               "|---|---|---:|---|---:|---:|---|---:|---:|---|"]
-        for d in t.to_dict("records"):
-            out.append(f"| {d['model']} | {d['candidate']} | {fmt(d['Coverage_%_B'])} | {fmt(d['Below_P10_%_B'])} / "
-                       f"{fmt(d['Above_P90_%_B'])} | {fmt(d['IntervalScore_%_B'])} | {fmt(d['Coverage_%_V'])} | "
-                       f"{fmt(d['Below_P10_%_V'])} / {fmt(d['Above_P90_%_V'])} | {fmt(d['IntervalScore_%_V'])} | "
-                       f"{fmt(d['mean_IntervalScore_%'])} | {'**yes**' if d['qualifies'] else 'no'} |")
-        return out
-
     r = rule_all
     sections = [
         ("Eligible candidates", r[r["eligible"]]),
@@ -582,10 +740,18 @@ def markdown_tables(rule_all: pd.DataFrame) -> str:
          r[r["scheme"].isin(["rolling_eq", "aci_window", "monthly_recal"])]),
         ("Diagnostics: single-window variants", r[(r["scheme"] == "single") & ~r["eligible"]]),
     ]
-    lines = []
-    for title, t in sections:
-        lines += [f"<!-- {title} -->", *table(t), ""]
-    return "\n".join(lines)
+    return _md_sections(sections)
+
+
+def shift_markdown_tables(rule_all: pd.DataFrame) -> str:
+    """The Sprint 6 validation tables, from shift_study's rule_all, in Sprint
+    5's layout: the eligible models' candidates, then the diagnostics."""
+    r = rule_all
+    eligible = r["eligible"].astype(bool)
+    return _md_sections([
+        ("Eligible candidates: SARIMA, Chronos-1", r[eligible]),
+        ("Diagnostics: SeasonalNaive, Prophet (not eligible)", r[~eligible]),
+    ])
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -688,6 +854,9 @@ def main():
     # ── Sprint 5: calibrations that track recent errors ────────────────────────
     adaptive = adaptive_study(df, cfg, models, frames, model_keys, horizon, args.refresh, val_end)
 
+    # ── Sprint 6: bias-shifted bands (same pools; store-cut check done above) ──
+    shift = shift_study(df, cfg, models, frames, model_keys, horizon, args.refresh, val_end)
+
     # ── Deployed calibrators: fit as benchmarks.py will ────────────────────────
     # scheme split: benchmarks.py fits on the validation-window forecasts (fit
     # ending train_end) — the "eval" frames here. scheme rolling: on the pool
@@ -695,27 +864,49 @@ def main():
     # and these are the quantiles the test band will use.
     chosen = (cfg.get("calibration") or {}).get("models") or {}
     deployed = []
+
+    def rounded(d: dict) -> dict:
+        return {k: [round(x, 4) for x in v] if isinstance(v, tuple) else round(v, 4) for k, v in d.items()}
+
+    def deployed_pool(model: str, mcfg: dict) -> tuple[pd.DataFrame, pd.Timestamp]:
+        # The test-time pool: origins first_origin .. val_end - 1 month,
+        # targets on or before val_end — all inside this study's data.
+        vend = val_end + pd.offsets.MonthEnd(0)
+        dep_origins = month_ends(pd.Timestamp(mcfg["first_origin"]), vend - pd.offsets.MonthEnd(1))
+        return rolling_forecasts(model, df, cfg, dep_origins, horizon, args.refresh, cut=vend), vend
+
     for model in models:
         mcfg = chosen.get(model_keys[model]) or {}
-        check_config_matches_decision(model, mcfg, adaptive["decision"][model], INCUMBENT[model_keys[model]])
+        if model_keys[model] in SHIFT_ELIGIBLE:
+            # Sprint 6's decision supersedes Sprint 5's for these models.
+            check_config_matches_shift_decision(model, mcfg, shift["decision"][model],
+                                                INCUMBENT[model_keys[model]])
+        else:
+            check_config_matches_decision(model, mcfg, adaptive["decision"][model], INCUMBENT[model_keys[model]])
         if mcfg.get("method", "none") == "none":
             deployed.append({"model": model, "calibrator": f"none ({mcfg.get('reason', 'not listed')})"})
+            continue
+        if mcfg["method"] == "shift_relative":
+            missing = [k for k in ("half_life", *SHIFT_KEYS) if k not in mcfg]
+            if mcfg.get("scheme") != "rolling" or missing:
+                raise ValueError(f"{model}: method shift_relative needs scheme rolling and "
+                                 f"half_life, {', '.join(SHIFT_KEYS)} (missing: {missing})")
+            pool, vend = deployed_pool(model, mcfg)
+            calib = fit_shift_conformal(pool, mcfg.get("group", "pooled"), LEVEL, vend,
+                                        bias_half_life=mcfg["bias_half_life"], half_life=mcfg["half_life"],
+                                        bias_at=mcfg["bias_at"])
+            deployed.append({"model": model, "calibrator": describe(calib), "q": rounded(calib["q"]),
+                             "bias": rounded(calib["bias"]), "width": rounded(calib["width"])})
             continue
         if mcfg.get("scheme", "split") == "rolling":
             if "half_life" not in mcfg:
                 raise ValueError(f"{model}: scheme rolling needs half_life (null for equal weights)")
-            # The test-time pool: origins first_origin .. val_end - 1 month,
-            # targets on or before val_end — all inside this study's data.
-            vend = val_end + pd.offsets.MonthEnd(0)
-            dep_origins = month_ends(pd.Timestamp(mcfg["first_origin"]), vend - pd.offsets.MonthEnd(1))
-            pool = rolling_forecasts(model, df, cfg, dep_origins, horizon, args.refresh, cut=vend)
+            pool, vend = deployed_pool(model, mcfg)
             calib = fit_rolling_conformal(pool, mcfg["method"], mcfg.get("group", "pooled"), LEVEL, vend,
                                           half_life=mcfg.get("half_life"))
         else:
             calib = fit_conformal(frames[(model, "eval")], mcfg["method"], mcfg.get("group", "pooled"), LEVEL)
-        deployed.append({"model": model, "calibrator": describe(calib),
-                         "q": {k: [round(x, 4) for x in v] if isinstance(v, tuple) else round(v, 4)
-                               for k, v in calib["q"].items()}})
+        deployed.append({"model": model, "calibrator": describe(calib), "q": rounded(calib["q"])})
 
     # ── Write ──────────────────────────────────────────────────────────────────
     adaptive["candidates"].to_csv(OUT_DIR / "adaptive_candidates.csv", index=False)
@@ -727,6 +918,13 @@ def main():
     adaptive["checks"].to_csv(OUT_DIR / "adaptive_checks.csv", index=False)
     (OUT_DIR / "adaptive_decision.yaml").write_text(
         yaml.safe_dump(adaptive["decision"], sort_keys=False, allow_unicode=True))
+    shift["candidates"].to_csv(OUT_DIR / "shift_candidates.csv", index=False)
+    shift["selection"].to_csv(OUT_DIR / "shift_selection.csv", index=False)
+    shift["rule_all"].drop(columns=["mean_score_exact"]).to_csv(OUT_DIR / "shift_rule_all.csv", index=False)
+    (OUT_DIR / "shift_tables.md").write_text(shift_markdown_tables(shift["rule_all"]))
+    shift["checks"].to_csv(OUT_DIR / "shift_checks.csv", index=False)
+    (OUT_DIR / "shift_decision.yaml").write_text(
+        yaml.safe_dump(shift["decision"], sort_keys=False, allow_unicode=True))
     table.to_csv(OUT_DIR / "validation_methods.csv", index=False)
     sens.to_csv(OUT_DIR / "validation_sensitivity.csv", index=False)
     per_method.to_csv(OUT_DIR / "validation_selection.csv", index=False)
@@ -766,6 +964,15 @@ def main():
     print(adaptive["common"].to_string(index=False) if not adaptive["common"].empty else "  none")
     print("\nDecision:")
     print(yaml.safe_dump(adaptive["decision"], sort_keys=False, allow_unicode=True))
+
+    print("\n=== Sprint 6: pools (store-cut check: Sprint 5's, same pools) ===")
+    print(shift["checks"].to_string(index=False))
+    print("\n=== Sprint 6: bias-shifted candidates, windows B (2024-H2) and V (2025-H1) ===")
+    print(shift["candidates"][cols + ["Clipped_rows"]].to_string(index=False))
+    print("\n=== Sprint 6: SARIMA and Chronos-1 under the fixed rule (both windows, per model) ===")
+    print(shift["selection"].to_string(index=False))
+    print("\nDecision (supersedes Sprint 5's for SARIMA and Chronos-1):")
+    print(yaml.safe_dump(shift["decision"], sort_keys=False, allow_unicode=True))
 
 
 if __name__ == "__main__":
