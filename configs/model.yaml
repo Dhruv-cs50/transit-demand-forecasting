@@ -12,7 +12,7 @@ data:
   # Chronological splits — no data leakage
   # train: everything up to train_end
   # val  : train_end < ts <= val_end
-  # test : ts > val_end
+  # test : val_end < ts <= test_end
   # Windows sit entirely after the 2020 ridership collapse. The feature store
   # jumps 2019 -> 2022 (no 2020-21 data at all), so training that starts
   # earlier straddles a ~2.8x level break. 2024 became available once
@@ -21,6 +21,7 @@ data:
   train_start: "2022-01-01"
   train_end: "2024-12-31"   # train: Jan 2022 - Dec 2024 (36 months)
   val_end:   "2025-06-30"   # val: Jan-Jun 2025 | test: Jul-Dec 2025
+  test_end:  "2025-12-31"   # the 6-month test window Jul-Dec 2025; a later month must never enter it
   # Test spans 6 months, matching forecast_horizon_steps below, so every
   # model is scored over the same window. A longer test split scores the
   # naive baseline across every test month while the others forecast only
@@ -67,23 +68,37 @@ prophet:
   changepoint_prior_scale: 0.05   # flexibility of trend — low = smooth
 
 # ── Interval calibration (P10/P90) ────────────────────────────────────────────
-# Split-conformal widening of each model's band, fit on the validation split
-# (from a fit ending train_end) and applied to the test forecasts by
+# Conformal widening of each model's band, applied to the test forecasts by
 # models/baselines/benchmarks.py. P50 is never changed.
 #
-# Chosen per model on validation only (evaluation/interval_study.py:
-# calibrate on 2024-H2, score 2025-H1). The rule, fixed before any number was
-# seen: 75-85% coverage with neither tail above 15% misses; lowest interval
-# score among qualifiers. No single method qualified for every model, and none
-# qualified for SARIMA or SeasonalNaive, so those two keep their own bands.
-# See docs/interval-calibration.md. A model not listed keeps its own band.
+# scheme: split (default, Sprint 4) — one quantile from the validation split's
+#   forecasts (fit ending train_end).
+# scheme: rolling (Sprint 5) — weighted quantile over forecasts from every
+#   monthly origin first_origin .. val_end - 1 month whose target is on or
+#   before val_end, weight 0.5**(age / half_life months).
+#
+# method: shift_relative (Sprint 6) — the rolling pool above, but the band is
+#   re-centred: P50 * (1 + m -/+ w), m the lower weighted median of the
+#   relative error (y - P50) / P50, weight 0.5**(age / bias_half_life), w the
+#   weighted conformal quantile of |r - m| with half_life. bias_at: as_of
+#   estimates m at the forecast origin; origin, at each pool row's own origin.
+#
+# Chosen per model on data up to val_end only (evaluation/interval_study.py).
+# Sprint 5 rule, fixed before any number was seen: 75-85% coverage with
+# neither tail above 15% misses on BOTH 2024-H2 and 2025-H1; lowest mean
+# interval score; a model with no qualifier keeps its entry. SARIMA and
+# Chronos-1 had none. Sprint 6 (the same test, SARIMA and Chronos-1 only,
+# per model) found a bias-shifted band for Chronos-1; SARIMA still has
+# none. See docs/interval-calibration.md. A model not listed keeps its own
+# band.
 calibration:
   level: 0.8
   models:
-    SeasonalNaive: {method: none, reason: "no method passed validation"}
+    SeasonalNaive: {method: asym_relative, group: horizon, scheme: rolling, half_life: 6, first_origin: "2023-12-31"}
     SARIMA:        {method: none, reason: "no method passed validation"}
-    Prophet:       {method: scaled, group: horizon}
-    Chronos:       {method: relative, group: pooled, validated_for: "amazon/chronos-t5-small"}
+    Prophet:       {method: relative, group: pooled, scheme: rolling, half_life: 6, first_origin: "2023-12-31"}
+    Chronos:       {method: shift_relative, group: horizon, scheme: rolling, half_life: 6, bias_half_life: 1,
+                    bias_at: as_of, first_origin: "2023-12-31", validated_for: "amazon/chronos-t5-small"}
 
 # ── Serving ───────────────────────────────────────────────────────────────────
 serving:

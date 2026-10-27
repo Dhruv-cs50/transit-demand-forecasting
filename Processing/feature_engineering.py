@@ -705,6 +705,7 @@ def main():
         train_end=model_cfg["data"]["train_end"],
         val_end=model_cfg["data"]["val_end"],
         train_start=model_cfg["data"].get("train_start"),
+        test_end=model_cfg["data"].get("test_end"),
     )
 
     # Print feature summary

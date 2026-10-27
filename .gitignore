@@ -14,6 +14,7 @@ data/processed/*
 models/baselines/outputs/
 models/chronos2/outputs/
 models/chronos2/weights/
+evaluation/outputs/
 
 # Claude / agent internals
 .agents/
@@ -102,3 +103,6 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Run outputs (benchmarks, interval study cache, calibrators): regenerated, never committed
+evaluation/outputs/

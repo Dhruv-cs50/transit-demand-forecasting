@@ -374,7 +374,7 @@ function setDataNote(res) {
 
 /* Fetched once. redraw() is a no-op until initMap() has built the map, and
    initMap() draws with whatever levels are in place, so either may finish first. */
-fetch('data/stations_ridership.json')
+fetch('data/stations_ridership.json', { cache: 'no-cache' })
   .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
   .then(applyRidership, () => null)
   .then(res => { setDataNote(res); if (res && res.matched) redraw(); });

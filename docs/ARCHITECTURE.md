@@ -12,7 +12,7 @@ flowchart TD
     end
 
     subgraph ING["Ingestion — machine_learning_files/"]
-        I1[fetch_bart_od.py]
+        I1[bart_od_from_xlsx.py\nhand-downloaded workbooks]
         I2[fetch_weather_openmeteo.py]
         I3[fetch_events.py]
         I4[fetch_511_transit.py]
@@ -83,12 +83,12 @@ flowchart TD
 | --- | --- | --- |
 | Source configuration | `configs/sources.yaml` | API endpoints, station coordinates, venue IDs, key placeholders |
 | Model configuration | `configs/model.yaml` | Granularity, split dates, context length, horizon, quantiles |
-| Ingestion | `machine_learning_files/fetch_*.py` | Download source data into `data/raw/` |
+| Ingestion | `machine_learning_files/fetch_*.py`, `machine_learning_files/bart_od_from_xlsx.py` | Download source data into `data/raw/`; BART's workbooks are downloaded by hand and converted by `bart_od_from_xlsx.py` (bart.gov answers `fetch_bart_od.py` with HTTP 403) |
 | Feature store | `machine_learning_files/merge_pipeline.py` | Build `data/processed/feature_store.parquet` and chronological splits |
 | Feature engineering | `Processing/feature_engineering.py` | Add calendar, weather, event, lag, rolling, station covariates |
 | Validation | `evaluation/validators.py` | Schema checks, missing windows, coverage, anomaly detection |
 | Forecasting | `machine_learning_files/zero_shot.py`, `models/chronos2/`, `models/baselines/` | Produce forecast parquet files |
-| Website export | `scripts/export_website_data.py` | Convert model artifacts into `website/data/*.json`. `forecasts.json` gets Chronos-1's split-conformal P10/P90 band (the saved calibrator applied, never refit; 72.7% test coverage, not a dependable 80% interval), the model's own bounds as `p10_raw`/`p90_raw`, and an `interval_method` label |
+| Website export | `scripts/export_website_data.py` | Convert model artifacts into `website/data/*.json`. `forecasts.json` gets Chronos-1's bias-shifted P10/P90 band (the saved calibrator applied, never refit; 84.7% test coverage on one six-month window), the model's own bounds as `p10_raw`/`p90_raw`, and an `interval_method` label |
 | API service | `machine_learning_files/api.py` | FastAPI: fits SARIMA (`models/baselines/arima.py`) for the requested station on each `/forecast` and returns P10/P50/P90, with an `interval` field saying which band P10/P90 is |
 | Website | `website/` | React/Babel static frontend deployed on App Engine Standard |
 | Docker (pipeline) | `Dockerfile` | Reproducible full pipeline container |
@@ -98,7 +98,7 @@ flowchart TD
 ## Data Flow
 
 ```
-BART OD reports ──► fetch_bart_od.py           ──► data/raw/transit/bart/
+BART OD reports ──► bart_od_from_xlsx.py†      ──► data/raw/transit/bart/
 Open-Meteo API  ──► fetch_weather_openmeteo.py ──► data/raw/weather/
 Events APIs     ──► fetch_events.py            ──► data/raw/events/
                            │
@@ -134,6 +134,10 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
 \* `Dockerfile.api` takes no forecast outputs. It bakes in `feature_store.parquet`
 (committed) and `models/baselines/arima.py`, and the API fits SARIMA per request.
 It takes no calibrator either: SARIMA's band is served raw, so none is read.
+
+† bart.gov answers automated requests with HTTP 403, so the Ridership workbooks
+are downloaded by hand (see `data/MANIFEST.md`) and converted by
+`bart_od_from_xlsx.py`. `fetch_bart_od.py` exists but cannot download them.
 
 ## Artifact Contracts
 
