@@ -200,12 +200,33 @@ def test_test_window():
     assert w.train["timestamp"].max() == pd.Timestamp("2025-06-01")
 
 
-def test_window_raises_on_an_extra_evaluation_month():
+def test_a_month_after_test_end_is_not_scored():
+    # S7-09b: the test window ends at data.test_end, so a 2026 month in the
+    # store (for one station, or for all) is not an evaluation month. Before
+    # the bound this raised "exactly 6"; now it is excluded and the scored
+    # rows are those of the store without it.
     store = _store()
-    extra = store[(store["station_id"] == "S2") & (store["timestamp"] == pd.Timestamp("2025-12-01"))].copy()
-    extra["timestamp"] = pd.Timestamp("2026-01-01")
+    expected = build_window(store, _repo_config(), "test").evaluation.reset_index(drop=True)
+    dec = store[store["timestamp"] == pd.Timestamp("2025-12-01")]
+    for extra in (dec[dec["station_id"] == "S2"].copy(), dec.copy()):
+        extra["timestamp"] = pd.Timestamp("2026-01-01")
+        w = build_window(pd.concat([store, extra], ignore_index=True), _repo_config(), "test")
+        pd.testing.assert_frame_equal(w.evaluation.reset_index(drop=True), expected)
+        assert w.df["timestamp"].max() == pd.Timestamp("2026-01-01")
+
+
+def test_test_window_raises_on_a_missing_evaluation_month():
+    store = _store()
+    store = store[~((store["station_id"] == "S3") & (store["timestamp"] == pd.Timestamp("2025-09-01")))]
     with pytest.raises(ValueError, match="exactly 6"):
-        build_window(pd.concat([store, extra], ignore_index=True), _repo_config(), "test")
+        build_window(store, _repo_config(), "test")
+
+
+def test_test_window_needs_test_end():
+    cfg = _repo_config()
+    del cfg["data"]["test_end"]
+    with pytest.raises(ValueError, match="test_end is missing"):
+        build_window(_store(), cfg, "test")
 
 
 def test_window_raises_on_a_missing_evaluation_month():

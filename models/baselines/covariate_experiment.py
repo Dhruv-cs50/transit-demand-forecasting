@@ -134,7 +134,7 @@ def build_window(df: pd.DataFrame, cfg: dict, name: str) -> Window:
     The pre-registered windows. The config is copied and overridden in memory
     only; configs/model.yaml is never written.
 
-      test        cutoff = val_end; data as loaded; scored on ts > cutoff
+      test        cutoff = val_end; data as loaded; scored on cutoff < ts <= test_end
       validation  cutoff = train_end; data truncated to ts <= val_end;
                   scored on cutoff < ts <= val_end
 
@@ -152,7 +152,11 @@ def build_window(df: pd.DataFrame, cfg: dict, name: str) -> Window:
     if name == "test":
         cutoff = val_end
         window_df = df
-        evaluation = window_df[window_df["timestamp"] > cutoff]
+        # Bounded above as benchmarks.py bounds its test split, so a month
+        # added to the store after test_end is never scored. Raises when
+        # data.test_end is missing.
+        test_end = match(benchmarks.config_test_end(cfg))
+        evaluation = window_df[(window_df["timestamp"] > cutoff) & (window_df["timestamp"] <= test_end)]
     elif name == "validation":
         cutoff = match(data["train_end"])
         window_df = df[df["timestamp"] <= val_end]

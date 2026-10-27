@@ -70,6 +70,50 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
+# ── Test window ────────────────────────────────────────────────────────────────
+
+def config_test_end(cfg: dict) -> pd.Timestamp:
+    """data.test_end, the last timestamp the test split may hold (inclusive).
+
+    There is no default. Without an end the test split is everything after
+    val_end, so a month appended to the feature store (the nightly pipeline
+    rebuilds it) would enter the test split and change every published number.
+    """
+    value = (cfg.get("data") or {}).get("test_end")
+    if value is None or str(value).strip() == "":
+        raise ValueError(
+            "config data.test_end is missing: the test window is "
+            "val_end < ts <= test_end and needs an explicit end (configs/model.yaml "
+            "sets test_end: \"2025-12-31\"); without it a month added to the feature "
+            "store would silently enter the test split"
+        )
+    return pd.Timestamp(value)
+
+
+def match_store_tz(df: pd.DataFrame, ts: pd.Timestamp) -> pd.Timestamp:
+    """`ts` in the same tz space as df["timestamp"]."""
+    # Compare in the same tz space as df["timestamp"] — the feature store
+    # is tz-naive by default, so hard-coding tz-aware cutoffs here raises
+    # "Invalid comparison between dtype=datetime64[ns] and Timestamp".
+    if df["timestamp"].dt.tz is not None:
+        return ts.tz_localize("America/Los_Angeles") if ts.tzinfo is None \
+            else ts.tz_convert("America/Los_Angeles")
+    return ts.tz_localize(None) if ts.tzinfo is not None else ts
+
+
+def select_test_window(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """The test split: rows with val_end < timestamp <= test_end.
+
+    Both bounds come from cfg["data"] and are matched to the store's tz.
+    Raises ValueError when data.test_end is missing or not after val_end.
+    """
+    val_end = match_store_tz(df, pd.Timestamp(cfg["data"]["val_end"]))
+    test_end = match_store_tz(df, config_test_end(cfg))
+    if test_end <= val_end:
+        raise ValueError(f"config data.test_end ({test_end}) must be after data.val_end ({val_end})")
+    return df[(df["timestamp"] > val_end) & (df["timestamp"] <= test_end)]
+
+
 # ── Seasonal naive baseline ────────────────────────────────────────────────────
 
 def seasonal_naive_forecast(
@@ -732,19 +776,16 @@ def run_benchmarks(
     Run all models on the test set and produce a leaderboard.
     """
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
+    # A config without data.test_end fails here, before the calibrators below
+    # are deleted: a config error must not cost the last good run's files.
+    config_test_end(cfg)
     # Every calibrator left by an earlier run goes first, so a file present
     # after this run was fitted by it (see clear_saved_calibrators).
     removed = clear_saved_calibrators(CALIBRATOR_DIR)
     log.info(f"Removed {removed} saved calibrator(s) from {CALIBRATOR_DIR} before this run")
 
     def _match_tz(ts: pd.Timestamp) -> pd.Timestamp:
-        # Compare in the same tz space as df["timestamp"] — the feature store
-        # is tz-naive by default, so hard-coding tz-aware cutoffs here raises
-        # "Invalid comparison between dtype=datetime64[ns] and Timestamp".
-        if df["timestamp"].dt.tz is not None:
-            return ts.tz_localize("America/Los_Angeles") if ts.tzinfo is None \
-                else ts.tz_convert("America/Los_Angeles")
-        return ts.tz_localize(None) if ts.tzinfo is not None else ts
+        return match_store_tz(df, ts)
 
     freq       = cfg["data"].get("resample_freq", "MS")
     train_end  = _match_tz(pd.Timestamp(cfg["data"]["train_end"]))
@@ -757,7 +798,13 @@ def run_benchmarks(
     if train_start:
         start_ts = _match_tz(pd.Timestamp(train_start))
         train_df = train_df[train_df["timestamp"] >= start_ts]
-    test_df  = df[df["timestamp"] >  val_end]
+    # val_end < ts <= test_end. Bounded above so that a month added to the
+    # store after the test window never enters the test split.
+    test_df  = select_test_window(df, cfg)
+    test_end = _match_tz(config_test_end(cfg))
+    after = int((df["timestamp"] > test_end).sum())
+    if after:
+        log.info(f"{after:,} store row(s) after test_end {test_end:%Y-%m-%d} are outside the test split")
     # Validation split: the calibration window for the P10/P90 intervals
     # (see calibrate_intervals). Each model forecasts it from a fit that ends
     # at train_end, after its test forecast is made.

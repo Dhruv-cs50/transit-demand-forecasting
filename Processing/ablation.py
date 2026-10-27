@@ -412,7 +412,8 @@ def run_ablation(
         )
 
     # as_of = val_end: forecast prediction_length steps starting right after
-    # this, landing on the test window (ts > val_end) that test_df covers.
+    # this, landing on the test window (val_end < ts <= test_end, as
+    # make_splits writes splits/test.parquet) that test_df covers.
     as_of = pd.Timestamp(cfg["data"]["val_end"])
     if feature_store["timestamp"].dt.tz is not None:
         as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None \

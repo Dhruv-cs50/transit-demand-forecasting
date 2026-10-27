@@ -12,7 +12,7 @@ data:
   # Chronological splits — no data leakage
   # train: everything up to train_end
   # val  : train_end < ts <= val_end
-  # test : ts > val_end
+  # test : val_end < ts <= test_end
   # Windows sit entirely after the 2020 ridership collapse. The feature store
   # jumps 2019 -> 2022 (no 2020-21 data at all), so training that starts
   # earlier straddles a ~2.8x level break. 2024 became available once
@@ -21,6 +21,7 @@ data:
   train_start: "2022-01-01"
   train_end: "2024-12-31"   # train: Jan 2022 - Dec 2024 (36 months)
   val_end:   "2025-06-30"   # val: Jan-Jun 2025 | test: Jul-Dec 2025
+  test_end:  "2025-12-31"   # the 6-month test window Jul-Dec 2025; a later month must never enter it
   # Test spans 6 months, matching forecast_horizon_steps below, so every
   # model is scored over the same window. A longer test split scores the
   # naive baseline across every test month while the others forecast only
