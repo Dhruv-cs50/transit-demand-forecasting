@@ -14,6 +14,7 @@ data/processed/*
 models/baselines/outputs/
 models/chronos2/outputs/
 models/chronos2/weights/
+evaluation/outputs/
 
 # Claude / agent internals
 .agents/

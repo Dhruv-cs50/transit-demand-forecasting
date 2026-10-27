@@ -1,5 +1,62 @@
 # Sprint board
 
+## Sprint 7 — Integrate every open PR into main and verify it (opened 2026-10-26)  |  Status: On track
+
+(Named 7: Sprint 5 is the adaptive-calibration branch, Sprint 6 the bias-shift plan.)
+
+**Goal.** Main holds every finished branch (#151's backlog plus #140, #143, #145, #146), the
+serving path honours #145's rolling calibrators, and one gate run on integrated main reproduces
+every published number. Branch `sprint7/integrate`, cut from `sprint3/pr-backlog` @ `bde247f`
+(the head of #151). The board is edited only here, by the orchestrator.
+
+**User decisions (2026-10-26).** Close the superseded daily-audit draft PRs and delete their
+branches. Remove the AutoGluon/AutoETS scaffolding (Sprint 8). Redeploy website and API after the
+Sprint 8 gates, each deploy confirmed by the user first. In scope after integration: the bias-
+shift sprint (Sprint 6, its own session), a Chronos-2 covariate trial, and 511/Ticketmaster data
+(keys come from the user). Merges stay the user's.
+
+**Gates.** Leaderboard on integrated main (#152 merged into `main`): WAPE 3.21 / 5.75 / 9.70 / 10.75, n = 300; coverage as
+the merged PRs publish it (SARIMA 96.67, Prophet 74.00, Chronos-1 72.67, SeasonalNaive 83.67 once
+#145 and C3 land); two runs byte-identical; full pytest suite passes in `~/.venvs/tdf-py314`;
+`py_compile` and JSX parse pass; `model_comparison.json` regenerated from the gated run.
+
+| ID | Goal | Owner | Est. | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|---|
+| S7-01 | Close the superseded daily-audit drafts with a disposition each; delete their `nifty-goodall` branches | orchestrator | 45m | — | No open draft from the routine; no branch deleted that an open non-draft PR uses; list recorded here | done — 2026-10-26: 58 drafts closed (#4–#24, #28–#37, #39–#41, #44–#55, #58–#65, #119, #122, #128, #135), each with its Sprint 3 disposition comment; 0 failures. The 60 prepared comments covered all 58 (#2 and #43 were already closed). 134 `claude/nifty-goodall-*` branches deleted; none was an open PR's head. Branch → SHA list kept outside the repo (session notes, `nifty-goodall-branches-2026-10-26.txt`) for restores |
+| S7-10 | Retarget #140, #143, #145, #146 from their merged bases to `sprint3/pr-backlog` | orchestrator | 10m | — | Each PR's diff is only its own commits | done — 2026-10-26; GitHub: #146 mergeable, #140/#143/#145 conflicting as the merge-order analysis predicted |
+| S7-05 | #146 merges cleanly into the backlog: run its tests on the merge result | orchestrator | 15m | S7-10 | `test_sarimax_exog`, `test_covariate_experiment`, `test_api` pass on the merge | done — trial merge clean (no conflict); 162 tests + 30 subtests pass in `~/.venvs/tdf-py314`. `test_api` needs the API image's env (fastapi, Python 3.11), which no local env has: moved to S7-13 |
+| S7-03 | Design: how the serving path (#144's `interval_plan`, `save_calibrator`, `serve_band`, labels) treats #145's `scheme: rolling` calibrators | systems architect | 45m | — | Written decision with files, functions and tests named | done — rolling calibrators are scored on the leaderboard only, never saved or served (nothing serves Prophet or SeasonalNaive); `interval_plan` becomes scheme-aware and the single label source; `serve_band` refuses non-split schemes loudly; 6-hunk resolution, doc edits and tests specified. Design kept in the session notes (`s7-03-design-rolling-serving.md`) |
+| S7-02 | Merge the backlog into #145's branch (6 `benchmarks.py` hunks, README, interval doc, board) | branch owner (Sprint 5 session) | 1h | — | No conflict; interval/serving tests pass | done — fixed head 1c5d0b1 (code bdda3b7 commits the missing `calibration.py`); independent clean-export check: 153 passed + 30 subtests (excluding `test_api`), GitHub MERGEABLE / CLEAN. Was: d37bfd1 broken — the owner's `evaluation/calibration.py` change was never committed (its worktree shows it modified), so `benchmarks.py:374` reads `plan["scheme"]` that `interval_plan` never sets; a clean `git archive d37bfd1` gives 20 failed / 48 passed (`KeyError: 'scheme'`). Owner asked to commit, verify on a clean checkout, push. Before that: 084e5a1 + d37bfd1: its resolution differs from S7-03 on one point: rolling calibrators **are** saved (fit_end = val_end, scheme/half_life/first_origin recorded) and `serve_band` serves them exactly as scored, refusing any mismatch. Same published output (nothing serves Prophet or SeasonalNaive). 170 tests pass. Adopted as the owner's call; engineer A's parallel resolution stopped unpushed |
+| S7-04 | Re-run benchmarks and export on #145's merged branch | branch owner | 1h | S7-02 | Leaderboard WAPE unchanged; coverage 96.67 / 74.00 / 72.67 / 83.67 | done by the owner on a clean checkout of bdda3b7: `benchmarks.py` matched the scored leaderboard byte for byte (SeasonalNaive 83.67, Prophet 74.00, SARIMA and Chronos-1 unchanged); independent rerun in S7-13. Earlier claim, before the fix: Owner's claim (d37bfd1): a fourth `benchmarks.py` run after the merge reproduces the leaderboard and LaTeX byte-identical; the study refit reproduces its 11 outputs. Independent check in S7-13 |
+| S7-06 | Merge the backlog into #140's branch; resolve 4 `sections.jsx` hunks, `index.html`, board | engineer C | 1h | S7-10 | No conflict; JSX parses; backlog's band label and #141's removals kept; #140's derived sentences kept | done (15ee087 on `fix/website-followups`) — 4 `sections.jsx` hunks resolved, nothing either side deleted came back; `fcRecords` reuses #140's shared loader instead of a second raw fetch; JSX parses, no undefined names; 114 tests pass; every site file served 200 locally. #140 now MERGEABLE / CLEAN |
+| S7-07 | #143 against the backlog and #140 | engineer C | — | S7-06 | No conflict with the backlog or #140 | done by #143's own branch — 1f78ee1 (2026-10-25 20:15, merged the backlog, re-ran the EDA notebook on #147's store): GitHub MERGEABLE / CLEAN; trial merge with #140's 15ee087 clean |
+| S7-11 | Final cache-busters above every published value (sections ≥ v18, charts ≥ v8); EDA accent buttons use `var(--bg)`; quote the band's coverage only when `fcScored` | engineer C | 30m | all website PRs merged | JSX parses; each `?v=` above anything ever served for different content | done (0d35a21, merged here) — `sections.jsx?v=18`; `charts.jsx?v=8` (v7 had already served two different blobs, c720676 and 5a563ed); tweaks-panel v5 and `styles.css` unchanged (byte-identical to main, which is deployed). Coverage quoted only when `fcScored`; output unchanged today (84.7%). EDA tabs needed no colour fix: they are not accent buttons; the plots' white background stays (PNGs are transparent). JSX parses; every asset served 200 and byte-equal |
+| S7-08 | Commit the pinned environment (`requirements-lock.txt`) and document it | engineer D | 45m | — | Lock equals `~/.venvs/tdf-py314`'s freeze; README says how to build it | done (0795ebe on `sprint7/env-lock`) — 71 exact pins = the env's `pip freeze --all`; `pip check` clean; a metadata-only dry-run resolves all 71 on Python 3.14.0 / macOS arm64 (~1 MB fetched, no install: disk); Linux needs torch's CUDA extras, noted in the header. 114 tests + 30 subtests pass on that branch; `test_api` needs the API env (S7-13) |
+| S7-09a | Ignore `evaluation/outputs/`; MANIFEST zip name; stale doc lines (README `.venv311`, Python 3.11 troubleshooting, API install pins without cp314 wheels, `machine_learning_files/README.md` → `fetch_bart_od.py`) | engineer D | 45m | S7-08 | Every changed line true against the repo; no code change | done (b944385 on `sprint7/env-lock`, merged here) — `.gitignore` ignores `evaluation/outputs/`; MANIFEST's shasum line names the table's zip; README Reproduce / Known Limitations / Troubleshooting and the API test instructions corrected (API tests need a Python 3.11 venv with `Dockerfile.api`'s pins; the image holds no tests); `docs/DATA_PIPELINE.md` and `machine_learning_files/README.md` setup blocks use the lock. No code touched |
+| S7-09b | Test window gets an end date (`configs/model.yaml`, `benchmarks.py`) | engineer A | 45m | #145 merged | Leaderboard unchanged; a 2026 month cannot enter the test split | in progress (branch `sprint7/test-end`) |
+| — | **Gate: the user merges #146, #140, #143, #145 into the backlog, then #151 into main** | user | — | S7-02..07 | Merged | done for the backlog — #146 10a315f, #140 399db06, #143 3b4ad46 and #145 e28964e (#143 and #145 via `gh pr merge` after the web button stalled); also #154 990e8ef (site copy, 2024–25 archives) and #156 d88cf52 (Sprint 6, Chronos-1 bias-shifted band, with #155). Each later PR's board-only conflicts resolved (48ad724 on #145; 9c11ed0 on #156, `sections.jsx?v=17`); this branch kept current (207c3a7, 296 tests + 74 subtests). **Correction (2026-10-27):** #151 (backlog → main) had already merged on 2026-10-26 04:34Z (fa88ff4), one minute before #146 reached the backlog, so #146, #140, #143, #145, #154 and #156 are on the backlog but not on main (backlog 73 commits ahead). No backlog → main PR is opened; #152 carries them: this branch contains the backlog tip and merges into main cleanly. Remaining: the user retargets #152 to `main` and merges it |
+| S7-12 | Date ranges: done by #154. Remaining: `docs/DATA_PIPELINE.md` / `machine_learning_files/README.md` still name `fetch_bart_od.py` as the BART source; `machine_learning_files/README.md` test command must skip `test_api.py` in the gate env | engineer C | 30m | #154 merged | Every doc command runs as written | done (da70f52, merged here) — DATA_PIPELINE, ARCHITECTURE (mermaid node, ingestion row, data flow), README repo map and `machine_learning_files/README.md` name `bart_od_from_xlsx.py` and the 403; the ml README's test command skips `test_api.py` and points to the 3.11 env. 296 tests + 74 subtests pass |
+| S7-13 | Full gate on #152 merged into `main` (= integrated main): clean `git archive` checkout; enriched store from the tracked store; `benchmarks.py` twice (byte-identical); export; full pytest incl. `test_api` in `~/.venvs/tdf-api-py311`; `py_compile`; JSX parse; regenerate `model_comparison.json` if it differs | QA | 1h | S7-09b, S7-11, S7-12 merged here | Gates above green; published numbers match the merged PRs (Chronos-1 coverage per #156) | done — 2026-10-27, #152 @ d211674 merged into `main` (fa88ff4): clean, merged tree 71df1a0 = d211674's tree; clean `git archive` exports. G1 lock = env (71 pins); G2 42 .py compile, 3 .jsx parse; G3 308 passed + 74 subtests (3.14), `test_api` 17 passed (3.11); G4 tracked store sha256 `aa02436d…` unchanged, enriched store and splits identical across exports; G5 two `benchmarks.py` runs byte-identical (leaderboard `d0d66f03…`, results `8f708b71…`, LaTeX `849f1672…`), rows = `model_comparison.json` (WAPE 3.21/5.75/9.70/10.75; coverage 96.67/74.00/84.67/83.67; raw 96.67/46.00/51.00/94.33; n = 300; `Interval_method` equal); G6 export: all 5 `website/data/*.json` byte-identical to committed; G7 no README/site number disagrees (site range "74–97%"). ~5–6 min per run |
+| S7-14 | Delivery audits never run: S4d.6, S4f.3, S4e.5, the EDA sprint | delivery-auditor | 1h | all merges | Disagreements fixed or recorded | done — 2026-10-27: 0 HIGH; Sprint 4d 6 (3 MEDIUM, 3 LOW), 4f 3 (1 M, 2 L), 4e 5 (3 M, 2 L), 4h 4 (3 M, 1 L), duplicate-4c 2, Sprint 5/6 2 M, outside scope 1 L; all applied in this commit. Open follow-ups to Sprint 8: covariate zero-fill guard; Sharks 2018–19 refetch |
+
+**Board naming.** Two sections are titled "Sprint 4c" (#141, #144). #143's EDA sprint, once a second
+"Sprint 4e", was renamed 4h by #154, so "Sprint 4c" is now the only duplicate. Commit messages cite those IDs, so they are not renumbered; headings gain their PR number instead
+(Sprint 8 hygiene).
+
+### Sprint 8 — Harden (planned)
+
+CI (pytest, `py_compile`, JSX parse, `bart_stations.py --check`) on the lock from S7-08; headline
+site numbers derived from data, not literals; all-or-nothing export; uncovered event months give
+NaN; `ridership_daily_est` honesty; API `/health` and infinite-quantile gaps; `interval_study`
+cache key includes the checkpoint; delete or fix `fetch_pems_roads.py`; favicon and contrast;
+remove the AutoGluon/AutoETS scaffolding (incl. `run_pipeline.sh`'s step and its `.venv311` comment); make Chronos's `generated_at` deterministic or drop it (`models/chronos2/predict.py:402`; the only byte difference between gate runs, never published); move the raw-data archive off `~/Desktop` (iCloud-synced, files get evicted) to a local path and document it; covariate zero-fill guard for months no archive covers; `tests/test_api.py` docstring pins; `Dockerfile.api` copies a calibrator from the now-ignored `evaluation/outputs/` (matters once SARIMA gets a method); board hygiene. Then deploy, each step confirmed by the
+user.
+
+### Sprint 9 — Modelling (planned, after Sprint 8)
+
+Chronos-2 covariate trial; 511 and Ticketmaster ingestion (keys from the user). The bias-shift
+sprint (Sprint 6) runs in its own session once #145 and S7-04 land.
+
 ## Sprint 6 — Bias-shifted bands for SARIMA and Chronos-1 (opened 2026-10-25)
 
 **Goal.** Measure, on data up to `val_end` only, whether a band whose
@@ -132,7 +189,8 @@ unit tests pass; `py_compile` passes.
 | S6.6b | `scripts/interval_test_breakdown.py` describes Chronos-1's band too (reproduces the leaderboard's coverage and Sprint 4's 72.67); not run by the implementer | implementer | S6.5 | py_compile; SN/Prophet output unchanged by reading | done — 8fa116d (+ 6 synthetic tests for `fit_band` / `by_group`); not run; also stops unless every Chronos test row is `model_mode == zeroshot` |
 | S6.6c | Score the test split once; determinism rerun; gates; breakdown; export `model_comparison.json` + `forecasts.json`; README and write-up | orchestrator | S6.6a, S6.6b, the merged study re-verification | All gates green; logged calibrator equals the study's deployed one at full precision | done — scored once at 5818932: Chronos-1 72.67% → **84.67%** (5.33% / 10.00%); other models unchanged; result published in fb19405 (README, ARCHITECTURE, write-up, `forecasts.json`, `model_comparison.json`, site). Gates and test-split access below |
 | S6.7 | Review the sprint diff | code-reviewer | S6.6 | No BLOCKER open | done — review of 1c5d0b1..fb19405: spec PASS, quality PASS; 0 BLOCKER, 1 MAJOR, 8 MINOR; no published number wrong. Fix round below (1606e99; its subject says "four MINORs", but five were addressed, MINOR-4 by documenting it) |
-| S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | done — PR #153 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/153) against `feat/adaptive-interval-calibration`, not merged. Audit of 1e27507..1606e99: no HIGH; 2 MEDIUM, 3 LOW (board wording: review-finding count, a disclosure claim, the site row's code version, two "this commit" cells, S6.6c's publishing commit), all fixed in 7536ef8; branch pushed |
+| S6.8 | Audit board against git; push; open PR against `feat/adaptive-interval-calibration` (not merged) | delivery-auditor, orchestrator | S6.7 | Audit clean; PR open | done — PR #153 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/153) against `feat/adaptive-interval-calibration`, not merged (merged later: S6.9). Audit of 1e27507..1606e99: no HIGH; 2 MEDIUM, 3 LOW (board wording: review-finding count, a disclosure claim, the site row's code version, two "this commit" cells, S6.6c's publishing commit), all fixed in 7536ef8; branch pushed |
+| S6.9 | Merge into the backlog | user | S6.8 | Sprint 6 on `sprint3/pr-backlog` | done — #153 merged as 88941db (2026-10-26T05:04:33Z) into `feat/adaptive-interval-calibration` after that branch had landed (#145, e28964e), so 88941db is not an ancestor of the backlog. Sprint 6 arrived via #155 (8717055) and #156 (d88cf52, 2026-10-27), with 9c11ed0's `sections.jsx?v=17` conflict resolution |
 
 **S6.5 notes (validation only, 2026-10-25).**
 - First Sprint 6 numbers: the study at e2397f8, started 20:19:50. It
@@ -300,6 +358,7 @@ published number; the valid `interval_plan` labels are unchanged (tested).
 - Reference leaderboard for the gates: PR #145's, written 04:15:31 on
   2026-10-24 by `benchmarks.py` as at 3eb7b2c (unchanged at 1e27507).
 
+
 ## Sprint 4g — Site copy matches the 2019–2025 covariate archives (opened 2026-10-26)
 
 (4g: 4e and 4f are taken on the base; #143's EDA sprint becomes 4h.)
@@ -419,7 +478,7 @@ identical to PR #138's leaderboard; `Coverage_raw_%` = 96.67 / 46.0 / 51.0 /
 | S5.5 | Apply the rule; write-up; commit the choice before any test run | orchestrator | S5.4 | Commit precedes S5.6's run | done (7cdfd11, committed 03:40:53; first test run started 03:41) — no candidate qualified for every model; per model: SeasonalNaive `rolling_hl6 asym_relative/horizon`, Prophet `rolling_hl6 relative/pooled`; SARIMA and Chronos-1 no qualifier, Sprint 4 entries kept. Deployed quantiles computed from data to `val_end` in the study: SeasonalNaive q_lo −0.0129…−0.0150, q_hi 0.1686…0.1700 by horizon; Prophet q = 0.0789 (n = 4,650 each) |
 | S5.6 | If a method changes: wire into `benchmarks.py`, gates, score test once | implementer (orchestrator) | S5.5 | All gates green | done — `scheme: rolling` wired for SeasonalNaive and Prophet with 5 tests written first (7cdfd11); test scored once at 7cdfd11: SeasonalNaive 94.33% → 83.67%, Prophet 74.67% → 74.00%, SARIMA 96.67% and Chronos-1 72.67% unchanged. Gates below. Write-up, README and `model_comparison.json` follow the result; website wording stays "not calibrated" by Sprint 4's rule |
 | S5.7 | Review the sprint diff | code-reviewer | S5.6 | No BLOCKER open | done — review of 292f0aa..8e269c2: spec PASS, 0 BLOCKER, 3 MAJOR, 10 MINOR; no published number wrong. Fix round 3eb7b2c; scoped re-review of it: spec PASS, quality PASS, 3 MINOR, closed in fix round 2 (below) |
-| S5.8 | Audit board against git; push; open PR against `feat/interval-calibration` (not merged) | delivery-auditor, orchestrator | S5.7 | Audit clean; PR open | done — audit of 292f0aa..bfd8362: 1 MEDIUM, 3 LOW, none changing a choice or a number; all four addressed in this commit (a Sprint 5 row that a string replace had also inserted into Sprint 4's gate table is removed; study re-run and test-split access wording made exact; #138's two later doc commits, 29c5c18 and 626b829, merged in at a303f20; fixes in 5d0254a). Done: branch pushed with an explicit refspec (its upstream had been PR #138's branch, which stays at 626b829); PR #145 opened against `feat/interval-calibration` (stacked: #136 → #138 → #145), not merged |
+| S5.8 | Audit board against git; push; open PR against `feat/interval-calibration` (not merged) | delivery-auditor, orchestrator | S5.7 | Audit clean; PR open | done — audit of 292f0aa..bfd8362: 1 MEDIUM, 3 LOW, none changing a choice or a number; all four addressed in this commit (a Sprint 5 row that a string replace had also inserted into Sprint 4's gate table is removed; study re-run and test-split access wording made exact; #138's two later doc commits, 29c5c18 and 626b829, merged in at a303f20; fixes in 5d0254a). Done: branch pushed with an explicit refspec (its upstream had been PR #138's branch, which stays at 626b829); PR #145 opened against `feat/interval-calibration` (stacked: #136 → #138 → #145), not merged. Later retargeted to `sprint3/pr-backlog` (S7-10) and merged e28964e (2026-10-26T05:02:50Z) |
 
 **Gate results (S5.6, 2026-10-24, rebuilt pinned env, code at 7cdfd11).**
 
@@ -510,7 +569,8 @@ existing candidate row and an identical `adaptive_decision.yaml`.
 
 ## Sprint 4h — EDA section rebuilt from the current store (opened 2026-10-24)
 
-(4h: 4d is the reconcile session's; 4e, 4f and 4g were taken by the time this merged.)
+
+(4h: 4d is the reconcile session's; 4e, 4f and 4g were taken by the time this merged. Commit messages on `fix/eda-from-store` (aaa70ec, 8510c40, b741c84) say S4e.x; they mean S4h.x. 8510c40's "S4e.5 done" is this sprint's S4h.5, not the covariate experiment's S4e.5.)
 
 **Goal.** Close Sprint 4c's follow-up "Regenerate the EDA plots from the current store": rewrite
 `transit_eda/notebooks/eda_complete.ipynb` for monthly station rows, regenerate the PNGs, and
@@ -524,7 +584,7 @@ hand-downloaded workbooks plus the weather and Sharks-schedule files used by the
 `feature_store.parquet` sha256 `9a7771080c592a1206c4d7553d78012157df958d3a6bda279895a2151a323cea`,
 byte-identical to #139's gate2 store. Fresh venv (Python 3.14.0, pandas 3.0.6, matplotlib 3.11.2).
 
-**Rebased onto the merged backlog (2026-10-26).** #141 merged and the PR now targets
+**Merged the backlog in (1f78ee1, 2026-10-26).** #141 merged and the PR now targets
 `sprint3/pr-backlog`, where #147 tracks a store rebuilt with 2024–25 weather and Sharks games
 (`aa02436d…`, see `data/MANIFEST.md`). `ridership` and `station_name` are identical to `9a777108…`,
 so plots 01–03 and their captions are unchanged. The notebook was rerun on `aa02436d…`: plot 04
@@ -535,9 +595,10 @@ and section 5 now covers three year pairs. `sections.jsx?v=13` (the base has 12)
 |---|---|---|---|---|---|
 | S4h.1 | Rebuild the store | orchestrator | — | sha256 equals #139's gate2 store | done — `9a777108…` |
 | S4h.2 | Rewrite the notebook; regenerate PNGs | orchestrator | S4h.1 | Executes with 0 errors; every caption claim asserted; image outputs byte-identical to the PNGs; rerun gives identical PNGs | done (13f265f; caption fixes 41b712a, 828ffa5) |
-| S4h.3 | Restore `EDAViz`, nav link, mount; `?v=13` (12 at first; #142 also took 12) | orchestrator | S4h.2 | Notebook's site check passes; local render: 4 tabs, every image loads, 0 console errors | done (3cb7a1d; 41b712a, 828ffa5; v=13 in 23766b4). Sprint-boundary delivery audit pending: skipped at 93% of the 5-hour plan window |
+| S4h.3 | Restore `EDAViz`, nav link, mount; `?v=13` (12 at first; #142 also took 12) | orchestrator | S4h.2 | Notebook's site check passes; local render: 4 tabs, every image loads, 0 console errors | done (3cb7a1d; 41b712a, 828ffa5; v=13 in 23766b4) |
 | S4h.4 | Review the diff | code-reviewer | S4h.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 3 MAJOR (games claim overreached; seasonality range driven by 2022; this board lost the Sprint 4c heading), 7 MINOR. Fix round 41b712a: all fixed except MINOR 7's no-CI point, which is now documented in the notebook and the code comment. Scoped re-review R2: spec PASS, quality PASS; its two optional MINORs (ambiguous growth sentence, this row's wording) fixed in the next commit |
-| S4h.5 | Push; open PR (no merge) | orchestrator | S4h.4 | PR open with claim → evidence table | done — PR #143 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/143), base `fix/site-model-claims`, not merged (the user's call) |
+| S4h.5 | Push; open PR (no merge) | orchestrator | S4h.4 | PR open with claim → evidence table | done — PR #143 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/143), opened against `fix/site-model-claims`; retargeted to `sprint3/pr-backlog` (S7-10) and merged 3b4ad46 (2026-10-26T04:39:36Z) |
+| S4h.6 | Delivery audit | delivery-auditor | S4h.5 | Board matches git | done (S7-14, 2026-10-27) |
 
 ### Rulings (Sprint 4h)
 
@@ -567,13 +628,18 @@ and section 5 now covers three year pairs. `sections.jsx?v=13` (the base has 12)
 
 (Named 4d, ids S4d.x. S4, S4b, S4c and Sprint 5, the adaptive-calibration branch, are taken.)
 
+**Status: closed 2026-10-27 (S7-14 audit); PR #147 merged 0d07ee2 (2026-10-26T02:49:45Z).**
+
 **Goal.** One tracked feature store that carries #139's station names, per-station
 weather and the event features #137's store lacked. One published P10/P90 band
 whose coverage is the one `model_comparison.json` reports. `website/data/`
 regenerated from that state, with gate evidence.
 
 **Branch.** `sprint4d/store-rebuild`, stacked on `feat/serve-interval-bands`
-(Sprint 4c, PR #144) @ 9674f2d. The PR targets that branch.
+(Sprint 4c, PR #144) @ 9674f2d. The PR targets that branch. Later rebased at 2026-10-26T02:48:59Z
+onto 0453eb3 (#144's merge; range-diff: all 7 commits patch-identical), retargeted to
+`sprint3/pr-backlog` and merged 0d07ee2 (2026-10-26T02:49:45Z). Story rows and the Final store
+heading cite the rebased SHAs, with the pre-rebase SHA as "was"; run records keep the SHA the run used.
 
 **User's decisions, 2026-10-24.**
 - #137, #138 and #139 were still open on GitHub, so they are merged locally rather
@@ -591,7 +657,8 @@ regenerated from that state, with gate evidence.
 **Gates** (Sprint 4b method: scratch copy of the commit, workbooks via
 `bart_od_from_xlsx.py --dir`, the raw weather/events folder, then
 `merge_pipeline`, `feature_engineering`, `benchmarks`, export):
-- Leaderboard: WAPE 3.21/5.75/9.70/10.75; `Coverage_%` 96.67/74.67/72.67/94.33;
+- Leaderboard: WAPE 3.21/5.75/9.70/10.75; `Coverage_%` 96.67/74.67/72.67/94.33 (superseded
+  by Sprint 5/6: published now 74.0 / 84.7 / 83.7 for Prophet / Chronos-1 / SeasonalNaive);
   `Coverage_raw_%` 96.67/46.0/51.0/94.33; n=300.
 - Export: 50/50/3,000/300.
 - `forecasts.json`: P50 identical to 087adcb; the exported band's coverage equals
@@ -602,15 +669,15 @@ regenerated from that state, with gate evidence.
 
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
-| S4d.0 | Merge #137, #138 and #139 locally | orchestrator | — | Tree matches Sprint 4c's merged base | done — `reconcile/store-intervals` 8ce9c97 (conflicts resolved as Sprint 4c did: both board sections kept, #137's `api.py`). Its tree differs from `feat/serve-interval-bands` @ f1af3c7 only in Sprint 4c's own files. The branch was then re-cut onto Sprint 4c at the user's choice |
-| S4d.1 | Rebuild `data/processed/feature_store.parquet` with the merged code from the full raw inputs; commit it; update `data/MANIFEST.md` | orchestrator | S4d.0 | Target identical to #137's store; every other delta named; `tests/` pass | done — first from the 2019–2023 archives (5dbd586, run A), then from the full 2019–2025 folder (3fa3d80; runs D–G) |
-| S4d.2 | Rebase onto Sprint 4c's final tip | orchestrator | Sprint 4c S4c.5–S4c.6 | Clean rebase; `tests/` pass | done — 9674f2d, no conflicts; 116 tests pass |
-| S4d.3 | Two full gate runs on the stacked tip; regenerate `website/data/` | orchestrator | S4d.2 | Gates above | done — runs D and E on e847db3: every gate passes except "tracked store equals the rebuild", which is what led to the input decision above. Runs F and G on 3fa3d80 (the store commit): ALL PASS, including the tracked store. The export is byte-identical to the committed `website/data/`, so no data file changes |
+| S4d.0 | Merge #137, #138 and #139 locally | orchestrator | — | Tree matches Sprint 4c's merged base | done — `reconcile/store-intervals` 8ce9c97, local only, never pushed (conflicts resolved as Sprint 4c did: both board sections kept, #137's `api.py`). Its tree differs from `feat/serve-interval-bands` @ f1af3c7 only in Sprint 4c's own files. The branch was then re-cut onto Sprint 4c at the user's choice |
+| S4d.1 | Rebuild `data/processed/feature_store.parquet` with the merged code from the full raw inputs; commit it; update `data/MANIFEST.md` | orchestrator | S4d.0 | Target identical to #137's store; every other delta named; `tests/` pass | done — first from the 2019–2023 archives (e6de75d; was 5dbd586, rebased away; run A), then from the full 2019–2025 folder (8f6045c; was 3fa3d80, rebased away; runs D–G) |
+| S4d.2 | Rebase onto Sprint 4c's final tip | orchestrator | Sprint 4c S4c.5–S4c.6 | Clean rebase; `tests/` pass | done — 9674f2d, no conflicts; 116 tests pass. Second rebase, after #144 merged: rebased at 2026-10-26T02:48:59Z onto 0453eb3 (#144's merge), all 7 commits patch-identical (range-diff); PR retargeted to `sprint3/pr-backlog`, merged 0d07ee2 (2026-10-26T02:49:45Z) |
+| S4d.3 | Two full gate runs on the stacked tip; regenerate `website/data/` | orchestrator | S4d.2 | Gates above | done — runs D and E on fec7c2f (was e847db3, rebased away): every gate passes except "tracked store equals the rebuild", which is what led to the input decision above. Runs F and G on 8f6045c (was 3fa3d80, rebased away; the store commit): ALL PASS, including the tracked store. The export is byte-identical to the committed `website/data/`, so no data file changes |
 | S4d.4 | Serve the site locally; check the forecast table, calibration chart, map and model comparison render | orchestrator | S4d.3 | Screens recorded | done — see "Site check" below |
-| S4d.5 | Review the diff; open PR against `feat/serve-interval-bands` (not merged) | code-reviewer, orchestrator | S4d.4 | No BLOCKER; PR open | done — PR #147 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/147) against `feat/serve-interval-bands`, mergeable, not merged; the merge is the user's. scoped re-review of 07b6c3e: spec PASS, quality PASS; findings 1, 2 and 5–7 closed, 3, 4 and 9 correctly deferred. Two new MINOR fixed in the commit that marks this done: the 2019 gap runs to May (playoffs), and two "this commit" references now name 3fa3d80. 116 tests pass on 07b6c3e (pytest, pinned env). R1: review of 9674f2d..3fa3d80: spec FAIL on two MANIFEST statements, quality PASS; 0 BLOCKER, 3 MAJOR, 6 MINOR. Fixed in 07b6c3e: the MANIFEST claimed events covered every store month (Jan–May 2019 is a gap) and same bytes in any environment (now pinned to the build environment); its inputs now include `weather_forecast_*`; this board's drift and float-noise wording; F/G recorded. Not fixed here (other PRs' files, listed under follow-ups): the stale site copy (MAJOR) and the hindsight-weather wording (MINOR) in `sections.jsx`, and the zip name in the MANIFEST's verify command (MINOR, pre-existing) |
-| S4d.6 | Audit board against git | delivery-auditor | S4d.5 | No unresolved disagreement | blocked (audit started, then stopped unfinished when the usage limit was reached; rerun it before closing the sprint) |
+| S4d.5 | Review the diff; open PR against `feat/serve-interval-bands` (not merged) | code-reviewer, orchestrator | S4d.4 | No BLOCKER; PR open | done — PR #147 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/147) against `feat/serve-interval-bands`, mergeable, not merged then (the merge is the user's); later rebased onto 0453eb3 (S4d.2), retargeted to `sprint3/pr-backlog` and merged 0d07ee2 (2026-10-26T02:49:45Z). scoped re-review of 7a79231 (was 07b6c3e, rebased away): spec PASS, quality PASS; findings 1, 2 and 5–7 closed, 3, 4 and 9 correctly deferred. Two new MINOR fixed in the commit that marks this done: the 2019 gap runs to May (playoffs), and two "this commit" references now name 8f6045c (was 3fa3d80, rebased away). 116 tests pass on 7a79231 (was 07b6c3e) (pytest, pinned env). R1: review of 0453eb3..8f6045c (was 9674f2d..3fa3d80, rebased away): spec FAIL on two MANIFEST statements, quality PASS; 0 BLOCKER, 3 MAJOR, 6 MINOR. Fixed in 7a79231 (was 07b6c3e): the MANIFEST claimed events covered every store month (Jan–May 2019 is a gap) and same bytes in any environment (now pinned to the build environment); its inputs now include `weather_forecast_*`; this board's drift and float-noise wording; F/G recorded. Not fixed here (other PRs' files, listed under follow-ups): the stale site copy (MAJOR) and the hindsight-weather wording (MINOR) in `sections.jsx`, and the zip name in the MANIFEST's verify command (MINOR, pre-existing) |
+| S4d.6 | Audit board against git | delivery-auditor | S4d.5 | No unresolved disagreement | done — S7-14 audit, 2026-10-27, 6 findings, 0 HIGH |
 
-**Final store (3fa3d80), SHA-256 `aa02436d…`, vs #137's committed store (`d9135f03…`).**
+**Final store (8f6045c; was 3fa3d80, rebased away), SHA-256 `aa02436d…`, vs #137's committed store (`d9135f03…`).**
 - Same 3,000 keys; `ridership` identical; same 27 columns in order.
 - `station_name`: set on every row.
 - Weather:
@@ -627,13 +694,13 @@ regenerated from that state, with gate evidence.
 
 | Run | Code | Raw weather/events | Result |
 |---|---|---|---|
-| A | 8ce9c97 (merge only, no Sprint 4c) | 2019–2023 | Leaderboard as the gates; export byte-identical to the merged branch's `website/data/`, where `forecasts.json` still held Chronos-1's raw band (51.0% coverage) beside `Coverage_pct` 72.67. That mismatch is what Sprint 4c fixes |
-| B, C | 12a440a (Sprint 4c f1af3c7 + store) | 2019–2023 | All gates pass. Export byte-identical to Sprint 4c's `website/data/` at 4ead3f0 |
+| A | 8ce9c97 (merge only, no Sprint 4c; local only, never pushed) | 2019–2023 | Leaderboard as the gates; export byte-identical to the merged branch's `website/data/`, where `forecasts.json` still held Chronos-1's raw band (51.0% coverage) beside `Coverage_pct` 72.67. That mismatch is what Sprint 4c fixes |
+| B, C | 12a440a (Sprint 4c f1af3c7 + store; local only, never pushed) | 2019–2023 | All gates pass. Export byte-identical to Sprint 4c's `website/data/` at 4ead3f0 |
 | D, E | e847db3 (Sprint 4c 9674f2d + store) | 2019–2025 | All gates pass except "tracked store equals the rebuild" (`aa02436d…` vs the committed `9a777108…`). Leaderboard, results, LaTeX, both stores, both calibrators, Chronos preds (ignoring `generated_at`) and all five exports are byte-identical across the two runs. Export: 50/50/3,000/300, byte-identical to the committed `website/data/`. `forecasts.json`: P50 and `p10_raw`/`p90_raw` equal 087adcb's P50 and raw band; coverage computed from the published file is 72.67 for the band (= `Coverage_%`) and 51.0 for the raw band (= `Coverage_raw_%`) |
 
 **Site check (S4d.4, served from `website/` at e847db3, built-in browser).**
 - The forecast table shows the calibrated band: EM Jul 2025 is 367k / 434k / 501k, matching `forecasts.json` (raw 382k–462k kept as `p10_raw`/`p90_raw`).
-- The section copy says the band held 72.7% of station-months, matching `model_comparison.json`.
+- The section copy says the band held 72.7% of station-months, matching `model_comparison.json` (superseded by Sprint 5/6: published now 74.0 / 84.7 / 83.7 for Prophet / Chronos-1 / SeasonalNaive).
 - The Results "Intervals" chart draws the same band, labelled "not a validated 80% interval".
 - The Model comparison and Benchmarks tables render the 4 scored models, and the comparison shows n=300.
 - The station picker lists 50 stations.
@@ -641,22 +708,22 @@ regenerated from that state, with gate evidence.
 - No console errors on the index page.
 
 **Follow-ups (not this sprint's files).**
-- Stale site copy now that the store has 2019–2025 weather and events (owner: the #141 copy update, which the covariate-experiment session plans):
+- (Closed by f5db1eb and 72a84ef, #154.) Stale site copy now that the store has 2019–2025 weather and events (owner: the #141 copy update, which the covariate-experiment session plans):
   - `website/sections.jsx:160` (Method 02) and `:487` (Rec 01) say the event covariates are "currently constant zero";
   - #141's "available for 2019–2023 only";
   - #143's EDA hand-over (built on `9a777108…`).
-- `website/sections.jsx:233` ("covariates rely only on data observable at prediction time") and `:160` ("known-future inputs"): the store's weather in the test window is observed, i.e. hindsight. No ranked model reads it, so no published number leaks.
-- Refetch the Sharks 2018–19 season (regular season and playoffs) so Jan–May 2019 game days stop reading as "no game". This changes the raw inputs and the store again.
-- The gate environment's 66 pins live outside git (`~/.venvs/tdf-py314-req.txt`, the side-session notes); the MANIFEST names the four versions that decide the bytes.
-- `data/MANIFEST.md` verify command names "Ridership Report 2025 (1).zip", while its table names "Ridership 2025 (1).zip" (pre-existing, bcd3b76; the store here was built with `--dir`).
+- (Closed by f5db1eb and 72a84ef, #154.) `website/sections.jsx:233` ("covariates rely only on data observable at prediction time") and `:160` ("known-future inputs"): the store's weather in the test window is observed, i.e. hindsight. No ranked model reads it, so no published number leaks.
+- (Still open; Sprint 8.) Refetch the Sharks 2018–19 season (regular season and playoffs) so Jan–May 2019 game days stop reading as "no game". This changes the raw inputs and the store again.
+- (Fixed by `requirements-lock.txt` in #152, 0795ebe.) The gate environment's 66 pins live outside git (`~/.venvs/tdf-py314-req.txt`, the side-session notes); the MANIFEST names the four versions that decide the bytes.
+- (Fixed in #152, b944385.) `data/MANIFEST.md` verify command names "Ridership Report 2025 (1).zip", while its table names "Ridership 2025 (1).zip" (pre-existing, bcd3b76; the store here was built with `--dir`).
 - #142 changes `Processing/feature_engineering.py`, which writes the untracked enriched store. The tracked store is unaffected.
-- #145 (adaptive calibration) adds `scheme: rolling`, which #144's `calibrate_intervals`/`serve_band` do not read. Whichever of the two lands second must carry it through.
+- (Closed by bdda3b7, #145.) #145 (adaptive calibration) adds `scheme: rolling`, which #144's `calibrate_intervals`/`serve_band` do not read. Whichever of the two lands second must carry it through.
 
 ## Sprint 4c — Label the bands the serving path publishes (opened 2026-10-24)
 
 (Named 4c, ids S4c.x: Sprint 4 (#138) and Sprint 4b (#139) ids are taken. PR #141, branch `fix/site-model-claims`, also calls its sprint "Sprint 4c" with ids S4c.1–S4c.5. Both branches were pushed before this was noticed, so commit messages keep the ids: S4c.x on `feat/serve-interval-bands` means this section.)
 
-**Status: closed 2026-10-24, PR #144 open (not merged).**
+**Status: closed 2026-10-24, PR #144 open (not merged then); merged 0453eb3 (2026-10-26T02:48:57Z).**
 
 **Goal.** The API and `website/data/forecasts.json` each say which P10/P90 band
 they return, and neither calls a raw band an 80% interval. Branch
@@ -700,7 +767,7 @@ pins come from the adaptive-calibration session's freeze list.
 | S4c.3 | API: `model` and `interval` fields in `/forecast`, band from `serve_band`; 503 when a configured calibrator is missing; `Dockerfile.api` copies `evaluation/calibration.py` | implementer | S4c.1 | `tests/test_api.py` passes, including the existing P50 checks and new interval checks | done (9dec6c3) — `tests/test_api.py` 17 pass (5 new; existing P50 checks 415137/487928 intact); suite 87 pass. `/health` also carries the label. Not built in Docker (disk 96%); `evaluation/calibration.py` checked on Python 3.11 + pandas 2.2.3 |
 | S4c.4 | Wording: `api-demo.html` shows the API's label; README, `machine_learning_files/README.md`, `sections.jsx`/`charts.jsx` copy, and a serving section in `docs/interval-calibration.md` | implementer | S4c.1 (field names) | No raw band called an 80% interval; JSX parses | done (416b866, ec7ad2e; cache-bust bump by orchestrator in 1b1c8db, raised to v=12 in the audit fix) — 416b866 also edits `docs/ARCHITECTURE.md` (API/Dockerfile rows), outside the brief's file list; accurate and covered by both copy reviews.  esbuild parses both JSX files; `node --check` on api-demo's script; text rendered in node with old and new forecasts.json. Orchestrator rulings: keep the added label under sections.jsx's live-API card; keep the replacement of two #138 sentences that became false (README "still serve the models' own bands", interval-calibration.md "Not covered" bullets) |
 | S4c.5 | Regenerate `forecasts.json` from a full benchmark run + export | orchestrator | S4c.2 | Gates above | done (c1d3097) — benchmark on 8c05ddd reproduced the leaderboard exactly (WAPE 3.21/5.75/9.70/10.75; Coverage_% 96.67/74.67/72.67/94.33; raw 96.67/46.00/51.00/94.33; n=300); Chronos q=0.15389. Export: forecasts.json P50 identical to 087adcb for all 300 records; p10_raw/p90_raw = old p10/p90; band = P50×(1∓q); coverage from the file 72.67 / raw 51.00. Other four website/data files byte-identical |
-| S4c.6 | Review, audit, PR (not merged) | code-reviewer, delivery-auditor, orchestrator | S4c.5 | No BLOCKER open; audit clean; PR open | done — R1 code: 0 BLOCKER, 1 MAJOR, 7 MINOR (spec pass, quality approve-with-changes; leaderboard and website/data reproduced byte for byte). R1 copy: 1 BLOCKER, 2 MAJOR, 8 MINOR (spec not met until F1). Fix round S4c.6a/S4c.6b done; updated #138 (626b829) merged in 80c1314 (docs only). R2 code: spec PASS, quality APPROVE, 0 BLOCKER/MAJOR, 3 MINOR (N1–N3) + 4 nits (N4–N7); 29/33 mutants killed. R2 copy: spec MET, quality APPROVED WITH MINORS, 2 MINOR + 4 nits. Orchestrator closed R2 copy N1–N6 (1885366) and R2 code N1–N4 (ebed3df; 3 new tests fail on the previous code); R2 code N5–N7 nits left (N4 closed with N1–N3). Suite 116 pass. Rerun at ebed3df: leaderboard CSV and both calibrators byte-identical to the first run; export byte-identical in all five website/data files. Delivery audit: 0 HIGH, 1 MEDIUM, 7 LOW — M1 cache-bust raised to `sections.jsx?v=12` (above #140's v=10 and #141's v=11; at merge, the highest version wins); L7 `__main__` guard moved to the end of `tests/test_serve_band.py`; L1–L6 board corrections, all in 2619609. Done: PR #144 opened against `feat/interval-calibration` (not merged; retarget to `main` after #136–#139 merge). Push and PR were authorized by the task brief ("branch + PR, not merged") |
+| S4c.6 | Review, audit, PR (not merged) | code-reviewer, delivery-auditor, orchestrator | S4c.5 | No BLOCKER open; audit clean; PR open | done — R1 code: 0 BLOCKER, 1 MAJOR, 7 MINOR (spec pass, quality approve-with-changes; leaderboard and website/data reproduced byte for byte). R1 copy: 1 BLOCKER, 2 MAJOR, 8 MINOR (spec not met until F1). Fix round S4c.6a/S4c.6b done; updated #138 (626b829) merged in 80c1314 (docs only). R2 code: spec PASS, quality APPROVE, 0 BLOCKER/MAJOR, 3 MINOR (N1–N3) + 4 nits (N4–N7); 29/33 mutants killed. R2 copy: spec MET, quality APPROVED WITH MINORS, 2 MINOR + 4 nits. Orchestrator closed R2 copy N1–N6 (1885366) and R2 code N1–N4 (ebed3df; 3 new tests fail on the previous code); R2 code N5–N7 nits left (N4 closed with N1–N3). Suite 116 pass. Rerun at ebed3df: leaderboard CSV and both calibrators byte-identical to the first run; export byte-identical in all five website/data files. Delivery audit: 0 HIGH, 1 MEDIUM, 7 LOW — M1 cache-bust raised to `sections.jsx?v=12` (above #140's v=10 and #141's v=11; at merge, the highest version wins); L7 `__main__` guard moved to the end of `tests/test_serve_band.py`; L1–L6 board corrections, all in 2619609. Done: PR #144 opened against `feat/interval-calibration` (not merged then; retarget to `main` after #136–#139 merge); merged 0453eb3 (2026-10-26T02:48:57Z). Push and PR were authorized by the task brief ("branch + PR, not merged") |
 | S4c.6a | Code fix round: code F1 (`reason: ~` must stay raw; boolean decision), F2 (any unreadable calibrator → CalibratorUnavailable), F3 (benchmarks clears old calibrators per run; serve_band checks fit_end vs train_end), F4 (a failed save does not change the leaderboard), F8 test gaps, nit (checkpoint-mismatch flag instead of reason-text match). Deferred: F5, F6 (latent while SARIMA is `none`); F7 kept by design (NaN band → no traceable coverage → refuse) | implementer | S4c.6 R1 | Tests pass; leaderboard and website/data byte-identical on a rerun | done (16075eb; test_api fit_end patch in 78da15a) — suite 112 pass; 14 tests + 24 subtests fail on the pre-fix code; 8/8 mutants killed. Benchmark rerun: leaderboard, LaTeX, results and both calibrators byte-identical to the first run; export byte-identical in all five files. Orchestrator approved its four calls: whitespace-only reason = unset; run-start clearing fails fast; `{e!r}` in the unreadable-file message; the test_api patch |
 | S4c.6b | Copy fix round: copy F1 (api-demo header claim conditional on API version), F2 (export refusal wording: forecasts.json withheld, other files still written, exit 1), F3/F4/F5 (plain-language band note with caveat; Results chart subtitle names the band), F6 ("split-conformal band", not "calibrated", for a 72.7% band), F7 (503 also for a stale calibrator), F9 (escape API error text and date fallback). Deferred: F8 (replace spliced README example after a new image is deployed), F10, F11 | implementer | S4c.6 R1 | JSX parses; `node --check`; R2 copy pass | done (15ee5d0; orchestrator follow-ups in 78da15a: export/run_pipeline wording, Serving section fit_end + run-start clearing) — esbuild + `node --check` pass; node harness over old/new data. Cache-bust stays v=10 (branch never deployed). Deferred to PR follow-ups: `BAND_FIT_WINDOW` constant in sections.jsx, F8, F10, F11 |
 
@@ -716,7 +783,8 @@ window counts only the months in it that have data against its `min_periods`.
 Update the site copy (#141's feature catalog) that describes the old behaviour.
 
 **Branch.** `fix/lag-calendar-months`, cut from `origin/fix/site-model-claims` @ `0938526` (PR #141),
-because #141's copy describes the gap. The PR targets that branch.
+because #141's copy describes the gap. The PR targets that branch. PR #142, merged 61d100d
+(2026-10-26T02:40:47Z), which also merged #141.
 
 **Gates.** Leaderboard CSV byte-identical before and after (no ranked model reads a lag column);
 the enriched store differs only in the lag/rolling columns, on rows whose window reaches 2020–21
@@ -726,11 +794,11 @@ the enriched store differs only in the lag/rolling columns, on rows whose window
 |---|---|---|---|---|---|
 | S4f.1 | Calendar-month lags and rolling windows (monthly branch only; sub-monthly path unchanged) + unit test + catalog copy + cache-buster | implementer | — | Gates above | done (535039d, f702310, ca7915e) — 14 tests pass (8 fail on the old code); before/after on canonical 2019–23 inputs: leaderboard CSV, `benchmark_results.csv` and base store byte-identical (3.21 / 5.75 / 9.70 / 10.75, n = 300); enriched store: only the 8 lag/rolling columns change, 2,100 cells, all 2022 (1,700 become empty), plus 2,028 `rolling_std_3mo` cells 2022-04..2025-12 that differ by ≤ 1.0e-11 relative (pandas' running-variance rounding restarts across the empty months); TypeScript 5.9.3 parses `sections.jsx` with 0 diagnostics |
 | S4f.2 | Review the diff | code-reviewer | S4f.1 | No BLOCKER open | done — R1 on ca7915e: quality PASS; spec PASS with 1 MAJOR (F1: footnote and audit note said rolling windows reaching 2020–21 are left empty, but 400 of the 2,100 changed cells are partial-window values; cause: this board's goal line, now corrected), 2 MINOR (F2: 2,028 float-noise `rolling_std_3mo` cells outside 2022 breach the gate's wording; accepted deviation, nothing reads the column and every published output is byte-identical; F3: NaN/NaT/single-row cases untested), 2 NIT (F4 stale line ref in the audit note; F5 `Int64` → float64, as specified). Fix round: dd3ce96 (F1, F4), 92383c7 (F3); orchestrator checked the diff: 15 tests pass, footnote now says lags land empty and windows use the months that have data. F5 no action |
-| S4f.3 | Delivery audit | delivery-auditor | S4f.2 | Board matches git | todo — run jointly with Sprint 4e's audit |
+| S4f.3 | Delivery audit | delivery-auditor | S4f.2 | Board matches git | done — S7-14 audit, 2026-10-27 |
 
 ## Sprint 4c — Every site claim traces to a run (opened 2026-10-24)
 
-(Named 4c, ids S4c.x, because #138 adds a "Sprint 4" and #139 a "Sprint 4b".)
+(Named 4c, ids S4c.x, because #138 adds a "Sprint 4" and #139 a "Sprint 4b". PR #144, branch `feat/serve-interval-bands`, also calls its sprint "Sprint 4c" (the section above) with S4c.x ids. Both branches were pushed before this was noticed, so commit messages keep the ids: S4c.x on `fix/site-model-claims` means this section.)
 
 **Goal.** Close #139's follow-up "Published model claims that no run supports": every model or
 data claim in `website/sections.jsx`, `website/index.html` and `README.md` either traces to code
@@ -748,7 +816,7 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
 | S4c.2 | User decisions: covariates, EDA, report links, bio | orchestrator | S4c.1 | Answers recorded | done — 2026-10-24, recorded in the audit doc header |
 | S4c.3 | Apply the approved text fixes | orchestrator | S4c.2 | JSX/HTML parse; local render shows the changes, no console errors | done (97b7c99; cache-buster v=11 in ffbf274) — TypeScript 5.9.3 parse OK; served locally: EDA and `shap` gone, Dataset grid one full-width card, 0 console errors |
 | S4c.4 | Review the diff against the audit table | code-reviewer | S4c.3 | No BLOCKER open | done — R1: spec PASS, quality changes requested; 0 BLOCKER, 2 MAJOR (Method lede and README:43 named `run_pipeline.sh` as the reproduction path; it cannot reproduce the table), 11 MINOR. Fix round in 7ab033a: both MAJOR fixed; MINOR fixed except the pull quote (kept: the user chose to re-attribute it) and README's `.venv311` line (follow-up, adjacent to #137's hunk). Re-parsed and re-rendered: 0 console errors |
-| S4c.5 | Trial-merge with #137, #138, #139, #140; push; open PR (no merge) | orchestrator | S4c.4 | PR open, conflicts listed | done — PR #141 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/141), not merged (the user's call). #137 clean; #138 board only; #139 board + `index.html` `?v=` line; #140 board + two `sections.jsx` hunks (keep #140's `bestNote`/`wapeSub`, drop `cm`/`shap`; keep the `EDAViz` deletion) |
+| S4c.5 | Trial-merge with #137, #138, #139, #140; push; open PR (no merge) | orchestrator | S4c.4 | PR open, conflicts listed | done — PR #141 (https://github.com/Dhruv-cs50/transit-demand-forecasting/pull/141), not merged then (the user's call); merged via 61d100d (2026-10-26T02:40:46Z). #137 clean; #138 board only; #139 board + `index.html` `?v=` line; #140 board + two `sections.jsx` hunks (keep #140's `bestNote`/`wapeSub`, drop `cm`/`shap`; keep the `EDAViz` deletion) |
 
 ### Rulings (Sprint 4c)
 
@@ -772,7 +840,7 @@ open, so the backlog branch is current; `main` @ `cb7da6d` is its ancestor). PR 
   weather and an event source beyond 2023. Changes the leaderboard; the user's call.
 - (Addressed by Sprint 4h.) Regenerate the EDA plots from the current store; the notebook groups monthly rows by day
   and hour (`hour_of_day` is constant 0), so several plots need rewriting, not just rerunning.
-- Lag and rolling features are row shifts per station (`feature_engineering.py:497-500`), so
+- (Addressed by Sprint 4f, 61d100d.) Lag and rolling features are row shifts per station (`feature_engineering.py:497-500`), so
   early-2022 rows lag into 2019 across the 2020–21 gap. No ranked model reads them today;
   fix before any covariate model does.
 - README Known Limitations says `run_pipeline.sh` "assumes `.venv311/bin/python` exists"; it
@@ -817,7 +885,7 @@ byte-identical; unit tests pass; `py_compile` and JSX parse pass.
 | S4.5 | Wire the chosen method into `benchmarks.py`; run the gates; score test once | implementer (orchestrator) | S4.4 | All gates green | done — wiring in 215449c; test scored once at 215449c, result recorded in `docs/interval-calibration.md` (bf80b8f). Gates below |
 | S4.6 | README, website wording, `model_comparison.json` | orchestrator | S4.5 | Wording follows the fixed rule | done (65db1c1) — "not calibrated" kept per rule; range 46–97% → 73–97%; README table gains own-band and interval columns; export carries `Coverage_raw_pct` and `Interval_method` |
 | S4.7 | Review the sprint diff | code-reviewer | S4.6 | No BLOCKER open | done — 0 BLOCKER, 1 MAJOR (LaTeX table mixed calibrated and raw coverage unlabelled), 10 MINOR; spec PASS, quality PASS with findings. Findings and their disposition are in the fix-round list below and in the PR description. Fix round in 3dff990; third run byte-identical |
-| S4.8 | Audit board against git; open PR (not merged) | delivery-auditor, orchestrator | S4.7 | Audit clean; PR open | in progress — audit on 32a75df..3dff990: 0 HIGH, 1 MEDIUM, 8 LOW, all addressed in this commit. Push and PR are authorized by the task brief ("Branch + PR, do not merge") and the user's "Go ahead with the defaults" on the plan, which included opening a PR stacked on `sprint3/pr-backlog`. Branch first pushed at 65db1c1, before review; re-pushed at 5c7036a with the fix round. Done: PR #138 opened against `sprint3/pr-backlog` (mergeable, not merged; retarget to `main` after #136 merges) |
+| S4.8 | Audit board against git; open PR (not merged) | delivery-auditor, orchestrator | S4.7 | Audit clean; PR open | done — audit on 32a75df..3dff990: 0 HIGH, 1 MEDIUM, 8 LOW, all addressed in this commit. Push and PR are authorized by the task brief ("Branch + PR, do not merge") and the user's "Go ahead with the defaults" on the plan, which included opening a PR stacked on `sprint3/pr-backlog`. Branch first pushed at 65db1c1, before review; re-pushed at 5c7036a with the fix round. Done: PR #138 opened against `sprint3/pr-backlog` (mergeable, not merged then; retarget to `main` after #136 merges); merged via 0453eb3 (2026-10-26T02:48:56Z; stacked #138 → #144 → #147) |
 
 **Gate results (S4.5, 2026-10-22, pinned env, code at 215449c).**
 
@@ -860,9 +928,16 @@ to a separate experiment table, not the leaderboard, so the export and the site'
 stay as they are; stack on PR #139 (`fix/bart-station-table`); the lag-gap fix ships as its own
 small PR (Sprint 4f, branch `fix/lag-calendar-months`, stacked on #141).
 
-**Branch.** `feat/covariate-benchmark`, cut from `origin/fix/bart-station-table` @ `7598107`. PR #146 (base `fix/bart-station-table`).
+**Branch.** `feat/covariate-benchmark`, cut from `origin/fix/bart-station-table` @ `7598107`. PR #146 (base `fix/bart-station-table`; retargeted to `sprint3/pr-backlog` in S7-10, merged 10a315f, 2026-10-26T04:35:15Z).
 Pinned env rebuilt outside `/tmp`: `~/.venvs/tdf-py314` (the gate env's 66 pins + pip 26.2.1 /
 setuptools 84.2.1, plus pytest for the unit tests).
+
+**PR #148 (a checkpoint branch, merged).** #148 was the checkpoint branch
+`wip/feat-covariate-benchmark-20261024T112728Z`, merged into `main` on 2026-10-24 at 11:55:51Z
+(25d8e5d), two seconds before #136. It carried 81b2089, c961052, 5a709b9 and the Sprint 3/4b stack
+up to 7598107 onto `main`. Its tip 84e9ee6 says the in-flight S4e.2 files "are included in this
+checkpoint", but it changes 0 files, so no S4e.2/S4e.3 code reached `main` that way (it arrived via
+#146). Process note: checkpoint branches never open PRs, so merging this one broke the checkpoint rule.
 
 **Gates.** Control SARIMA reproduces 3.21 % (n = 300) and equals the leaderboard's SARIMA row on the
 same run; the four leaderboard overall rows are unchanged by the 2024–25 data (each delta named
@@ -871,12 +946,12 @@ otherwise); `model_comparison.json` unchanged; unit tests pass; `py_compile` pas
 | ID | Goal | Role | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|
 | S4e.0 | Baseline: rebuild store and run benchmarks on unmodified `7598107` | orchestrator | — | Leaderboard 3.21 / 5.75 / 9.70 / 10.75, n = 300 | done — run0: leaderboard CSV byte-identical to #139's gate2; base store SHA-256 `9a7771080c59…a323cea`, byte-identical to gate2's and to Sprint 4d's rebuilt store |
-| S4e.1 | Fetch weather and Sharks games for 2024–25; record hashes in `data/MANIFEST.md`; rebuild; compare | orchestrator | S4e.0 | 2024–25 weather and game months non-null; leaderboard overall rows unchanged or each delta named | done — fetched 2026-10-24T11:06:49Z: 7 × 17,544 hourly rows, no nulls; 93 Sharks home games; copied (new filenames only) into the canonical `~/Desktop/transit-demand-forecasting/data/raw/`; hashes in `data/MANIFEST.md`. run1 vs run0: leaderboard CSV byte-identical; the 8 existing `benchmark_results.csv` rows identical; 12 new slice rows (`game_day`, `sharks_game` n=200, `rainy_day` n=100, per model). Store (SHA-256 `aa02436d44b5…f241`): weather columns filled for 1,200 rows (2024–25), event columns for 800 (16 game months × 50); 2019–23 `precip_mm`/`precip_in` differ by ≤ 2.6e-16 relative (summation order), every other 2019–23 cell identical |
+| S4e.1 | Fetch weather and Sharks games for 2024–25; record hashes in `data/MANIFEST.md`; rebuild; compare | orchestrator | S4e.0 | 2024–25 weather and game months non-null; leaderboard overall rows unchanged or each delta named | done (5a709b9) — fetched 2026-10-24T11:06:49Z: 7 × 17,544 hourly rows, no nulls; 93 Sharks home games; copied (new filenames only) into the canonical `~/Desktop/transit-demand-forecasting/data/raw/`; hashes in `data/MANIFEST.md`. run1 vs run0: leaderboard CSV byte-identical; the 8 existing `benchmark_results.csv` rows identical; 12 new slice rows (`game_day`, `sharks_game` n=200, `rainy_day` n=100, per model). Store (SHA-256 `aa02436d44b5…f241`): weather columns filled for 1,200 rows (2024–25), event columns for 800 (16 game months × 50); 2019–23 `precip_mm`/`precip_in` differ by ≤ 2.6e-16 relative (summation order), every other 2019–23 cell identical |
 | S4e.2 | SARIMAX `exog` in `arima.py` (default path unchanged) + `models/baselines/covariate_experiment.py` (control + 3 arms, test and validation windows, station-clustered test, row-level DM, per-station wins, decision) | implementer | plan | Unit tests pass; with no exog the SARIMA forecasts are identical to before | done (0263048, 8586b62, d39e2fb) — built in a scratch copy: a hook blocked the implementer's writes here, because the orchestrator's shell had moved its primary directory to the 4f worktree at dispatch; the orchestrator read and applied its patch (SHA-256 `19a5341f…cd903`). 48 tests pass. No-exog control forecasts equal the unmodified code's exactly on both windows (300 rows each); smoke run on the gate2 store: control 3.21 % test / 4.27 % validation, both weather arms rejected loudly (NaN 2024–25 exog). Orchestrator added the `not scored` verdict for rejected arms (d39e2fb) |
-| S4e.3 | Scored run; evidence `docs/covariate-experiment.md`; README result | orchestrator | S4e.1, S4e.2 | Every number in the doc traces to the run's CSV/log | done — run2 on d39e2fb (started 11:29:42Z, after the rule 81b2089 and the code): **no arm improves.** Test WAPE: SARIMA 3.21, +weather 3.79 (paired p 0.0005, 42/50 stations worse), +Sharks 3.19 (p 0.54), +both 4.12; validation 4.27 / 4.67 / 4.63 / 5.27. Control's 300 forecasts equal the leaderboard SARIMA's exactly; leaderboard CSV byte-identical to run0/run1; rerun of the experiment byte-identical (CSV SHA-256 `0bf4ab0c…0a19`). Evidence `docs/covariate-experiment.md`; README paragraph |
-| S4e.4 | Review the branch diff | code-reviewer | S4e.2 | No BLOCKER open | done — R1 on dc9069e (whole diff, numbers re-derived from run2): spec PASS, quality PASS; 0 BLOCKER, 1 MAJOR (doc called Jul–Dec dry and Jan–Jun wet; the store shows 0.35 vs 0.39 summed mean hourly mm, Nov–Dec as wet as Feb–Mar), 6 MINOR (direction clause d > 0 not in the plan's text; smoke run not disclosed in the doc; "measurably worse" unqualified for validation; "would do no better" too strong; WAPE compared at 2 dp; zero-filled event counts look like data), hygiene (`evaluation/outputs/` neither tracked nor ignored; DM "0.0000"). Leakage, decision code, every number, hashes, commit times, control = leaderboard, default path, no site writes: checked correct. Fix round in the doc and README (this commit); zero-fill guard and `evaluation/outputs/` ignore are follow-ups |
-| S4e.5 | Delivery audit at sprint close (joint with S4f.3) | delivery-auditor | S4e.3, S4e.4 | Board matches git |todo — deferred: 5-hour usage at 96 % when PR #146 opened |
-| S4e.6 | Site copy on #141's text: archives now through 2025; Method 01/02, catalog footnote, Rec 01 answered by this run | orchestrator | S4e.3, #142 | Copy traces to `docs/covariate-experiment.md`; JSX parses | done in Sprint 4g (PR #154): Method 02, catalog footnote and Rec 01 cite the experiment; Method 01 and the lede give the 2019–2025 coverage |
+| S4e.3 | Scored run; evidence `docs/covariate-experiment.md`; README result | orchestrator | S4e.1, S4e.2 | Every number in the doc traces to the run's CSV/log | done (dc9069e) — run2 on d39e2fb (started 11:29:42Z, after the rule 81b2089 and the code): **no arm improves.** Test WAPE: SARIMA 3.21, +weather 3.79 (paired p 0.0005, 42/50 stations worse), +Sharks 3.19 (p 0.54), +both 4.12; validation 4.27 / 4.67 / 4.63 / 5.27. Control's 300 forecasts equal the leaderboard SARIMA's exactly; leaderboard CSV byte-identical to run0/run1; rerun of the experiment byte-identical (CSV SHA-256 `0bf4ab0c…0a19`). Evidence `docs/covariate-experiment.md`; README paragraph |
+| S4e.4 | Review the branch diff | code-reviewer | S4e.2 | No BLOCKER open | done — R1 on dc9069e (whole diff, numbers re-derived from run2): spec PASS, quality PASS; 0 BLOCKER, 1 MAJOR (doc called Jul–Dec dry and Jan–Jun wet; the store shows 0.35 vs 0.39 summed mean hourly mm, Nov–Dec as wet as Feb–Mar), 6 MINOR (direction clause d > 0 not in the plan's text; smoke run not disclosed in the doc; "measurably worse" unqualified for validation; "would do no better" too strong; WAPE compared at 2 dp; zero-filled event counts look like data), hygiene (`evaluation/outputs/` neither tracked nor ignored; DM "0.0000"). Leakage, decision code, every number, hashes, commit times, control = leaderboard, default path, no site writes: checked correct. Fix round in the doc and README (c71f1bf); follow-ups: `evaluation/outputs/` ignore closed by 0d2ab25 (#155); zero-fill guard in `covariate_experiment.py` still open (Sprint 8) |
+| S4e.5 | Delivery audit at sprint close (joint with S4f.3) | delivery-auditor | S4e.3, S4e.4 | Board matches git | done — S7-14 audit, 2026-10-27 |
+| S4e.6 | Site copy on #141's text: archives now through 2025; Method 01/02, catalog footnote, Rec 01 answered by this run | orchestrator | S4e.3, #142 | Copy traces to `docs/covariate-experiment.md`; JSX parses | done in Sprint 4g (PR #154): Method 02, catalog footnote and Rec 01 cite the experiment (72a84ef, inside a merge commit; Rec 01's title 7226839); Method 01 and the lede give the 2019–2025 coverage (f5db1eb) |
 
 
 ## Sprint 4b — One BART station table (opened 2026-10-22)
@@ -1086,7 +1161,7 @@ each delta traced to a named change; website export no worse than `main`
 | S3.7 | Review the whole consolidation diff against `origin/main` | code-reviewer | S3.6 | No BLOCKER open | done — R1: 0 BLOCKER, 2 MAJOR, fixed in 825df57. R2: 2 BLOCKER and 2 MAJOR, fixed in a565f4b, c7de29c and a317cdf. Scoped re-review: all closed except R2-M1 and a B2 residual, fixed in 5cef2c5, 39349b2 and cf728d5. Final scoped review of those three: all approved, 0 BLOCKER/MAJOR, 5 MINOR (listed under follow-ups) |
 | S3.8 | Run the sprint gates | orchestrator | S3.7 | All four gates green | done on 8608710 (gate3): leaderboard identical, n = n_expected = 300, 0 rejected, two runs byte-identical; store target identical; export identical; py_compile and JSX re-run by the auditor: pass. Rerun required if the final review changes code |
 | S3.9 | Audit board against git | delivery-auditor | S3.8 | No unresolved disagreement | done — 10 disagreements (1 MEDIUM, 9 LOW), all addressed in this board revision and 7d3b491; started before S3.8 closed |
-| S3.10 | Open consolidation PR; after the user merges it, close the superseded list | orchestrator | S3.9 | Needs user's yes for the closes | in progress — PR #136 opened (mergeable, clean); routine paused 2026-10-22; 60 close comments prepared; closes run after the user merges #136 |
+| S3.10 | Open consolidation PR; after the user merges it, close the superseded list | orchestrator | S3.9 | Needs user's yes for the closes | done — PR #136 opened (mergeable, clean); routine paused 2026-10-22; 60 close comments prepared; closes run after the user merges #136. #136 marked merged 2026-10-24 (its head reached `main` via #148); the closes were executed by S7-01 (58 drafts closed, 134 branches deleted) |
 
 ## Rulings
 

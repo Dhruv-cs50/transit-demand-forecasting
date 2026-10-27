@@ -599,11 +599,20 @@ def build_feature_store(
     return base
 
 
-def make_splits(df: pd.DataFrame, train_end: str, val_end: str, train_start: str = None) -> None:
+def make_splits(df: pd.DataFrame, train_end: str, val_end: str, train_start: str = None,
+                *, test_end: str) -> None:
     """Chronological train/val/test split — no data leakage.
 
     train_start: optional lower bound for train set (excludes earlier years with data gaps).
+    test_end: required upper bound of the test split (val_end < ts <= test_end),
+        so a month added to the store after the test window never enters
+        splits/test.parquet. Raises ValueError when it is missing.
     """
+    if test_end is None or str(test_end).strip() == "":
+        raise ValueError(
+            "make_splits: data.test_end is missing from the config; the test split "
+            "(val_end < ts <= test_end) needs an explicit end"
+        )
     splits_dir = PROCESSED_DIR / "splits"
     splits_dir.mkdir(parents=True, exist_ok=True)
 
@@ -626,6 +635,7 @@ def make_splits(df: pd.DataFrame, train_end: str, val_end: str, train_start: str
 
     train_ts = _ts(train_end)
     val_ts   = _ts(val_end)
+    test_ts  = _ts(test_end)
 
     if train_start:
         start_ts = _ts(train_start)
@@ -635,7 +645,7 @@ def make_splits(df: pd.DataFrame, train_end: str, val_end: str, train_start: str
         train_mask = ts <= train_ts
 
     val_mask  = (ts > train_ts) & (ts <= val_ts)
-    test_mask = ts > val_ts
+    test_mask = (ts > val_ts) & (ts <= test_ts)
 
     for name, mask in [("train", train_mask), ("val", val_mask), ("test", test_mask)]:
         split_df = df[mask]
@@ -666,6 +676,7 @@ def main():
             train_end=model_cfg["data"]["train_end"],
             val_end=model_cfg["data"]["val_end"],
             train_start=model_cfg["data"].get("train_start"),
+            test_end=model_cfg["data"].get("test_end"),
         )
 
     log.info("Pipeline complete.")

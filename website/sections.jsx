@@ -773,12 +773,13 @@ const BARTForecasts = () => {
       : 'No actuals are published (ridership_actuals.json).';
 
   // Which band P10/P90 is (bandKind, above Results). A coverage figure is
-  // shown only when the Chronos leaderboard row carries the same label, so
-  // the number always scores the band on screen; it scores the forecast
-  // months (fcRange), and the comparison word follows the number. Without
-  // it, a split-conformal band still gets the "not validated" caveat.
+  // shown only when the comparison scored these forecasts (fcScored) and its
+  // Chronos leaderboard row carries the same label, so the number always
+  // scores the band on screen; it scores the forecast months (fcRange), and
+  // the comparison word follows the number. Without it, a split-conformal
+  // band still gets the "not validated" caveat.
   const band = bandKind(forecasts);
-  const bandRow = band.label && comparison.find(r =>
+  const bandRow = fcScored && band.label && comparison.find(r =>
     r && /^Chronos/.test(r.model || '') && r.Interval_method === band.label
     && typeof r.Coverage_pct === 'number' && isFinite(r.Coverage_pct));
   const bandCov = bandRow ? Math.round(bandRow.Coverage_pct * 10) / 10 : null;
