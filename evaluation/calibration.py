@@ -467,6 +467,152 @@ def describe(calibrator: dict) -> str:
     return f"{head}: {len(qs)} groups, q range {min(vals):.4f}–{max(vals):.4f}"
 
 
+# ── Bias-shifted bands (Sprint 6) ─────────────────────────────────────────────
+#
+# Sprint 5's rolling quantile covers a model's bias by widening a band that
+# stays centred on P50. For a model whose misses fall almost all on one side,
+# that buys coverage with width. The shift band moves the centre instead and
+# keeps Sprint 5's rolling width around it:
+#
+#   bias    m: the lower weighted median of r = (y - p50) / p50 over the pool
+#           rows resolved by the date of the estimate (origin before it, target
+#           on or before it), weight 0.5**(age / bias_half_life), age counted
+#           to that date. Estimated once at the band's origin T, per group
+#           (bias_at="as_of"); or, to score each pool row, at that row's own
+#           forecast origin (bias_at="origin", pooled only), so the width also
+#           absorbs how far the bias moved between estimate and target.
+#   width   w: Sprint 5's weighted split-conformal quantile of s = |r - m|,
+#           weight 0.5**(age / half_life), age counted to T.
+#   band    P50 * (1 + m - w), P50 * (1 + m + w), stored as the asym_relative
+#           calibrator q = (m - w, m + w). The centre is always m at T.
+#
+# apply_conformal applies it unchanged: it orders (P10 <= P50 <= P90) and
+# floors (P10 >= 0) the band as for any calibrator, and P50 is never touched.
+
+SHIFT_BIAS_AT = ("as_of", "origin")
+# How interval_plan's label names each bias_at; any other value is shown as given.
+_BIAS_AT_TEXT = {"as_of": "at the forecast origin", "origin": "at each origin"}
+
+
+def weighted_median(values, weights) -> float:
+    """Lower weighted median: with the values sorted ascending, the smallest
+    v_(k) with sum(w_(j) : j <= k) >= 0.5 * sum(w). NaN for empty input.
+
+    Tied values are ordered by weight and the total is the last cumulative
+    sum, so the result does not depend on the input order, to the last bit."""
+    v = np.asarray(values, dtype=float)
+    w = np.asarray(weights, dtype=float)
+    if len(v) == 0:
+        return float("nan")
+    order = np.lexsort((w, v))
+    v, cum = v[order], np.cumsum(w[order])
+    idx = int(np.searchsorted(cum, 0.5 * cum[-1], side="left"))
+    return float(v[idx])
+
+
+def _is_positive_number(x) -> bool:
+    return (isinstance(x, (int, float, np.integer, np.floating)) and not isinstance(x, bool)
+            and bool(x > 0))
+
+
+def _bias_at_each_origin(df: pd.DataFrame, r: np.ndarray, bias_half_life: float) -> np.ndarray:
+    """Per row, the bias m(o) at the row's own origin o: the lower weighted
+    median of r over the rows of df resolved by o (origin before o, target on
+    or before o), weight 0.5**(age_o / bias_half_life), age_o = months from
+    target to o. NaN for the rows of an origin with no resolved row. Computed
+    once per distinct origin."""
+    origin = pd.to_datetime(df["origin"])
+    ts = pd.to_datetime(df["timestamp"])
+    out = np.full(len(df), np.nan)
+    for o in pd.unique(origin):
+        o = pd.Timestamp(o)
+        seen = ((origin < o) & (ts <= o)).to_numpy()
+        if seen.any():
+            age_o = months_between(ts[seen], o).to_numpy(dtype=float)
+            out[(origin == o).to_numpy()] = weighted_median(r[seen], 0.5 ** (age_o / bias_half_life))
+    return out
+
+
+def fit_shift_conformal(
+    pool: pd.DataFrame,
+    group: str,
+    level: float,
+    as_of,
+    bias_half_life: float,
+    half_life: float | None,
+    bias_at: str = "as_of",
+) -> dict:
+    """Bias-shifted band from a rolling-origin pool, as an asym_relative
+    calibrator q = (m - w, m + w) per group.
+
+    pool: forecasts from several origins with `origin` and `horizon` columns
+        (with_origin_horizon) and the actual in `ridership`. Only rows resolved
+        by `as_of` are used (rolling_pool); a row without an actual is left
+        out, and one with an actual but a missing band value raises.
+    group: "pooled" or "horizon" (the explicit column, never a rank).
+    bias_half_life: months, a positive number; bias weight 0.5**(age / bias_half_life).
+    half_life: months; width weight 0.5**(age / half_life), age counted to
+        as_of. None gives equal weights.
+    bias_at: "as_of" scores every row against its group's bias at as_of.
+        "origin" scores each row against the bias at its own origin and leaves
+        out the rows whose origin has no resolved row (n_no_bias); it is pooled
+        only, since on a short pool the longest horizon has no earlier
+        same-horizon estimate and its width would be infinite by construction.
+        In both, the band's centre m is the bias at as_of over all rows.
+
+    Returns the calibrator with, besides q: the centre ("bias") and half-width
+    ("width") per group, the rows scored for the width ("n", "n_by_group") and
+    their weight ("weight_sum"), and "clipped_groups", the groups with
+    |m| > w, where apply_conformal's ordering sets one bound to P50.
+    """
+    if group not in ("pooled", "horizon"):
+        raise ValueError(f"shift calibration groups are 'pooled' or 'horizon', not {group!r}")
+    if bias_at not in SHIFT_BIAS_AT:
+        raise ValueError(f"bias_at must be one of {SHIFT_BIAS_AT}, not {bias_at!r}")
+    if bias_at == "origin" and group != "pooled":
+        raise ValueError("bias_at='origin' is pooled only: on a short pool the longest horizon has "
+                         "no earlier same-horizon bias, so its width is infinite by construction")
+    if not _is_positive_number(bias_half_life):
+        raise ValueError(f"bias_half_life must be a positive number of months, not {bias_half_life!r}")
+
+    df = rolling_pool(pool, as_of)
+    df = df[df["ridership"].notna()]
+    r = _pool_scores(df, "asym_relative")
+    age = df["age"].to_numpy(dtype=float)
+    w_bias = 0.5 ** (age / float(bias_half_life))
+    w_width = (np.ones(len(df)) if half_life is None
+               else 0.5 ** (age / float(half_life)))
+    keys = (np.full(len(df), "all", dtype=object) if group == "pooled"
+            else df["horizon"].to_numpy())
+    groups = pd.unique(keys)
+
+    bias = {_plain(g): weighted_median(r[keys == g], w_bias[keys == g]) for g in groups}
+    if bias_at == "as_of":
+        centre = np.empty(len(df))
+        for g in groups:
+            centre[keys == g] = bias[_plain(g)]
+    else:
+        centre = _bias_at_each_origin(df, r, float(bias_half_life))
+    scored = ~np.isnan(centre)
+    s = np.abs(r - centre)
+
+    q, width, n_by, clipped = {}, {}, {}, []
+    for g in groups:
+        key, m = _plain(g), (keys == g) & scored
+        w = weighted_conformal_quantile(s[m], w_width[m], level)
+        width[key] = w
+        n_by[key] = int(m.sum())
+        q[key] = (float(bias[key] - w), float(bias[key] + w))
+        if abs(bias[key]) > w:
+            clipped.append(key)
+    return {"method": "asym_relative", "group": group, "level": level, "n": int(scored.sum()),
+            "q": q, "scheme": "shift", "bias_at": bias_at, "bias_half_life": bias_half_life,
+            "half_life": half_life, "as_of": str(pd.Timestamp(as_of).date()),
+            "bias": bias, "width": width, "n_by_group": n_by,
+            "weight_sum": float(w_width[scored].sum()), "n_no_bias": int((~scored).sum()),
+            "clipped_groups": clipped}
+
+
 # ── Which band a model gets, and serving it outside the benchmark run ─────────
 #
 # benchmarks.py fits each calibrator on the validation split (from a fit that
@@ -490,7 +636,8 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
 
     Returns {"model_key", "calibrated", "method", "group", "level", "reason",
     "checkpoint_mismatch", "label", "description", "scheme", "half_life",
-    "half_life_given", "first_origin"}. `scheme` is "split" (one quantile
+    "half_life_given", "first_origin", "band_method", "bias_half_life",
+    "bias_at"}. `scheme` is "split" (one quantile
     from the validation split's forecasts, the default) or "rolling" (a
     weighted quantile over forecasts from monthly origins first_origin ..
     val_end - 1 month, weight 0.5**(age / half_life); Sprint 5). `label` is the exact
@@ -499,6 +646,15 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     `description` is one plain sentence for people. `checkpoint_mismatch` is
     True only when a configured method is set aside because it was validated
     for another checkpoint.
+
+    `method` is the configured method; `band_method` is the method of the
+    calibrator that method fits, which apply_conformal applies (None for a raw
+    band). They differ only for "shift_relative" (Sprint 6): a bias-shifted
+    band fit by fit_shift_conformal over the rolling pool and stored as an
+    asym_relative calibrator. A shift_relative entry's `bias_half_life` and
+    `bias_at` are the config's (None when absent), kept like half_life and
+    first_origin also when its band is left raw; for every other method they
+    are None.
 
     A model that is not listed, or whose method is "none" (or empty), keeps its
     own band; its reason is the configured one, or "not validated" when none is
@@ -511,9 +667,12 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     method = mcfg.get("method", "none")
     group = mcfg.get("group", "pooled")
     scheme = mcfg.get("scheme", "split")
+    shift = method == "shift_relative"
     plan = {"model_key": model_key, "level": level, "scheme": scheme,
             "half_life": mcfg.get("half_life"), "half_life_given": "half_life" in mcfg,
-            "first_origin": mcfg.get("first_origin")}
+            "first_origin": mcfg.get("first_origin"),
+            "bias_half_life": mcfg.get("bias_half_life") if shift else None,
+            "bias_at": mcfg.get("bias_at") if shift else None}
 
     # Raw or calibrated is decided here, from the method and the checkpoint
     # alone; the reason text only labels a raw band. (Deciding from the reason
@@ -533,7 +692,7 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
             if reason is None or (isinstance(reason, str) and not reason.strip()):
                 reason = "not validated"
         plan.update(
-            calibrated=False, method="none", group=None, reason=reason,
+            calibrated=False, method="none", band_method=None, group=None, reason=reason,
             checkpoint_mismatch=checkpoint_mismatch,
             label=f"raw: {reason}",
             description=(f"{model_key}'s own P10/P90 band (nominal {level:.0%}), "
@@ -544,7 +703,19 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
     # An unknown method is not rejected here: fit_conformal and load_calibrator
     # reject it, which benchmarks.py reports as a FAILED calibration and
     # serve_band as CalibratorUnavailable.
-    if scheme == "rolling":
+    if shift:
+        # Labelled as configured whatever the scheme; benchmarks.py fails and
+        # serve_band refuses a shift_relative entry whose scheme is not rolling.
+        bias_half_life, bias_at = plan["bias_half_life"], plan["bias_at"]
+        label = (f"bias-shifted rolling-origin conformal relative/{group}, bias half-life "
+                 f"{bias_half_life} month(s) "
+                 f"({_BIAS_AT_TEXT.get(bias_at, f'bias_at {bias_at!r}')}), "
+                 f"width half-life {plan['half_life']} months, fit on data to val_end")
+        description = (f"Bias-shifted P10/P90 band (relative/{group}, nominal {level:.0%}): "
+                       f"re-centred on {model_key}'s recent median error and widened by a "
+                       f"conformal quantile, fit on its errors from monthly forecast origins up "
+                       f"to the end of the validation split.")
+    elif scheme == "rolling":
         label = (f"rolling-origin conformal {method}/{group}, half-life {plan['half_life']} months, "
                  f"fit on data to val_end")
         description = (f"Conformal P10/P90 band ({method}/{group}, nominal {level:.0%}), fit on "
@@ -557,7 +728,8 @@ def interval_plan(model_key: str, cfg: dict, checkpoint: str | None = None) -> d
         description = (f"Split-conformal P10/P90 band ({method}/{group}, nominal "
                        f"{level:.0%}), fit on {model_key}'s validation-split errors.")
     plan.update(
-        calibrated=True, method=method, group=group, reason=None,
+        calibrated=True, method=method, band_method="asym_relative" if shift else method,
+        group=group, reason=None,
         checkpoint_mismatch=False, label=label, description=description,
     )
     return plan
@@ -648,9 +820,19 @@ def serve_band(
     cfg: dict,
     calibrator_path=None,
     checkpoint: str | None = None,
+    forecast_origin=None,
 ) -> tuple[pd.DataFrame, dict]:
     """The P10/P90 band configs/model.yaml assigns to `model_key`, applied to
     forecasts made outside the benchmark run.
+
+    forecast_origin: the date the forecasts were made from (for the website
+        export, data.val_end). Given, each row's `horizon` is its months after
+        it, as benchmarks.py counts them when it scores the band
+        (with_origin_horizon), so a per-horizon band stays right for a station
+        whose first forecast month is missing; a row at or before the origin
+        is refused (ValueError). Omitted, horizons are each station's dense
+        rank (add_horizon), which agrees only when every station's block
+        starts at origin + 1 month.
 
     preds: one row per (station_id, timestamp) with p10/p50/p90, one
         contiguous forecast block per station (so `horizon` can be counted).
@@ -668,6 +850,13 @@ def serve_band(
     `fit_end` other than the config's data.train_end for scheme split, or
     data.val_end for scheme rolling; checked only when the config names it):
     a stale calibrator would publish a band nobody scored.
+
+    The calibrator's method is compared with the plan's `band_method`. A
+    shift_relative entry (Sprint 6) needs scheme rolling and a calibrator
+    saved for it: provenance `method_config` "shift_relative" with the
+    config's bias_half_life and bias_at. Any other entry needs a calibrator
+    without `method_config`, so a shift band is never served as a Sprint 5
+    asym_relative rolling band, nor the other way round.
     """
     plan = interval_plan(model_key, cfg, checkpoint)
     if not plan["calibrated"]:
@@ -692,6 +881,16 @@ def serve_band(
     prov = cal["provenance"]
     if plan["scheme"] not in ("split", "rolling"):
         raise CalibratorUnavailable(f"{model_key}: unknown calibration scheme {plan['scheme']!r}")
+    shift = plan["method"] == "shift_relative"
+    # benchmarks.py fits nothing for an incomplete shift entry, so no file can
+    # have been scored under one.
+    if shift and (plan["scheme"] != "rolling" or not plan["half_life_given"]
+                  or plan["bias_half_life"] is None or plan["bias_at"] is None):
+        raise CalibratorUnavailable(
+            f"{model_key}: shift_relative needs scheme rolling, half_life, bias_half_life and "
+            f"bias_at (config: scheme {plan['scheme']!r}, half_life "
+            f"{plan['half_life'] if plan['half_life_given'] else 'absent'!r}, bias_half_life "
+            f"{plan['bias_half_life']!r}, bias_at {plan['bias_at']!r})")
     # A split calibrator is fit on the validation window (fit ending
     # train_end); a rolling one on every target resolved by val_end.
     end_key = "val_end" if plan["scheme"] == "rolling" else "train_end"
@@ -703,8 +902,10 @@ def serve_band(
                                           or str(prov.get("first_origin")) != str(plan["first_origin"])):
         mismatches.append(f"half_life/first_origin {prov.get('half_life')!r}/{prov.get('first_origin')!r} "
                           f"(config: {plan['half_life']!r}/{plan['first_origin']!r})")
-    if (cal["method"], cal["group"]) != (plan["method"], plan["group"]):
-        mismatches.append(f"method {cal['method']}/{cal['group']} (config: {plan['method']}/{plan['group']})")
+    if (cal["method"], cal["group"]) != (plan["band_method"], plan["group"]):
+        configured = (f"{plan['band_method']}/{plan['group']}"
+                      + (f" for {plan['method']}" if plan["band_method"] != plan["method"] else ""))
+        mismatches.append(f"method {cal['method']}/{cal['group']} (config: {configured})")
     if cal["level"] != plan["level"]:
         mismatches.append(f"level {cal['level']} (config: {plan['level']})")
     if prov.get("model_key") != model_key:
@@ -715,13 +916,30 @@ def serve_band(
     # all) was not fitted on this config's data.
     if fit_end_expected is not None and ("fit_end" not in prov or str(prov["fit_end"]) != str(fit_end_expected)):
         mismatches.append(f"fit_end {prov.get('fit_end')!r} (config {end_key}: {str(fit_end_expected)!r})")
+    # A shift band and a Sprint 5 asym_relative rolling band are both stored
+    # as asym_relative; only the provenance tells them apart.
+    method_config = "shift_relative" if shift else None
+    if prov.get("method_config") != method_config:
+        mismatches.append(f"method_config {prov.get('method_config')!r} (config: {method_config!r})")
+    if shift and (prov.get("bias_half_life") != plan["bias_half_life"]
+                  or prov.get("bias_at") != plan["bias_at"]):
+        mismatches.append(f"bias_half_life/bias_at {prov.get('bias_half_life')!r}/{prov.get('bias_at')!r} "
+                          f"(config: {plan['bias_half_life']!r}/{plan['bias_at']!r})")
     if mismatches:
         raise CalibratorUnavailable(
             f"{model_key}: saved calibrator {calibrator_path} does not match: "
             + "; ".join(mismatches)
         )
 
-    out = apply_conformal(add_horizon(preds), cal)
-    if "horizon" not in preds.columns:
-        out = out.drop(columns="horizon")
+    if forecast_origin is None:
+        keyed = add_horizon(preds)
+    else:
+        keyed = with_origin_horizon(preds.drop(columns=["origin", "horizon"], errors="ignore"),
+                                    forecast_origin)
+        early = keyed["horizon"] < 1
+        if early.any():
+            raise ValueError(f"{model_key}: {int(early.sum())} forecast row(s) at or before the forecast "
+                             f"origin {pd.Timestamp(forecast_origin):%Y-%m-%d}")
+    out = apply_conformal(keyed, cal)
+    out = out.drop(columns=[c for c in ("origin", "horizon") if c in out.columns and c not in preds.columns])
     return out, {**plan, "n": cal["n"], "provenance": prov}

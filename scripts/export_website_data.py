@@ -338,7 +338,7 @@ def export_forecasts(out_dir: Path, actuals: pd.DataFrame) -> str | None:
 
     The parquet holds the model's own P10/P90, which the leaderboard reports
     as Coverage_raw_%; its Coverage_% scores the band configs/model.yaml
-    assigns (for Chronos, split-conformal fit on validation). Publishing the
+    assigns (for Chronos-1, the bias-shifted `shift_relative` band). Publishing the
     raw band beside that figure would show one band and the coverage of
     another, so p10/p90 are the assigned band (evaluation.calibration.
     serve_band applies the calibrator benchmarks.py saved, never refits it),
@@ -466,9 +466,11 @@ def export_forecasts(out_dir: Path, actuals: pd.DataFrame) -> str | None:
     except (OSError, yaml.YAMLError, KeyError, TypeError) as e:
         return _refuse(f"cannot read chronos2.model_id from {config_path}: {e!r}")
     try:
+        # Months ahead are counted from val_end, the origin benchmarks.py
+        # forecast and scored this band from.
         served, plan = serve_band(df, "Chronos", cfg, calibrator_path=calibrator_path,
-                                  checkpoint=checkpoint)
-    except CalibratorUnavailable as e:
+                                  checkpoint=checkpoint, forecast_origin=cfg["data"]["val_end"])
+    except (CalibratorUnavailable, ValueError, KeyError, TypeError) as e:
         return _refuse(str(e))
 
     # The leaderboard must say it scored this band. benchmarks.py writes the
