@@ -567,8 +567,6 @@ existing candidate row and an identical `adaptive_decision.yaml`.
 - `/tmp/tdf-venv` should be rebuilt, or moved out of `/tmp`; anything there
   is removed after 3 days without access.
 
-## Sprint 4e — EDA section rebuilt from the current store (opened 2026-10-24)
-
 ## Sprint 4h — EDA section rebuilt from the current store (opened 2026-10-24)
 
 
