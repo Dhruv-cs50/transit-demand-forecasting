@@ -6,10 +6,14 @@ benchmark leaderboard — as a REST API over monthly BART station ridership.
 
 Each /forecast request fits SARIMA for one station on demand, using the same
 spec and functions the leaderboard scores (models/baselines/arima.py): history
-from data.train_start up to `as_of`, airline order (0,1,1)(0,1,1,12). `as_of`
-= data.val_end reproduces the leaderboard's SARIMA forecasts; the default
-forecasts the months after the last one in the feature store, which no
-benchmark has scored.
+from data.train_start up to `as_of`, airline order (0,1,1)(0,1,1,12). The history
+is the months that have ended by `as_of` (a month counts once its last day is on
+or before as_of's date), so a date inside a month never sees that month's total.
+`as_of` = data.val_end (2025-06-30) reproduces the leaderboard's SARIMA
+forecasts; the default forecasts the months after the last one in the feature
+store, which no benchmark has scored. `horizon_hours` counts months: at most 6
+come back, a larger request is clamped with a `warnings` entry, and the response
+echoes the number of rows returned.
 
 P10/P90 is SARIMA's own prediction band (nominal 80%), not a calibrated 80%
 interval: no calibration method passed validation for SARIMA
@@ -140,9 +144,10 @@ if _FASTAPI_AVAILABLE:
     class ForecastRequest(BaseModel):
         station_id:    str           = Field(..., example="EM", description="BART station code as listed by GET /stations")
         # The name is historical: the data is monthly, so this counts months.
-        # Requests above data.forecast_horizon_steps (6) get 6 rows.
-        horizon_hours: int           = Field(24, ge=1, le=168, description="Months to forecast; at most 6 are returned")
-        as_of:         Optional[str] = Field(None, example="2025-06-30", description="Forecast anchor (ISO). Months whose start is <= as_of form the history. Default: the latest month in the feature store.")
+        # Values above data.forecast_horizon_steps (6) are accepted for older
+        # clients, clamped to 6, and said so in the response's `warnings`.
+        horizon_hours: int           = Field(6, ge=1, le=168, description="Months to forecast. At most 6 are returned: a larger value is clamped to 6 with a warning, and the response's horizon_hours says how many rows came back.")
+        as_of:         Optional[str] = Field(None, example="2025-06-30", description="Forecast anchor (ISO date). The history is the months that have ended by then: a month counts once its last day is on or before as_of's date, so 2025-06-30 includes June and 2025-06-15 does not. Default: the latest month in the feature store.")
 
     class QuantileForecast(BaseModel):
         timestamp: str
@@ -159,12 +164,12 @@ if _FASTAPI_AVAILABLE:
 
     class ForecastResponse(BaseModel):
         station_id:    str
-        horizon_hours: int
+        horizon_hours: int          = Field(..., description="Months returned: the request's horizon_hours, or 6 when it asked for more")
         generated_at:  str
         model:         str          = Field(..., description="Model that produced the forecasts")
         interval:      IntervalInfo = Field(..., description="Which P10/P90 band the forecasts carry")
         forecasts:     list[QuantileForecast]
-        warnings:      list[str]    = Field(default_factory=list, description="One line per quantile returned as null because the model gave no finite value; empty when every P10/P50/P90 is a number")
+        warnings:      list[str]    = Field(default_factory=list, description="A request clamped to the 6-month horizon, and one line per quantile returned as null because the model gave no finite value; empty otherwise")
 
     class StationsResponse(BaseModel):
         stations: list[str]
@@ -370,7 +375,8 @@ def _run_forecast(
         raise UnknownStationError(f"Unknown station: {station_id}")
 
     if as_of is None:
-        as_of = station_df["timestamp"].max()
+        # The latest month in the store is complete, so its own end is the anchor.
+        as_of = station_df["timestamp"].max() + pd.offsets.MonthEnd(0)
     else:
         # feature_store timestamps are tz-naive — keep as_of naive too, or the
         # history-window comparison below raises TypeError.
@@ -395,7 +401,12 @@ def _run_forecast(
             # 08:00 UTC silently becomes "08:00 naive" instead of the correct 01:00 PDT).
             as_of = as_of.tz_convert("America/Los_Angeles").tz_localize(None)
 
-    history = station_df[station_df["timestamp"] <= as_of]
+    # Keep the months that have ended: a month's ridership is its total, so a
+    # month still in progress at as_of must not be in the history. A month
+    # counts once its last day is on or before as_of's date (2025-06-30 keeps
+    # June; 2025-06-15 does not).
+    month_end = station_df["timestamp"] + pd.offsets.MonthEnd(0)
+    history = station_df[month_end <= as_of.normalize()]
     train_start = cfg["data"].get("train_start")
     if train_start:
         start = pd.Timestamp(train_start)
@@ -533,9 +544,19 @@ if _FASTAPI_AVAILABLE:
             log.exception("Forecast failed")
             raise HTTPException(status_code=500, detail="Internal forecast error")
 
+        # Say what came back, not what was asked for: a request above the
+        # model's horizon gets 6 rows, a warning, and horizon_hours = 6.
+        warnings = []
+        if req.horizon_hours > len(forecasts):
+            warnings.append(
+                f"horizon_hours={req.horizon_hours} exceeds the {len(forecasts)} months this model "
+                f"forecasts; returned {len(forecasts)}."
+            )
+        warnings += _null_quantile_warnings(forecasts)
+
         return {
             "station_id":    req.station_id,
-            "horizon_hours": req.horizon_hours,
+            "horizon_hours": len(forecasts),
             # A bare isoformat() string with no "Z"/offset is parsed by the
             # browser's `new Date(...)` as LOCAL time (ECMA-262 Date Time
             # String Format), not UTC -- api-demo.html's `new
@@ -552,7 +573,7 @@ if _FASTAPI_AVAILABLE:
                 "description":   plan["description"],
             },
             "forecasts":     forecasts,
-            "warnings":      _null_quantile_warnings(forecasts),
+            "warnings":      warnings,
         }
 
     @app.get("/")
