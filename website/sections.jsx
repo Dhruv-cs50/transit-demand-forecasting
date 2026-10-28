@@ -379,7 +379,7 @@ const Results = () => {
 /* ── Map demo: teaser card linking to standalone map page ──────── */
 const Demo = () => {
   const features = [
-    { icon: '🗺', title: 'Real Google Maps', desc: '41 BART and 39 VTA stations plotted at true lat/lng.' },
+    { icon: '🗺', title: 'Interactive map', desc: 'All 50 BART stations at their GTFS coordinates, on the six real BART routes, plus 39 VTA stations (approximate positions). Google Maps, with an OpenStreetMap fallback.' },
     { icon: '🌡', title: 'Heat overlay', desc: 'Color-coded relative load index: green → amber → coral as the index rises.' },
     { icon: '⏱', title: 'Hour scrubber', desc: 'Drag the slider or hit Play to step an illustrative hour-of-day curve through a full 24-hour day.' },
     { icon: '🌧', title: 'Weather + events', desc: 'Toggle rain, heat, or a major event to apply an illustrative adjustment. These effects are not modeled.' },
