@@ -6,10 +6,14 @@ benchmark leaderboard — as a REST API over monthly BART station ridership.
 
 Each /forecast request fits SARIMA for one station on demand, using the same
 spec and functions the leaderboard scores (models/baselines/arima.py): history
-from data.train_start up to `as_of`, airline order (0,1,1)(0,1,1,12). `as_of`
-= data.val_end reproduces the leaderboard's SARIMA forecasts; the default
-forecasts the months after the last one in the feature store, which no
-benchmark has scored.
+from data.train_start up to `as_of`, airline order (0,1,1)(0,1,1,12). The history
+is the months that have ended by `as_of` (a month counts once its last day is on
+or before as_of's date), so a date inside a month never sees that month's total.
+`as_of` = data.val_end (2025-06-30) reproduces the leaderboard's SARIMA
+forecasts; the default forecasts the months after the last one in the feature
+store, which no benchmark has scored. `horizon_hours` counts months: at most 6
+come back, a larger request is clamped with a `warnings` entry, and the response
+echoes the number of rows returned.
 
 P10/P90 is SARIMA's own prediction band (nominal 80%), not a calibrated 80%
 interval: no calibration method passed validation for SARIMA
@@ -24,9 +28,42 @@ never changed.
 
 Endpoints:
     POST /forecast   — returns P10/P50/P90 monthly ridership for a station,
-                       naming the model and the P10/P90 band served
+                       naming the model and the P10/P90 band served. A
+                       quantile the model could not produce (NaN or infinite)
+                       is null, and `warnings` names each one.
     GET  /stations   — lists available station IDs
-    GET  /health     — liveness check
+    GET  /health     — liveness check: the model and band served, whether the
+                       feature store is loaded, its last month, and where it
+                       came from (store_source / store_run_id / store_sha256)
+
+Serving store (docs/cloud-ingestion-design.md §4):
+    The history comes from the feature store. By default that is the copy baked
+    into the image, data/processed/feature_store.parquet. If env SERVING_STORE_DIR
+    is set (the Cloud Run service mounts the bucket there, read-only), the API
+    reads <SERVING_STORE_DIR>/processed/serving.json, loads the parquet it names
+    and checks its sha256. Any failure -- no directory, no pointer, bad JSON, a
+    missing field, a missing object, a path outside the directory, a sha256
+    mismatch, an unusable parquet -- logs a warning and serves the baked store
+    instead. Only plain files are read; no Google library is imported.
+
+    Every STORE_TTL_SECONDS (default 600) the next request re-reads the pointer
+    and swaps in the new store when its run_id differs from the one served. A
+    failed reload keeps the current store and tries again after another TTL. A
+    swap never touches a request in flight: each request works on the frame it
+    got, and a lock serializes loading within a process.
+
+    serving.json is one JSON object (written by the cloud ingestion job, which
+    overwrites it last, after the run's objects exist):
+        run_id             str  required  identifies the run; a change triggers a swap
+        store_object       str  required  feature store parquet, a path relative to
+                                          SERVING_STORE_DIR (no "..", not absolute),
+                                          e.g. "processed/runs/<run_id>/feature_store.parquet"
+        store_sha256       str  required  hex sha256 of that file's bytes
+        input_fingerprint  str  optional  hash of the run's inputs (not read here)
+        published_at       str  optional  ISO-8601 UTC time of publication (not read here)
+    The parquet needs timestamp, station_id and ridership columns, as the baked
+    store has. /health reports store_source ("cloud" or "baked"), store_run_id
+    (null for the baked store) and store_sha256 of the file served.
 
 Run locally:
     uvicorn machine_learning_files.api:app --reload --port 8000
@@ -39,7 +76,13 @@ Example request:
 
 from __future__ import annotations
 
+import hashlib
+import io
+import json
 import logging
+import os
+import threading
+import time
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -101,9 +144,10 @@ if _FASTAPI_AVAILABLE:
     class ForecastRequest(BaseModel):
         station_id:    str           = Field(..., example="EM", description="BART station code as listed by GET /stations")
         # The name is historical: the data is monthly, so this counts months.
-        # Requests above data.forecast_horizon_steps (6) get 6 rows.
-        horizon_hours: int           = Field(24, ge=1, le=168, description="Months to forecast; at most 6 are returned")
-        as_of:         Optional[str] = Field(None, example="2025-06-30", description="Forecast anchor (ISO). Months whose start is <= as_of form the history. Default: the latest month in the feature store.")
+        # Values above data.forecast_horizon_steps (6) are accepted for older
+        # clients, clamped to 6, and said so in the response's `warnings`.
+        horizon_hours: int           = Field(6, ge=1, le=168, description="Months to forecast. At most 6 are returned: a larger value is clamped to 6 with a warning, and the response's horizon_hours says how many rows came back.")
+        as_of:         Optional[str] = Field(None, example="2025-06-30", description="Forecast anchor (ISO date). The history is the months that have ended by then: a month counts once its last day is on or before as_of's date, so 2025-06-30 includes June and 2025-06-15 does not. Default: the latest month in the feature store.")
 
     class QuantileForecast(BaseModel):
         timestamp: str
@@ -120,11 +164,12 @@ if _FASTAPI_AVAILABLE:
 
     class ForecastResponse(BaseModel):
         station_id:    str
-        horizon_hours: int
+        horizon_hours: int          = Field(..., description="Months returned: the request's horizon_hours, or 6 when it asked for more")
         generated_at:  str
         model:         str          = Field(..., description="Model that produced the forecasts")
         interval:      IntervalInfo = Field(..., description="Which P10/P90 band the forecasts carry")
         forecasts:     list[QuantileForecast]
+        warnings:      list[str]    = Field(default_factory=list, description="A request clamped to the 6-month horizon, and one line per quantile returned as null because the model gave no finite value; empty otherwise")
 
     class StationsResponse(BaseModel):
         stations: list[str]
@@ -134,6 +179,18 @@ if _FASTAPI_AVAILABLE:
 # ── Feature-store cache ────────────────────────────────────────────────────────
 
 _feature_store: pd.DataFrame | None = None
+# Where _feature_store came from: {"source": "cloud"|"baked"|None, "run_id", "sha256"}.
+_store_info: dict = {"source": None, "run_id": None, "sha256": None}
+# _clock() when the store was loaded or the pointer last re-read (None: never).
+_store_checked_at: float | None = None
+# Serializes loading and swapping; requests that need neither never take it.
+_store_lock = threading.Lock()
+_clock = time.monotonic
+
+SERVING_STORE_ENV = "SERVING_STORE_DIR"
+SERVING_POINTER = Path("processed") / "serving.json"
+DEFAULT_STORE_TTL_SECONDS = 600
+_STORE_COLUMNS = {"timestamp", "station_id", "ridership"}
 
 
 @lru_cache(maxsize=1)
@@ -147,22 +204,126 @@ def _model_name() -> str:
     return f"SARIMA{orders['order']}x{orders['seasonal_order']}"
 
 
+def _serving_dir() -> Path | None:
+    value = os.environ.get(SERVING_STORE_ENV, "").strip()
+    return Path(value) if value else None
+
+
+def _store_ttl() -> float:
+    """STORE_TTL_SECONDS, or 600 when unset, not a number, or negative."""
+    try:
+        ttl = float(os.environ["STORE_TTL_SECONDS"])
+    except (KeyError, ValueError):
+        return DEFAULT_STORE_TTL_SECONDS
+    return ttl if ttl >= 0 else DEFAULT_STORE_TTL_SECONDS
+
+
+def _parse_store(data: bytes) -> pd.DataFrame:
+    df = pd.read_parquet(io.BytesIO(data))
+    missing = _STORE_COLUMNS - set(df.columns)
+    if missing:
+        raise ValueError(f"feature store lacks columns {sorted(missing)}")
+    if df.empty:
+        raise ValueError("feature store has no rows")
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df
+
+
+def _read_pointer(base: Path) -> dict:
+    """<base>/processed/serving.json, checked for the fields the reader needs."""
+    pointer = json.loads((base / SERVING_POINTER).read_text())
+    if not isinstance(pointer, dict):
+        raise ValueError("serving.json is not a JSON object")
+    for key in ("run_id", "store_object", "store_sha256"):
+        if not isinstance(pointer.get(key), str) or not pointer[key].strip():
+            raise ValueError(f"serving.json lacks a string {key!r}")
+    return pointer
+
+
+def _load_cloud_store(base: Path, pointer: dict | None = None) -> tuple[pd.DataFrame, dict]:
+    """The store serving.json names, with its sha256 verified. Raises on any problem."""
+    pointer = pointer or _read_pointer(base)
+    root = base.resolve()
+    obj = (base / pointer["store_object"]).resolve()
+    if not obj.is_relative_to(root):
+        raise ValueError(f"store_object {pointer['store_object']!r} is outside {base}")
+    data = obj.read_bytes()
+    sha = hashlib.sha256(data).hexdigest()
+    if sha != pointer["store_sha256"].strip().lower():
+        raise ValueError(f"sha256 of {obj.name} is {sha}, serving.json says {pointer['store_sha256']}")
+    return _parse_store(data), {"source": "cloud", "run_id": pointer["run_id"], "sha256": sha}
+
+
+def _load_baked_store() -> tuple[pd.DataFrame, dict]:
+    path = PROCESSED_DIR / "feature_store.parquet"
+    if not path.exists():
+        raise RuntimeError("Feature store not found. Run the pipeline first.")
+    data = path.read_bytes()
+    return _parse_store(data), {"source": "baked", "run_id": None, "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def _install_store(df: pd.DataFrame, info: dict) -> None:
+    """Publish a fully built store. Callers hold _store_lock."""
+    global _feature_store, _store_info, _store_checked_at
+    _store_info = info
+    _feature_store = df
+    _store_checked_at = _clock()
+    log.info(f"Feature store loaded: {len(df):,} rows ({info['source']}, run {info['run_id']})")
+
+
+def _reload_due() -> bool:
+    if _serving_dir() is None:
+        return False
+    return _store_checked_at is None or _clock() - _store_checked_at >= _store_ttl()
+
+
+def _reload_serving_store(base: Path) -> None:
+    """Swap in the pointer's store if its run_id is new. A failure keeps the
+    current store. Callers hold _store_lock."""
+    global _store_checked_at
+    _store_checked_at = _clock()  # a failure waits a full TTL before the next try
+    try:
+        pointer = _read_pointer(base)
+        if pointer["run_id"] == _store_info["run_id"]:
+            return
+        df, info = _load_cloud_store(base, pointer)
+    except Exception as e:
+        log.warning(f"Serving store reload from {base} failed ({e}); keeping {_store_info['source']} "
+                    f"store (run {_store_info['run_id']})")
+        return
+    _install_store(df, info)
+
+
 def get_feature_store() -> pd.DataFrame:
-    global _feature_store
-    if _feature_store is None:
-        path = PROCESSED_DIR / "feature_store.parquet"
-        if not path.exists():
-            raise RuntimeError("Feature store not found. Run the pipeline first.")
-        _feature_store = pd.read_parquet(path)
-        _feature_store["timestamp"] = pd.to_datetime(_feature_store["timestamp"])
-        log.info(f"Feature store loaded: {len(_feature_store):,} rows")
-    return _feature_store
+    """The store in use: loaded on first call, re-checked every STORE_TTL_SECONDS
+    when SERVING_STORE_DIR is set. Thread-safe."""
+    store = _feature_store
+    if store is not None and not _reload_due():
+        return store
+    with _store_lock:
+        if _feature_store is None:
+            base = _serving_dir()
+            if base is not None:
+                try:
+                    _install_store(*_load_cloud_store(base))
+                    return _feature_store
+                except Exception as e:
+                    log.warning(f"Serving store {base} unusable ({e}); falling back to the baked feature store")
+            _install_store(*_load_baked_store())
+        elif _reload_due():
+            _reload_serving_store(_serving_dir())
+        return _feature_store
 
 
 # ── Forecast logic ─────────────────────────────────────────────────────────────
 
 def _clean_quantile(value) -> float | None:
     """Coerce a raw quantile cell to a JSON-safe value.
+
+    NaN and +-inf both become None: JSON has no Infinity/NaN (the response
+    encoder rejects them, which would turn a forecast into a 500), and an
+    infinite bound is no more a usable number than a missing one. /forecast
+    lists each such cell in the response's `warnings`.
 
     `max(0.0, x)` silently returns 0.0 when `x` is NaN (NaN always loses
     float comparisons, so `nan > 0.0` is False and `max` picks the first
@@ -171,9 +332,19 @@ def _clean_quantile(value) -> float | None:
     response emit JSON `null` (which the frontends already render as "—"),
     matching how export_website_data.py handles NaN forecast cells.
     """
-    if value is None or pd.isna(value):
+    if value is None or pd.isna(value) or not np.isfinite(value):
         return None
     return max(0.0, float(value))
+
+
+def _null_quantile_warnings(rows: list[dict]) -> list[str]:
+    """One line per P10/P50/P90 cell _clean_quantile returned as null."""
+    return [
+        f"{row['timestamp']}: {q} is not finite; returned as null (the model gave no usable bound)."
+        for row in rows
+        for q in ("p10", "p50", "p90")
+        if row[q] is None
+    ]
 
 
 def _run_forecast(
@@ -204,7 +375,8 @@ def _run_forecast(
         raise UnknownStationError(f"Unknown station: {station_id}")
 
     if as_of is None:
-        as_of = station_df["timestamp"].max()
+        # The latest month in the store is complete, so its own end is the anchor.
+        as_of = station_df["timestamp"].max() + pd.offsets.MonthEnd(0)
     else:
         # feature_store timestamps are tz-naive — keep as_of naive too, or the
         # history-window comparison below raises TypeError.
@@ -229,7 +401,12 @@ def _run_forecast(
             # 08:00 UTC silently becomes "08:00 naive" instead of the correct 01:00 PDT).
             as_of = as_of.tz_convert("America/Los_Angeles").tz_localize(None)
 
-    history = station_df[station_df["timestamp"] <= as_of]
+    # Keep the months that have ended: a month's ridership is its total, so a
+    # month still in progress at as_of must not be in the history. A month
+    # counts once its last day is on or before as_of's date (2025-06-30 keeps
+    # June; 2025-06-15 does not).
+    month_end = station_df["timestamp"] + pd.offsets.MonthEnd(0)
+    history = station_df[month_end <= as_of.normalize()]
     train_start = cfg["data"].get("train_start")
     if train_start:
         start = pd.Timestamp(train_start)
@@ -313,12 +490,29 @@ if _FASTAPI_AVAILABLE:
 
     @app.get("/health")
     def health():
+        # Reports the store without loading it: a failed startup preload
+        # shows here as store_loaded false instead of being retried by a probe.
+        if _feature_store is not None:
+            try:
+                get_feature_store()  # applies a due TTL reload; never loads
+            except Exception as e:
+                log.warning(f"Serving store refresh failed: {e}")
+        with _store_lock:
+            store = _feature_store
+            info = _store_info if store is not None else {"source": None, "run_id": None, "sha256": None}
+        last_month = None
+        if store is not None and len(store):
+            last_month = store["timestamp"].max().strftime("%Y-%m-%d")
         return {
             "status":       "ok",
             "timestamp":    datetime.utcnow().isoformat() + "Z",
             "model":        _model_name(),
             "interval":     interval_plan(CALIBRATION_KEY, _get_config())["label"],
-            "store_loaded": _feature_store is not None,
+            "store_loaded": store is not None,
+            "store_last_month": last_month,
+            "store_source": info["source"],
+            "store_run_id": info["run_id"],
+            "store_sha256": info["sha256"],
         }
 
     @app.get("/stations", response_model=StationsResponse)
@@ -350,9 +544,19 @@ if _FASTAPI_AVAILABLE:
             log.exception("Forecast failed")
             raise HTTPException(status_code=500, detail="Internal forecast error")
 
+        # Say what came back, not what was asked for: a request above the
+        # model's horizon gets 6 rows, a warning, and horizon_hours = 6.
+        warnings = []
+        if req.horizon_hours > len(forecasts):
+            warnings.append(
+                f"horizon_hours={req.horizon_hours} exceeds the {len(forecasts)} months this model "
+                f"forecasts; returned {len(forecasts)}."
+            )
+        warnings += _null_quantile_warnings(forecasts)
+
         return {
             "station_id":    req.station_id,
-            "horizon_hours": req.horizon_hours,
+            "horizon_hours": len(forecasts),
             # A bare isoformat() string with no "Z"/offset is parsed by the
             # browser's `new Date(...)` as LOCAL time (ECMA-262 Date Time
             # String Format), not UTC -- api-demo.html's `new
@@ -369,6 +573,7 @@ if _FASTAPI_AVAILABLE:
                 "description":   plan["description"],
             },
             "forecasts":     forecasts,
+            "warnings":      warnings,
         }
 
     @app.get("/")

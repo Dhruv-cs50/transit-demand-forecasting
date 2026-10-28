@@ -17,7 +17,7 @@ without it neither the image nor the API can be built from a clean clone.
 
 | File | Rows | Months | SHA-256 |
 |---|---|---|---|
-| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `aa02436d44b5de83d77fab87036c046d0ca02983b9d8cbe807c37f9ad714f241` |
+| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `6cde32d4b0d475e565d66bc141e9d534d1415a20c4bd1dbf125cdcaf1e9ee05a` |
 
 Built from the 60 workbooks plus the weather and events archives listed under
 [Covariate archives](#covariate-archives), with the code at the commit that last
@@ -31,21 +31,66 @@ published leaderboard; SARIMA trained on it through `val_end` scores the
 published 3.21% WAPE (`tests/test_api.py` checks this). Rebuilding with the steps
 below overwrites it — commit the result only when the change is intended.
 
+Rebuilt on 2026-10-28 (S8-15) with the covariate zero-fill guard (`c7fbad1`), from
+the same raw files; before it the store hashed to `aa02436d…`. `ridership`, the
+keys and every other column are exactly equal to that store. Only the event
+columns change: 400 cells each in `is_game_day`, `is_sharks_game`, `is_playoff` and
+`hours_to_event` (below), and the three flags are now pandas nullable `boolean`.
+
 Weather covers every store month, 2019 and 2022–2025, with no gaps. It is
 observed weather, so for the Jul–Dec 2025 test window it is hindsight, not a
 forecast.
 
 The events archive starts on 2019-09-17, so it misses the Sharks' 2018–19
 home games: the regular season through April 2019 and the playoff games that
-ran into May 2019. Those five months read as months without a game
-(`is_game_day` false, `hours_to_event` 0.0), the same as an off-season month.
-That is a gap in the data, not an observation. From Sep 2019 on, game days mark
+ran into May 2019. The archive vouches for months from Sep 2019 on, so the
+store's eight 2019 months before it, Jan–Aug, are unknown, not months without a
+game: `is_game_day`, `is_sharks_game` and `is_playoff` are `<NA>` and
+`hours_to_event` is NaN (400 station-months). Jun–Aug are off-season, but the
+archive cannot say so. A month an archive covers with no game stays false / 0.0.
+A month counts as covered when it lies inside the span from the month of a
+file's first event to the end date in its name (`events_{start}_{end}.parquet`).
+From Sep 2019 on, game days mark
 Jan–Apr and Sep–Dec, 8 store months a year: 1,800 of the 3,000 station-months
 have `is_game_day` true. (The archive flags no playoff games; the Sharks made no
 playoffs in 2022–2025.)
 
 No ranked model reads these columns: SARIMA, Prophet and SeasonalNaive are
 univariate, and the Chronos-1 zero-shot path falls back to univariate.
+
+## Cloud serving store
+
+The live API serves a second feature store, built in Google Cloud by the `transit-ingest` job from the
+inputs in `gs://cs-163-final-project-tra-f1136-transit-data/raw/` (see
+[`docs/DATA_PIPELINE.md`](../docs/DATA_PIPELINE.md#cloud-ingest-job) and
+[`docs/cloud-ingestion-design.md`](../docs/cloud-ingestion-design.md)). It is **not** the committed store
+above and does not hash to it.
+
+| | Committed store | Cloud store (first run) |
+|---|---|---|
+| Location | `data/processed/feature_store.parquet` (git) | `processed/runs/20261028T084556Z-5e1329/feature_store.parquet` (bucket) |
+| SHA-256 | `6cde32d4b0d475e565d66bc141e9d534d1415a20c4bd1dbf125cdcaf1e9ee05a` | `f19f60511715f58c0205701f6ab3229498a9de7715092909794ee79a079f052d` |
+| Built with | Python 3.14.0, pandas 3.0.6 | Python 3.11, pandas 2.2.0 (the `transit-ingest` image) |
+| Read by | leaderboard, `benchmarks.py`, website export; baked into the API image as its fallback | the API, when `SERVING_STORE_DIR` is set |
+
+What the publish gate guarantees about the cloud store (all must pass; the run's `gate.json` records each, and
+the first run's passed all 10, including a 3.21% SARIMA backtest at `as_of=2025-06-30`):
+every key of the committed store is present with `ridership` **exactly** equal, covariates agree within
+relative tolerance `1e-9`, the 50 stations are in every month, no month already served has gone, and no month is
+later than the last closed month. The bytes differ; the values the API's forecasts read (`ridership`) do not.
+On 2026-10-28 `/health` reported `store_last_month` 2025-12-01, the same last month as the committed store.
+
+Inputs. `raw/` held 22 objects on 2026-10-28: the 20 inputs the committed store was built from — the 2019, 2022, 2023
+and 2024 BART zips, the twelve 2025 workbooks as loose `Ridership_2025MM.xlsx` files (the 2025 zip above holds the
+same months but was not available to upload), and the four weather/events archives listed under
+[Covariate archives](#covariate-archives) — each pinned to a sha256 in `configs/ingest.yaml`, plus two files the job
+fetched, `weather_all_stations_2026-01-01_2026-09-30.parquet` and `events_2026-01-01_2026-09-30.parquet`. The
+fetched files are not pinned, and no forecast reads them: a 2026 month enters the store only through a BART
+workbook, and none has been uploaded (bart.gov blocks automated downloads; uploads are by hand to `raw/bart/`).
+
+Each run directory also holds a `manifest.json` with the git SHA of the image, every input's generation and sha256,
+the store's sha256 and months, and the gate results; `processed/serving.json` names the run the API serves.
+Run directories are written once; the bucket keeps noncurrent versions of overwritten objects for 30 days.
 
 ## Source archives
 
@@ -120,8 +165,8 @@ The store's weather and event columns come from four raw files, also not in
 git. Put them under `data/raw/weather/` and `data/raw/events/` before
 rebuilding. `merge_pipeline.py` reads every `weather_all_stations_*.parquet`
 and `events_*.parquet` there. With any of them missing, the rebuild still runs,
-but the weather columns come out NaN and the event columns false for the
-missing years, and the bytes differ from the committed store. It also reads
+but the weather columns and the event columns come out NaN (`<NA>` for the flags)
+for the missing years, and the bytes differ from the committed store. It also reads
 the newest `weather_forecast_*.parquet` (a 7-day-ahead forecast). There is none
 in the folder the committed store was built from, and holding one changes the
 store. Both sources are free and need no key. The 2024–2025 files were fetched

@@ -76,10 +76,14 @@ the closest pair here is Sharks on test (3.19 against 3.21), which fails (2) reg
     needs a key this project does not have.
 - **Why the weather arms are worse was not measured.** One candidate is that 2–3 extra coefficients
   per station, estimated from so few months, mostly fit noise.
-- **A zero-filled event count looks like data.** `merge_pipeline.py` writes 0 games for a month with
-  no event archive, so a store rebuilt without the 2024–25 Sharks file would still produce a Sharks
-  row. This run's store has non-zero counts in every game month (2024-09..2025-04, 2025-09..12) and
-  0 in May–Aug. A coverage guard is a follow-up.
+- **A zero-filled event count looked like data.** `merge_pipeline.py` used to write 0 games for a
+  month with no event archive, so a store rebuilt without the 2024–25 Sharks file would still have
+  produced a Sharks row. This run's store has non-zero counts in every game month (2024-09..2025-04,
+  2025-09..12) and 0 in May–Aug. The coverage guard (S8-09, `c7fbad1`) now gives NaN for a month no
+  events file covers; a Sharks arm whose training window holds one is rejected, not scored (tested
+  by injecting NaN). The tracked store was rebuilt with it (S8-15): only Jan–Aug 2019 event cells
+  changed, outside every arm's training window (`train_start` 2022-01), and a rerun on it gave
+  byte-identical `covariate_experiment.csv` and `covariate_experiment_stations.csv`.
 - **Weather locations.** 6 stations (EM, MB, FM, BE, SO, 19) take weather from their own location;
   the other 44 take the 7-location regional mean (PR #139's station table).
 
@@ -110,7 +114,7 @@ python models/baselines/benchmarks.py                # the unchanged leaderboard
 
 | Artifact | SHA-256 |
 |---|---|
-| `data/processed/feature_store.parquet` | `aa02436d44b5de83d77fab87036c046d0ca02983b9d8cbe807c37f9ad714f241` |
+| `data/processed/feature_store.parquet` | `aa02436d44b5de83d77fab87036c046d0ca02983b9d8cbe807c37f9ad714f241` (the store this run used; the tracked store is now `6cde32d4…`, see `data/MANIFEST.md`) |
 | `data/processed/feature_store_enriched.parquet` | `03e160d5f3cfea55e10dfdd0b43be41c76ee20d8e3977391a988f101906d2504` |
 | `evaluation/outputs/covariate_experiment.csv` | `0bf4ab0ce8f3035902774045b6becc9945d3b37bf8997e51e17a210612a60a19` |
 | `evaluation/outputs/covariate_experiment_stations.csv` | `57894d4ef6a01f2f8f598f5883a2a886ecb0458328ed1dcc3403becb6296f702` |

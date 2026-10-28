@@ -1,5 +1,106 @@
 # Sprint board
 
+## Sprint 8 — Ship the gated numbers, harden, design cloud ingestion (opened 2026-10-28)  |  Deadline: 2026-11-03  |  Status: At risk (blocked on user: gcloud auth, deploy yes, Maps billing)
+
+**Goal.** By 2026-11-03: the live site and API serve the numbers gated in S7-13; the live map
+renders; ML inference runs on Cloud Run and the demo visibly uses it; data ingestion runs on
+GCP; the project is reviewed end to end. Integration branch `sprint8/base` (cut from
+`origin/main` @ `abb0fe7`). Lane branches are pushed, not PR'd; the orchestrator merges them
+into `sprint8/base`, gates it, and opens one PR to `main`. Merges to `main` and every deploy
+stay the user's. Board edited only by the orchestrator.
+
+**User decisions (2026-10-28).** Hard date 2026-11-03. Correct model outputs; alternative models
+only if the current results are not good enough; working Maps API in the live demo; correct
+website numbers; full project review; ML inference on the cloud and an ingestion pipeline on
+the cloud.
+
+**Recon findings (2026-10-28).**
+- Both live hosts serve stale builds: Firebase `web.app` `sections.jsx?v=7`, App Engine `?v=8`,
+  `main` `?v=18`; live `model_comparison.json` sha256 `c6780a0d…` / `5391292f…` vs gated
+  `07e44486…`. The "wrong numbers" are a deploy gap, not a model fault.
+- Live Cloud Run `/forecast` → `{"detail":"No module named 'chronos'"}` (pre-Sprint-2 image).
+  `main`'s `Dockerfile.api` serves SARIMA and has no chronos dependency.
+- `transit-demo.html`: `BillingNotEnabledMapError` — the project owning the Maps key has no
+  billing. The demo reads `data/stations_ridership.json` only; it never calls the Cloud Run API.
+- No cloud ingestion exists: every fetcher runs locally; bart.gov answers automated fetches with
+  403 (BART workbooks are downloaded by hand). An earlier README BigQuery dataset was fabricated
+  and removed (dcd2ae5).
+- `gcloud` token expired (needs interactive `gcloud auth login`).
+- Models: SARIMA 3.21 % WAPE vs seasonal naive 10.75 % on 300 held-out station-months. Meets the
+  "good enough" bar; no alternative model is planned unless the review finds a fault.
+
+| ID | Goal | Owner | Est. | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|---|
+| S8-01 | Deploy `abb0fe7` API to Cloud Run (Cloud Build → Artifact Registry → `gcloud run deploy`) | orchestrator | 30m | user: auth + yes | `/forecast` 200 with SARIMA model name for `EM`; `/health` names SARIMA | done — user approved in the side session ("yes to deploy, and both", 2026-10-28); `abb0fe7` from a clean export (store aa02436d): Cloud Build a4dacbac, revision `transit-api-00002-cj7` 100 %. Verified by the orchestrator: `/health` model `SARIMA(0, 1, 1)x(0, 1, 1, 12)`; `/forecast` EM/MT/OW at `as_of=2025-06-30` equal a local `_run_forecast` within 4.2e-5 riders (local = benchmark exactly, S8-11) |
+| S8-02 | Deploy `website/` to App Engine and Firebase from a clean export of the gated SHA | orchestrator | 30m | S8-01; user: yes, `firebase login` | Both hosts serve `sections.jsx?v=18`+; live `model_comparison.json` = committed bytes | done — Firebase and App Engine (version 20261028t003621, 100 %) serve `sections.jsx?v=18`; `model_comparison.json` sha256 `07e44486…` = committed on both (App Engine's edge cache briefly served the old file). App Engine deploy failed on `app.yaml`'s invalid `error_handlers` (`not_found`); the side session removed it in the export only → S8-14 |
+| S8-03 | Maps key: find its owning project; key in the billed project with Maps JavaScript API, referrer-restricted to both hosts + localhost | orchestrator + user | 20m | user: auth | No `BillingNotEnabledMapError`; tiles render, no watermark | done (9e7a8fd) — old key was from a project without billing; enabled `maps-backend` + `apikeys` here, new key `ff0625ba…` limited to Maps JavaScript API and referrers web.app, firebaseapp.com, appspot (both forms), localhost, 127.0.0.1. Local check: Google renderer, no fallback, no watermark. Goes live with the next site deploy |
+| S8-04 | `transit-demo.html` falls back to Leaflet + OpenStreetMap tiles when Google Maps fails to load or errors | frontend engineer | 45m | — | With a broken key the map still renders with markers; with a working key Google renders; no console errors besides Google's own | done (4053848, merged df09437) — Google Maps primary; on `*MapError` console report, `gm_authFailure`, `.gm-err-*`, script error or 10 s timeout it switches to Leaflet + OSM (CARTO dark), with a corner note; 41 markers, 4 lines, every control works on both; 375 px OK. Real billed Google map not yet seen (S8-03) |
+| S8-05 | CI: GitHub Actions running pytest (excl. `test_api`), `py_compile`, JSX parse, `bart_stations.py --check` on `requirements-lock.txt` | engineer | 45m | — | Workflow file valid; same commands pass locally in `tdf-py314` | done (a2f4132; merged e7b48ab) — `.github/workflows/ci.yml`: job `checks` (3.14, lock + torch CPU index, pip check, pytest excl. test_api, py_compile, esbuild JSX parse, `bart_stations.py --check`) and job `api` (3.11, Dockerfile.api pins); real GitHub run 40654533197 passed |
+| S8-06 | API: `/health` reports the served model and store; infinite-quantile gaps handled; `tests/test_api.py` docstring pins | engineer | 45m | — | `test_api` passes in `tdf-api-py311`; no behaviour change to forecasts | done (12f1c8f, merged 38de205) — `/health` adds `store_last_month`; NaN/±inf quantiles → null + top-level `warnings` (was a JSON 500); `test_api.py` docstring pins = `Dockerfile.api`. Clean export of 38de205: 311 + 74 subtests (3.14), `test_api` 23 (3.11). `/forecast` responses gain a `warnings` key |
+| S8-07 | Remove AutoGluon/AutoETS scaffolding (`finetune.py`, `run_pipeline.sh` step + `.venv311` comment, requirements); README lines move to S8-11 | engineer | 45m | — | No import of autogluon anywhere; full pytest passes; leaderboard untouched | done (72c554f, merged 38de205) — `finetune.py` and the `finetune:` config block deleted; `predict.py` fine-tuned backend removed (`force_mode="finetuned"` raises); `run_pipeline.sh` step dropped; autogluon out of `machine_learning_files/requirements.txt`; ARCHITECTURE/DATA_PIPELINE/ml README updated. Outside its list: `benchmarks.py` dead `AutoGluon_Ensemble` + Diebold-Mariano block removed (no longer writes `diebold_mariano.csv`), `Processing/ablation.py` cut to offline diagnostics — S8-12 must re-gate the leaderboard. README lines 23, 85–87, 114, 148, 196, 226, 230, 238–240, 254, 524 → S8-13 |
+| S8-08 | Export all-or-nothing; site headline numbers derived from `model_comparison.json`, not literals | engineer | 1h | — | Export failure leaves `website/data` unchanged; no WAPE/coverage literal left in `sections.jsx`; cache-busters bumped | done (e20c6a2, 1c5aa39, 5c24952; merged df09437) — export stages and publishes with rollback (a refused `forecasts.json` now publishes nothing); headline numbers via `headlineStats()`; only rendered change "WAPE 3.21%" → "3.2%" (JSON holds 1 dp; ruling: accept). Export byte-identical; 313 tests. Docs naming the old partial-write behaviour: `interval-calibration.md:714`, `DATA_PIPELINE.md:128` → S10-07 |
+| S8-09 | Covariate zero-fill guard: months no archive covers give NaN | engineer | 45m | — | Tests; full gate before/after; any leaderboard change reported to the user, not republished | done (c7fbad1; merged e7b48ab) — uncovered months give `<NA>`/NaN, covered no-game months stay False/0; weather flags NaN-aware; nullable `boolean` dtypes; 22 tests. Gate: leaderboard d0d66f03, LaTeX 849f1672, 5 JSONs and tracked store unchanged; a rebuild changes only Jan–Aug 2019 event cells (400 each in 4 columns) → S8-15 |
+| S8-10 | Design: cloud ingestion pipeline on GCP and how the API reads it, honest about BART's 403 | systems architect | 1h | — | Written design: services, schedule, storage, IAM, cost, what stays manual, serving store vs scored store, stories ≤ 1h | done — [docs/cloud-ingestion-design.md](cloud-ingestion-design.md): GCS bucket + Cloud Run Job + Cloud Scheduler; API mounts the bucket read-only and serves the latest gated store, falling back to the baked one; BART upload stays manual (403); no BigQuery; leaderboard keeps the tracked store |
+| S8-11 | Whole-project review: correctness of model outputs, live API vs offline run, site claims, docs, demo | principal engineer | 1h | — | Findings ranked by severity with file:line; each becomes a Sprint 9/10 story or a ruling | done — [docs/review-2026-10-28.md](review-2026-10-28.md): leaderboard and export re-run byte-identical; API vs benchmark max diff 0; no leakage; SARIMA good enough (no alternative model). 3 HIGH (past-month forecasts unlabelled, site showcases Chronos-1, stale AutoGluon claims), 6 MEDIUM, 11 LOW → Sprint 10 |
+| S8-12 | Gate `sprint8/base` after lane merges (S7-13 gate set) and open one PR to `main` | QA + orchestrator | 1h | S8-04..09 | WAPE 3.21/5.75/9.70/10.75, coverage 96.67/74.00/84.67/83.67, n = 300; two runs byte-identical; full pytest + `test_api`; export byte-identical | done (lane B on a clean archive of 1967812; board-only commits since) — store 6cde32d4; lock = env; leaderboard d0d66f03, results 8f708b71, LaTeX 849f1672; WAPE 3.21/5.75/9.70/10.75, coverage 96.67/74.00/84.67/83.67, n = 300; two runs byte-identical incl. calibrators; 6 site JSONs byte-identical; pytest 490 + 74 subtests (3.14), 196 + 84 (3.11); py_compile 56; esbuild 3 JSX; `bart_stations.py --check` OK; CI commands and pip check clean. Orchestrator re-ran tests/py_compile/JSX/station check on fe696de: same. API and ingest images (a156811) differ from fe696de only by `scheduler.py`'s docstring, which neither image contains |
+| S8-13 | README: drop AutoGluon/AutoETS lines (lane A's list), `scheduler.py` stale API docstring, stale `covariate-experiment-plan.md` DM line | orchestrator | 30m | S8-07 | Every changed line true against the repo | done in S10-07 |
+| S8-14 | `website/app.yaml`: drop the invalid `error_handlers` block (`error_code` allows only default/over_quota/dos_api_denial/timeout); repo matches the deployed config | orchestrator | 10m | S8-02 | YAML parses, no `error_handlers` | done (ab2861d) — 4 handlers parse; App Engine shows Google's plain 404, Firebase serves `404.html` |
+| S8-15 | Rebuild the tracked store with S8-09's NaN guard (ridership exact, only uncovered 2019 covariate cells change); validator counts NaN proximity as a problem; every `aa02436d` reference updated; full S7-13 gate | lane B | 1h | S8-09 | Leaderboard/LaTeX/JSON bytes unchanged; new sha256 recorded; cloud gate tests pass against the new store | done (e265c2a, 43d27a6; merged a156811) — tracked store sha256 `6cde32d4b0d475e565d66bc141e9d534d1415a20c4bd1dbf125cdcaf1e9ee05a` (was `aa02436d…`): ridership and every other column equal; 1,600 cells change (400 each in is_game_day, is_sharks_game, is_playoff, hours_to_event, Jan–Aug 2019, False/0.0 → NaN). Gate on clean `e265c2a`: leaderboard d0d66f03, results 8f708b71, LaTeX 849f1672, two runs byte-identical, all 6 site JSONs byte-identical. Validator counts NaN proximity (6 tests). CI api job also runs the serving-store and gate tests. Clean export of a156811: 490 + 74 subtests (3.14), 196 (3.11) |
+
+Deferred from the planned Sprint 8 (after Nov 3 unless time allows): favicon and contrast,
+`interval_study` cache key, Chronos `generated_at`, `fetch_pems_roads.py`, raw archive off
+`~/Desktop` (user's files), `Dockerfile.api` calibrator path.
+
+### Sprint 9 — Cloud ingestion and live inference in the demo (2026-10-28 – 30)
+
+Design: [docs/cloud-ingestion-design.md](cloud-ingestion-design.md) (§8 holds file sets and
+acceptance checks). Critical path S9-01 → S9-02 → (S9-06, S9-07) → S9-10 → S9-11. Plus the map
+demo calling Cloud Run `/forecast` and S8-11's findings.
+
+| ID | Goal | Owner | Depends on | State |
+|---|---|---|---|---|
+| S9-01 | Auth, billing check, enable APIs, bucket, SAs, bindings | user + orchestrator | — | done (2026-10-28, user standing permission) — `gs://cs-163-final-project-tra-f1136-transit-data` us-west1, uniform access, public access prevented, versioning, noncurrent deleted after 30 days; SAs transit-ingest (objectUser), transit-api (objectViewer), transit-scheduler (no bucket role); Cloud Scheduler API enabled |
+| S9-02 | Seed bucket with 5 BART zips + 4 covariate archives, sha256 vs MANIFEST | user | S9-01 | done — 20 objects, 7.4 MiB: 4 BART zips (2019, 2022–24; sha256 = MANIFEST), 12 loose 2025 workbooks from `~/Downloads/bart_od_workbooks` (MANIFEST's 2025 zip is not on the machine; S9-06's gate proves they reproduce the tracked ridership), 2 weather + 2 events archives (sha256 = MANIFEST) |
+| S9-03 | `cloud_store.py` storage abstraction + tests | engineer | — | done (dc244ca, 58074c7; merged f7ae60e) — 44 tests, no google import; `GcsStorage` reads exact generations |
+| S9-04 | `ingest_fetch.py` closed-month fetchers + tests | engineer | S8-09 | done (ef434b5; merged 10796aa) — closed-month weather + Sharks fetchers, one object per source-year, refuse-to-shrink, no rewrite when already covered; 34 tests |
+| S9-05 | `ingest_gate.py` publish gate + tests | engineer | — | done (f058152; merged a838f9f) — 10 named checks; backtest 3.2110 % on 3.14 and 3.21103 % on 3.11/pandas 2.2 (= `benchmarks.py`); 24 tests on both envs |
+| S9-06 | `cloud_ingest.py` orchestrator + `configs/ingest.yaml` + E2E tests | engineer | S9-03..05 | done (cffe15e; merged 10796aa) — `cloud_ingest.py` fetch → fingerprint → stage (20 pinned inputs) → build → gate → publish (pointer last, generation-matched); `configs/ingest.yaml`; 35 tests; `Dockerfile.ingest` builds on amd64. Real 20-object seed in the image: `ridership_exact` passes (the loose 2025 workbooks reproduce the tracked ridership); only `covariates_within_rtol` fails, on the 400 Jan–Aug 2019 event cells S8-15 fixes; with those aligned all 10 checks pass incl. WAPE 3.21 (pandas 2.2 weather within 1e-9 of pandas 3: [A5] settled) |
+| S9-07 | `Dockerfile.ingest` + `cloudbuild.ingest.yaml` | engineer | S9-06 entrypoint name | done (2a66ad5, db2a119; merged f7ae60e) — image builds with stubs (~994 MB); real build waits for S9-04/S9-06 modules |
+| S9-08 | API reads cloud store, TTL + fallback, `/health` store fields | engineer | S8-06 | done (51bfb7e; merged df09437) — `SERVING_STORE_DIR` pointer (`run_id`, `store_object`, `store_sha256`; optional `input_fingerprint`, `published_at`), sha check, fallback to baked, TTL reload under a lock; `/health` `store_source`/`store_run_id`/`store_sha256`; 43 API tests |
+| S9-09 | `scripts/smoke_cloud.sh` | QA | — | done (f4d4163; merged a838f9f) — `--local` dry run: WAPE 3.21 over 300 station-months; cloud path checked against a stub gcloud only |
+| S9-10 | Deploy job; first execution | orchestrator + user | S9-01, S9-02, S9-07 | done — image `transit-ingest:a156811` (Cloud Build 5c24779a); job `transit-ingest` (SA transit-ingest, 1 CPU, 2 GiB, 15 m, no retries). Execution transit-ingest-gmhg4 succeeded in 1m04s: fetched Jan–Sep 2026 weather + Sharks into `raw/`, rebuilt, gate passed all 10 checks (ridership exact, covariates within rtol, WAPE 3.21 %), published run `20261028T084556Z-5e1329` (store f19f6051…) |
+| S9-11 | Scheduler; redeploy API with volume; smoke | orchestrator + user | S9-08..10, S8-01 | done — API image `transit-api:a156811` (Cloud Build 0c41d70a) deployed by digest 2d23c42f as revision `transit-api-00003-rfb`: SA transit-api, gen2, `--cpu-boost`, bucket mounted read-only at /mnt/store, `SERVING_STORE_DIR` set; `/health` store_source cloud, run id and sha256 = pointer. Scheduler `transit-ingest-daily` 03:15 America/Los_Angeles (SA transit-scheduler, run.invoker on the job only); two triggered runs exit 0 "unchanged". `scripts/smoke_cloud.sh` live: 7/7 PASS incl. 50 live forecasts at as_of=2025-06-30 → WAPE 3.21 % |
+| S9-12 | Docs: README cloud sections, ARCHITECTURE, DATA_PIPELINE, MANIFEST, site-claims-audit | tech writer | S9-11 | done (2f978a2; merged 72202e0) — README cloud deployment and data storage, ARCHITECTURE diagram, DATA_PIPELINE cloud section, MANIFEST cloud serving store, site-claims-audit rows; `scheduler.py` docstring |
+| S9-13 | Live BART refresh if 2026 workbooks exist | user + orchestrator | S9-11 | todo |
+| S9-15 | Site copy `sections.jsx:158` + cache-buster | frontend engineer | S9-11, S8-08 | done (18aea03; merged 1967812) — site copy describes the daily Cloud Run ingest job, the gated publish and the API reading the cloud store; no nightly-refresh, automated-BART, covariate-effect or BigQuery claim; cache-busters bumped; 375 px fixed |
+| S9-17 | Map demo calls Cloud Run `/forecast` for the selected station (visible cloud inference) | frontend engineer | S8-04, S8-01 | done (52e6637; merged 4096e3e) — "Forecast on Cloud Run" in each BART popup + sidebar panel; shows model, band, origin month, warnings, "ran live on Cloud Run"; 45 s timeout + waking note; `?api=` override. Orchestrator check: Google renderer, EM Jan–Jun 2026 P50 from live Cloud Run (Jan 415k) |
+| S9-14, S9-16 | Stretch: upload trigger; failure alert | — | S9-11 | deferred |
+
+### Sprint 10 — Review fixes, final gate, final deploy (2026-10-28 – 31); buffer 2026-11-01 – 02
+
+From [docs/review-2026-10-28.md](review-2026-10-28.md). **Ruling (orchestrator, 2026-10-28):** no
+alternative model — SARIMA beats every model at 46–48 of 50 stations and is stable across three
+half-years (6.36 / 4.27 / 3.21 %); Coliseum's miss wants an intervention dummy, not a new family
+(deferred). Frontend files are one owner at a time: `sections.jsx`, `charts.jsx`, `index.html`,
+`export_website_data.py` stay with lane C until S8-08 lands; `transit-demo.html` until S8-04.
+
+| ID | Goal | Findings | Owner | Depends on | State |
+|---|---|---|---|---|---|
+| S10-01 | Site showcases SARIMA: export SARIMA test forecasts as their own band; SARIMA default + model toggle; live panel shows `model` and "forecast from data through {store_last_month}" | R2, R1 (site) | lane C | S8-08 | done (483587d, dce3773; merged e4c88f4) — `forecasts_sarima.json` exported and checked against the leaderboard row; SARIMA default with a Chronos-1 toggle; live panel shows model, band and forecast origin |
+| S10-02 | Site copy: AutoGluon claims, holdout wording, three half-years, `charts.jsx` literal + comment, small claim errors; cache-busters | R3, R4, R5, R10, R17 | lane C | S10-01 | done (ec4aac8) — AutoGluon claims gone; holdout wording; three half-years; small claim fixes |
+| S10-03 | Production React builds (pinned, SRI) in `index.html` | R9 | lane C | S10-02 | done (64652b8) — React 18.3.1 production builds with new SRI |
+| S10-04 | Map geometry from BART GTFS (9 missing stations, coordinates, real line sequences); "Peak crush" → "High" | R7, R13 | frontend engineer | S8-04 | done (b3db0fb) — 50 stations from BART GTFS, real routes incl. orange, "High" badge |
+| S10-05 | `api-demo.html`: holdout replay (`as_of=2025-06-30` vs `ridership_actuals.json`), forecast-origin caption, 30–45 s timeouts with "waking…" + one retry, no silent 14-station fallback | R1 (demo), R6 (client) | frontend subagent | — | done (15b1435; merged 747e668) — origin caption from `/health`, model + interval label + warnings, Jul–Dec 2025 replay vs `ridership_actuals.json` (EM P50 errors −5.4/−0.4/−4.2/−0.9/+4.4/−1.2 %, WAPE 2.7 %, identical on Cloud Run), 45 s timeouts + "waking" note + one `/health` retry, visible offline station list; 375 px fixed |
+| S10-06 | Legacy EDA `.py` + outputs to `transit_eda/legacy/` with a note; standalone `arima.py` own output dir; stale docstrings (`benchmarks.py`, `arima.py`, `zero_shot.py`, `scheduler.py`) | R8, R12, R18 | engineer subagent | — | done (4dabd9d; merged 21c3d4b) — legacy `.py`, its figures and `vta_clean.csv` → `transit_eda/legacy/` + README (`bart_clean.csv` stays: `bart_od_from_csv.py` reads it); standalone `arima.py` → `outputs/arima/standalone/`; docstrings fixed (AST-identical code in benchmarks/zero_shot/scheduler); 314 tests |
+| S10-07 | README: S8-13 lines + holdout wording + three half-years + port 8080 + steps start at `feature_engineering.py` | R3, R4, R5, R11 (doc), R15 | orchestrator | S8-07 | done (this commit's parent) — README: AutoGluon text, six pipeline steps, holdout wording, three half-years, redeploy note, `as_of`/`horizon_hours`, port 8080; export text in interval-calibration.md and DATA_PIPELINE.md |
+| S10-08 | `merge_pipeline.py` exits 1 when it builds nothing | R11 | lane B | S8-09 | todo |
+| S10-09 | `horizon_hours` default/cap 6 or echo rows; `as_of` counts months ending ≤ it | R16, R20 | lane A | S9-08 | done (4726f3e; merged a72ffe8) — `horizon_hours` clamps to 6 with a warning (no 422, existing clients keep working); `as_of` uses months ended on or before it; `as_of=2025-06-30` unchanged |
+| S10-10 | `cloudbuild.yaml` tags with commit SHA; deploy by digest | R19 | orchestrator | S8-01 | done (a7bf609; merged a72ffe8) — `_TAG` substitution, pushes `:$_TAG` and `:tag1`; deploy-by-digest documented in the file |
+| S10-11 | Demo-day ops: `--min-instances=1 --cpu-boost` (user's yes: small idle cost) + warm-up curl before presenting | R6 (deploy) | orchestrator + user | S9-11 | done (user, 2026-10-28: "keep min-instances on for demo day") — revision `transit-api-00006-zpk`: minScale 1 (00004 set it; the user briefly ran the off command, 00005, then restored it), startup CPU boost, same image and cloud store. Stays on through 2026-11-03; turn off after the demo with `gcloud run services update transit-api --region us-west2 --min-instances=0` (S10-12) |
+| S10-12 | After the 2026-11-03 demo: `--min-instances=0` on `transit-api` | orchestrator | 5m | demo | `minScale` absent or 0 | todo (2026-11-04) |
+| — | Deferred: benchmark slice names (R14, unpublished); Coliseum intervention dummy | R14 | — | — | deferred |
+
+
 ## Sprint 7 — Integrate every open PR into main and verify it (opened 2026-10-26)  |  Status: On track
 
 (Named 7: Sprint 5 is the adaptive-calibration branch, Sprint 6 the bias-shift plan.)
@@ -43,7 +144,7 @@ the merged PRs publish it (SARIMA 96.67, Prophet 74.00, Chronos-1 72.67, Seasona
 "Sprint 4e", was renamed 4h by #154, so "Sprint 4c" is now the only duplicate. Commit messages cite those IDs, so they are not renumbered; headings gain their PR number instead
 (Sprint 8 hygiene).
 
-### Sprint 8 — Harden (planned)
+### Sprint 8 — Harden (planned; superseded by the Sprint 8 section at the top, 2026-10-28)
 
 CI (pytest, `py_compile`, JSX parse, `bart_stations.py --check`) on the lock from S7-08; headline
 site numbers derived from data, not literals; all-or-nothing export; uncovered event months give

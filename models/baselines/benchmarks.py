@@ -4,16 +4,15 @@ models/baselines/benchmarks.py
 Head-to-head comparison of all models on the held-out test set.
 
 Models compared:
-  1. Seasonal Naive   — repeat same-time-last-week (zero-effort baseline)
+  1. Seasonal Naive   — repeat the same month of the previous year (zero-effort baseline)
   2. SARIMA           — classical statistical model
   3. Prophet          — classical + holidays + regressors
-  4. Chronos-2 (zero-shot) — foundation model, no fine-tuning
-  5. Chronos-2 (fine-tuned) — foundation model, trained on your data
+  4. Chronos (zero-shot) — foundation model, no fine-tuning
 
 Produces:
   - Leaderboard table (WAPE, MAE, RMSE, MAPE, MASE)
-  - Per-slice breakdown (game days, rainy days, AM peak, PM peak)
-  - Statistical significance tests (Diebold-Mariano)
+  - Per-slice breakdown (game days, rainy days, holidays, ...). The data is monthly, so the
+    AM/PM-peak slices need hour-level flags the store does not have and are skipped.
   - Latex-ready table for your project report
 
 Usage:
@@ -120,11 +119,13 @@ def seasonal_naive_forecast(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     freq: str,
-    seasonality_hours: int = 168,   # 7-day seasonal period
+    seasonality_hours: int = 168,   # used only for sub-daily freq (168 h = 7 days); monthly freq uses a fixed 12-step lag
 ) -> pd.DataFrame:
     """
-    For each test row, predict the value from exactly
-    `seasonality_hours` ago in the training data.
+    For each test row, predict the value one season ago in the training data.
+    For monthly freq ("MS"/"M"/"ME"; what the feature store uses) the season is
+    12 months, so each test month repeats the same month of the last 12 training
+    months. `seasonality_hours` (168 = 7 days) applies only to sub-daily freq.
     This is the absolute minimum any model must beat.
     """
     if freq.upper() in {"MS", "M", "ME"} or "month" in freq.lower():
@@ -141,7 +142,7 @@ def seasonal_naive_forecast(
         if len(train_grp) < lag:
             continue
 
-        # Repeat the last week of training data cyclically
+        # Repeat the last `lag` training steps cyclically (12 months for monthly freq)
         last_week = train_grp["ridership"].values[-lag:]
         n_test = len(grp)
         repeated = np.tile(last_week, (n_test // lag) + 1)[:n_test]
@@ -899,12 +900,8 @@ def run_benchmarks(
     try:
         from models.chronos2.predict import Predictor
         predictor = Predictor()
-        # Predictor is a process-wide singleton that prefers fine-tuned
-        # weights whenever they exist. Without force_mode="zeroshot", this
-        # section would silently run the fine-tuned model the moment
-        # models/chronos2/weights exists — mislabeling it "Chronos2_ZeroShot"
-        # on the leaderboard and making the DM-test below compare the
-        # fine-tuned model against itself (d == 0 for every observation).
+        # force_mode="zeroshot" pins the backend, so a result is never
+        # attributed to Chronos unless Chronos ran (checked via mode below).
         zs_preds = predictor.forecast_all_stations(
             as_of=val_end,
             output_path=EVAL_DIR / "chronos2_zeroshot_preds.parquet",
@@ -956,34 +953,6 @@ def run_benchmarks(
     except Exception as e:
         log.error(f"  Chronos-2 zero-shot failed: {e}")
 
-    # ── 5. AutoGluon fine-tuned ensemble ───────────────────────────────────────
-    if Path("models/chronos2/weights").exists():
-        log.info("\n=== AutoGluon ensemble (fine-tuned) ===")
-        try:
-            if predictor is None:
-                from models.chronos2.predict import Predictor
-                predictor = Predictor()
-            ft_preds = predictor.forecast_all_stations(
-                as_of=val_end,
-                output_path=EVAL_DIR / "chronos2_finetuned_preds.parquet",
-                force_mode="finetuned",
-            )
-            if not ft_preds.empty:
-                ft_preds, ft_interval = calibrate_intervals(
-                    "AutoGluon_Ensemble", "AutoGluon_Ensemble", ft_preds,
-                    lambda: _forecast_checked(predictor, train_end, val_end,
-                                              CAL_DIR / "chronos2_finetuned_val_preds.parquet", "finetuned"),
-                    val_df, cfg, calibrator_path=CALIBRATOR_DIR / "AutoGluon_Ensemble.json",
-                )
-                model_preds["AutoGluon_Ensemble"] = ft_preds
-                rows = compute_metrics(test_df, ft_preds, "AutoGluon_Ensemble", train_df=train_df,
-                                       interval_method=ft_interval)
-                rows = accept_rows_and_calibrator(rows, "AutoGluon_Ensemble", CALIBRATOR_DIR / "AutoGluon_Ensemble.json")
-                all_rows.extend(rows)
-                log.info(f"  WAPE: {next((r['WAPE_%'] for r in rows if r['slice']=='overall'), 'N/A')}")
-        except Exception as e:
-            log.error(f"  Chronos-2 fine-tuned failed: {e}")
-
     if not all_rows:
         log.error("No benchmark results generated")
         return pd.DataFrame()
@@ -998,39 +967,15 @@ def run_benchmarks(
     )
     leaderboard.index += 1  # rank from 1
 
-    # ── Statistical significance ───────────────────────────────────────────────
-    dm_results = []
-    if "AutoGluon_Ensemble" in model_preds:
-        for baseline in ["SeasonalNaive", "SARIMA", "Prophet", chronos_label]:
-            if baseline in model_preds:
-                dm = diebold_mariano_test(
-                    test_df,
-                    model_preds[baseline],
-                    model_preds["AutoGluon_Ensemble"],
-                    model_a=baseline,
-                    model_b="AutoGluon_Ensemble",
-                )
-                if dm:
-                    dm_results.append(dm)
-
     # ── Print report ───────────────────────────────────────────────────────────
     # 2026-09-24 wired MASE into compute_metrics()'s output rows (so
     # `leaderboard` genuinely carries a "MASE" column here), but never updated
     # this console table or the LaTeX table below to display it -- the module's
     # own docstring promises "Leaderboard table (WAPE, MAE, RMSE, MAPE, MASE)",
     # yet the actual printed leaderboard and report-ready LaTeX table silently
-    # dropped the one metric that matches the project's own eval_metric
-    # (configs/model.yaml's finetune.eval_metric: "MASE"). Only the raw
-    # benchmark_leaderboard.csv (saved with all columns) ever carried it.
+    # dropped MASE. Only the raw benchmark_leaderboard.csv (saved with all
+    # columns) ever carried it.
     print(format_leaderboard_console(leaderboard))
-
-    if dm_results:
-        print(f"\n{'─'*70}")
-        print("  Diebold-Mariano Tests (AutoGluon ensemble vs baselines)")
-        print(f"{'─'*70}")
-        for dm in dm_results:
-            sig = "✅ significant" if dm.get("significant_at_5pct") else "— not significant"
-            print(f"  vs {dm['model_a']:<20} p={dm['p_value']:.4f}  {sig}")
 
     # ── Save ───────────────────────────────────────────────────────────────────
     # The leaderboard is written first and on its own. It is the artifact
@@ -1041,9 +986,6 @@ def run_benchmarks(
     results_df.to_csv(EVAL_DIR / "benchmark_results.csv", index=False)
     leaderboard.to_csv(EVAL_DIR / "benchmark_leaderboard.csv")
     log.info(f"Leaderboard saved → {EVAL_DIR / 'benchmark_leaderboard.csv'}")
-
-    if dm_results:
-        pd.DataFrame(dm_results).to_csv(EVAL_DIR / "diebold_mariano.csv", index=False)
 
     # ── Latex table (cosmetic; never fatal) ────────────────────────────────────
     try:

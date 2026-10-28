@@ -712,8 +712,7 @@ def main():
     # event_day_metrics()'s/weather_day_metrics()'s `if <col> in merged.columns`
     # guards then silently skip the Sharks-game and heavy-rain breakdowns on
     # every default run. Backfill them from --feature-store (the enriched
-    # store) so those diagnostics actually run, same fix as ablation.py's
-    # run_ablation() (2026-09-04).
+    # store) so those diagnostics actually run (2026-09-04).
     #
     # is_raining is NOT actually missing from a raw test_df -- merge_pipeline.py's
     # build_feature_store() already writes it there as a per-station-month MEAN
@@ -723,8 +722,7 @@ def main():
     # comparing a fraction against True (i.e. == 1.0), which only matches a
     # month that rained every single hour -- silently zeroing out the "rainy"
     # breakdown on every run. Always overwrite it from feature_store; only
-    # backfill the rest when genuinely absent (same fix as ablation.py's
-    # run_ablation(), 2026-09-06).
+    # backfill the rest when genuinely absent (2026-09-06).
     diagnostic_cols = ["is_sharks_game_window", "precip_intensity", "is_raining"]
     always_overwrite = {"is_raining"}
     feature_store_path = Path(args.feature_store)

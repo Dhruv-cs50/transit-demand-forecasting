@@ -1,0 +1,108 @@
+name: CI
+
+# Fast checks on every push and pull request. These do NOT rerun the benchmark
+# or the export: the S7-13 gate (docs/sprint-board.md) is where the published
+# numbers are reproduced and compared byte for byte.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Tests, compile, JSX, station table (Python 3.14, requirements-lock.txt)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # requirements-lock.txt is the Python 3.14 environment the leaderboard is
+      # reproduced on.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+
+      # The lock was frozen on macOS arm64. On Linux, PyPI's torch wheel would
+      # pull nvidia-* and triton packages that the lock does not list;
+      # torch's CPU index serves 2.14.1+cpu, which satisfies the lock's
+      # `torch==2.14.1`, and pip prefers it over the PyPI wheel (a local
+      # version label sorts higher). Resolving the whole lock on
+      # manylinux_2_28_x86_64 / cp314 this way gives exactly its 71 pins and
+      # nothing else.
+      - name: Install requirements-lock.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-lock.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip check
+
+      # tests/test_api.py needs the API image's environment (Python 3.11,
+      # fastapi); it runs in the `api` job.
+      - name: pytest (all but tests/test_api.py)
+        run: python -m pytest tests --ignore=tests/test_api.py -q
+
+      - name: py_compile every tracked .py
+        run: git ls-files -z '*.py' | xargs -0 python -m py_compile
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # website/*.jsx is compiled in the browser by @babel/standalone
+      # (website/index.html); esbuild parses the same JSX syntax.
+      - name: Parse website/*.jsx
+        run: |
+          git ls-files 'website/*.jsx' | while read -r f; do
+            echo "esbuild --loader=jsx < $f"
+            npx --yes esbuild@0.25.12 --loader=jsx --log-level=warning < "$f" > /dev/null
+          done
+
+      - name: BART station table
+        run: python machine_learning_files/bart_stations.py --check --store data/processed/feature_store.parquet
+
+  api:
+    name: API tests (Python 3.11, Dockerfile.api pins)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The pins are read out of Dockerfile.api's `RUN pip install` block, so the
+      # job tests the image's packages and cannot drift from them. pytest and
+      # httpx (starlette's TestClient) are not in the image; versions match
+      # the local tdf-api-py311 environment.
+      - name: Install Dockerfile.api pins
+        run: |
+          set -f  # `uvicorn[standard]` must not be globbed
+          pins=$(awk '
+            /^RUN pip install/ { grab = 1; next }
+            grab {
+              line = $0
+              sub(/ *\\$/, "", line)
+              print line
+              if ($0 !~ /\\$/) exit
+            }
+          ' Dockerfile.api | tr -d '"' | tr -s ' \n' ' ')
+          echo "Dockerfile.api pins: $pins"
+          [ -n "$pins" ] || { echo "no pins found in Dockerfile.api" >&2; exit 1; }
+          python -m pip install --upgrade pip
+          python -m pip install $pins pytest==9.2.0 httpx==0.28.1
+          python -m pip check
+
+      # test_api_serving_store skips itself without fastapi, so only this job
+      # runs it; test_ingest_gate also runs in `checks`.
+      - name: pytest API tests
+        run: python -m pytest tests/test_api.py tests/test_api_serving_store.py tests/test_ingest_gate.py -q

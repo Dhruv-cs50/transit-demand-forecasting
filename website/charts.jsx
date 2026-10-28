@@ -83,12 +83,14 @@ const yearSpan = records => {
 };
 
 /* ── What model_comparison.json scored ─────────────────────────────
-   scoredForecasts(): true when forecasts.json is the run that
-   model_comparison.json's Chronos row scored — the comparison has exactly one
-   Chronos row (the exporter's rule) and its n_predictions equals the number of
-   published forecasts. Presence of the row alone is not enough: when the
-   exporter refuses forecasts.json it rewrites model_comparison.json but leaves
-   the old forecasts.json in place.
+   scoredForecasts(): true when a forecast file (forecasts.json for Chronos,
+   forecasts_sarima.json for SARIMA) is the run that model_comparison.json's row
+   for that model scored — the comparison has exactly one such row (the
+   exporter's rule) and its n_predictions equals the number of published
+   forecasts. Presence of the row alone is not enough: the exporter publishes
+   all six files or none, but a site deployed from mixed copies of
+   website/data/ (or a stale cached forecasts.json) can still pair a new
+   comparison with old forecasts.
 
    comparisonSplit(): label parts for the comparison, all from the data —
    `name` ('test split' / 'validation split' / 'held-out split', from
@@ -97,11 +99,20 @@ const yearSpan = records => {
    window), `n` (station-months per model, when every row has the same count),
    `stations` (stations in forecasts.json, under the same condition as
    `window`). Missing parts are null; null overall until both files load. */
-const scoredForecasts = (fcRes, cmpRes) => {
+const scoredForecasts = (fcRes, cmpRes, rowPrefix = 'Chronos') => {
   const fc = siteRows(fcRes), cmp = siteRows(cmpRes);
   if (!fc.length || !cmp.length) return false;
-  const chronos = cmp.filter(r => r && String(r.model).startsWith('Chronos'));
-  return chronos.length === 1 && Number(chronos[0].n_predictions) === fc.length;
+  const rows = cmp.filter(r => r && String(r.model).startsWith(rowPrefix));
+  return rows.length === 1 && Number(rows[0].n_predictions) === fc.length;
+};
+
+/* The two per-station forecast exports the site shows. SARIMA (forecasts_sarima.json)
+   is the leaderboard's best model and the default; Chronos-1 (forecasts.json) is
+   the zero-shot foundation model. rowPrefix finds the model's leaderboard row. */
+const FC_MODELS = {
+  sarima:  { key:'sarima',  short:'SARIMA',    label:'SARIMA',              file:'forecasts_sarima.json', rowPrefix:'SARIMA' },
+  chronos: { key:'chronos', short:'Chronos-1', label:'Chronos-1 zero-shot', file:'forecasts.json',        rowPrefix:'Chronos',
+             full:'Chronos-1 zero-shot (chronos-t5-small)' },
 };
 
 const comparisonSplit = (fcRes, cmpRes) => {
@@ -121,6 +132,49 @@ const comparisonSplit = (fcRes, cmpRes) => {
     label: span ? `${span.range} ${name}` : name,
   };
 };
+
+/* ── Headline numbers, all from model_comparison.json ──────────────
+   headlineStats(cmpRes, fcRes): the figures the page quotes in prose — best
+   model and its WAPE/MAE, each baseline's row, station-months scored, the
+   coverage range — read from the leaderboard rows so no copy keeps its own
+   literal. null until model_comparison.json has loaded with a scored row.
+     rows      rows with a WAPE_pct, in file order
+     best      the lowest-WAPE row (first one on a tie)
+     sarima, prophet, naive, chronos
+               the row whose model name starts SARIMA / Prophet / SeasonalNaive
+               / Chronos, or undefined
+     n         station-months per model when every row agrees, else null
+     window    the scored forecast months ('Jul–Dec 2025'), only when
+               forecasts.json is the run that was scored (comparisonSplit),
+               else null — callers then say just "holdout"
+     covLo, covHi  smallest and largest Coverage_pct, or null
+   The formatters match how each figure is printed today (1 decimal, '3.1k',
+   '3,086'); a missing value prints as '—'. */
+const headlineStats = (cmpRes, fcRes) => {
+  const rows = siteRows(cmpRes).filter(r => r && typeof r.WAPE_pct === 'number' && isFinite(r.WAPE_pct));
+  if (!rows.length) return null;
+  const best = rows.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a));
+  const named = prefix => rows.find(r => String(r.model).startsWith(prefix));
+  const ns = new Set(rows.map(r => r.n_predictions));
+  const n0 = ns.size === 1 ? [...ns][0] : null;
+  const split = comparisonSplit(fcRes, cmpRes);
+  const covs = rows.map(r => r.Coverage_pct).filter(v => typeof v === 'number' && isFinite(v));
+  return {
+    rows, best,
+    sarima: named('SARIMA'), prophet: named('Prophet'), naive: named('SeasonalNaive'), chronos: named('Chronos'),
+    n: Number.isFinite(n0) ? n0 : null,
+    window: split && split.window,
+    covLo: covs.length ? Math.min(...covs) : null,
+    covHi: covs.length ? Math.max(...covs) : null,
+  };
+};
+const fmtPct = v => (typeof v === 'number' && isFinite(v) ? v.toFixed(1) + '%' : '—');
+const fmtInt = v => (typeof v === 'number' && isFinite(v) ? Math.round(v).toLocaleString('en-US') : '—');
+const fmtK = v => (typeof v === 'number' && isFinite(v) ? (v / 1000).toFixed(1) + 'k' : '—');
+// 'Chronos1_ZeroShot (chronos-t5-small)' → 'Chronos1_ZeroShot'; 'SARIMA' unchanged.
+const shortModel = m => String(m).replace(/\s*\(.*\)\s*$/, '');
+// 'Jul–Dec 2025 holdout' when the window is known, else just 'holdout'.
+const holdoutLabel = hs => `${hs && hs.window ? hs.window + ' ' : ''}holdout`;
 
 // Centred status text in place of a chart; SVG text does not wrap, so each
 // line is its own tspan.
@@ -144,7 +198,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
   if (siteFailed(cmpRes)) return message('The model comparison could not be loaded.', 'model_comparison.json · reload the page to try again');
   if (!data.length) return message('model_comparison.json lists no models.');
 
-  const DISPLAY_CAP = 30; // cap x-axis at 30% — Prophet 176% shown as overflow
+  const DISPLAY_CAP = 30; // cap x-axis at 30%; a bar past the cap is drawn to it with an overflow mark (▶)
   const pad = { l: 170, r: 70, t: 20, b: 38 };
   const W = width - pad.l - pad.r;
   const H = height - pad.t - pad.b;
@@ -219,12 +273,17 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
 };
 
 /* ── Forecast interval chart — P10/P50/P90 vs actual riders for Embarcadero (real data) ── */
-const Calibration = ({ width = 460, height = 260 }) => {
-  const fcRes = useSiteData('forecasts.json');
+const Calibration = ({ width = 460, height = 260, model = 'sarima' }) => {
+  const FC = FC_MODELS[model] || FC_MODELS.sarima;
+  // Both files are requested on every render so the hook order never changes;
+  // the loader caches, so each is fetched once.
+  const sarRes = useSiteData('forecasts_sarima.json');
+  const chrRes = useSiteData('forecasts.json');
+  const fcRes = FC.key === 'sarima' ? sarRes : chrRes;
   const acRes = useSiteData('ridership_actuals.json');
   const message = (...lines) => <ChartMessage width={width} height={height} lines={lines} />;
   if (!fcRes || !acRes) return message('Loading…');
-  if (siteFailed(fcRes)) return message('The forecasts could not be loaded.', 'forecasts.json · reload the page to try again');
+  if (siteFailed(fcRes)) return message('The forecasts could not be loaded.', `${FC.file} · reload the page to try again`);
 
   // Station ids are BART's two-letter codes everywhere (data files and live API).
   const pts = siteRows(fcRes).filter(r => r && r.station_id === 'EM' && typeof r.month === 'string')
@@ -241,7 +300,7 @@ const Calibration = ({ width = 460, height = 260 }) => {
   // skipping the point. Drop any row missing a quantile before building the
   // paths.
   const validPts = pts.filter(r => r.p10 != null && r.p50 != null && r.p90 != null);
-  if (validPts.length === 0) return message('No Embarcadero forecasts are published in forecasts.json.');
+  if (validPts.length === 0) return message(`No Embarcadero forecasts are published in ${FC.file}.`);
 
   // Actual riders for the forecast months, at the same x index as validPts.
   const actualPts = validPts
@@ -321,7 +380,7 @@ const Calibration = ({ width = 460, height = 260 }) => {
       ))}
 
       {/* annotations */}
-      <text x={pad.l} y={14} fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">Embarcadero · Chronos-1 zero-shot forecast</text>
+      <text x={pad.l} y={14} fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{`Embarcadero · ${FC.label} forecast`}</text>
       <text x={pad.l + W} y={pad.t + H + 30} textAnchor="end" fontSize="10" fill="var(--ink-muted)">{yearLabel}</text>
 
       {/* legend */}
@@ -346,6 +405,7 @@ const Calibration = ({ width = 460, height = 260 }) => {
 };
 
 const HeroOrbit = () => {
+  const hs = headlineStats(useSiteData('model_comparison.json'), null);
   return (
     <svg viewBox="0 0 520 520" width="100%" style={{ display:'block', overflow:'visible' }}>
       <defs>
@@ -400,7 +460,7 @@ const HeroOrbit = () => {
         <circle r="56" fill="var(--bg-elev)" stroke="var(--line-strong)" />
         <circle r="56" fill="url(#core)" opacity=".6" />
         <text textAnchor="middle" y="-6" fontFamily="var(--mono)" fontSize="11" fill="var(--ink-muted)">WAPE · test</text>
-        <text textAnchor="middle" y="22" fontFamily="var(--display)" fontWeight="600" fontSize="30" fill="var(--ink)" letterSpacing="-1">3.2%</text>
+        <text textAnchor="middle" y="22" fontFamily="var(--display)" fontWeight="600" fontSize="30" fill="var(--ink)" letterSpacing="-1">{hs ? fmtPct(hs.best.WAPE_pct) : '—'}</text>
       </g>
     </svg>
   );
@@ -446,4 +506,5 @@ const Gauge = ({ value = 0.42 }) => {
 Object.assign(window, {
   ROCCurve, Calibration, HeroOrbit, Gauge,
   loadSiteData, useSiteData, siteRows, siteFailed, monthSpan, yearSpan, scoredForecasts, comparisonSplit,
+  FC_MODELS, headlineStats, fmtPct, fmtInt, fmtK, shortModel, holdoutLabel,
 });

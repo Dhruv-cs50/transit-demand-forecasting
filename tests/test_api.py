@@ -5,8 +5,9 @@ Contract tests for the serving API (machine_learning_files/api.py) against the
 committed feature store.
 
 Run from the repository root:
-    pip install fastapi==0.115.0 pydantic==2.7.0 pandas==2.2.0 pyarrow==16.0.0 \
-        numpy==1.26.4 PyYAML==6.0.1 scipy==1.14.1 statsmodels==0.14.4 httpx pytest
+    pip install fastapi==0.115.0 "uvicorn[standard]==0.30.0" pydantic==2.7.0 \
+        pandas==2.2.0 pyarrow==16.0.0 numpy==1.26.4 PyYAML==6.0.1 scipy==1.14.1 \
+        patsy==1.0.1 statsmodels==0.14.4 httpx pytest
     python -m pytest tests/
 """
 
@@ -85,17 +86,76 @@ def test_as_of_backtest_reproduces_the_published_sarima_wape(client):
     assert round(abs_err / total * 100, 2) == 3.21
 
 
-@pytest.mark.parametrize("horizon, expected_rows", [(1, 1), (3, 3), (168, 6)])
+@pytest.mark.parametrize("horizon, expected_rows", [(1, 1), (3, 3), (6, 6), (7, 6), (24, 6), (168, 6)])
 def test_horizon_truncates_and_caps_at_six_months(client, horizon, expected_rows):
     r = _forecast(client, station_id="EM", horizon_hours=horizon)
     assert r.status_code == 200, r.text
-    assert len(r.json()["forecasts"]) == expected_rows
+    body = r.json()
+    assert len(body["forecasts"]) == expected_rows
+    # The response says how many months it returned, not how many were asked for.
+    assert body["horizon_hours"] == expected_rows
+
+
+def test_horizon_above_six_is_clamped_with_a_warning(client):
+    body = _forecast(client, station_id="EM", horizon_hours=24).json()
+    assert body["horizon_hours"] == 6
+    assert body["warnings"] == ["horizon_hours=24 exceeds the 6 months this model forecasts; returned 6."]
+
+
+def test_horizon_within_six_has_no_horizon_warning(client):
+    body = _forecast(client, station_id="EM", horizon_hours=3).json()
+    assert body["horizon_hours"] == 3
+    assert body["warnings"] == []
+
+
+def test_horizon_defaults_to_six(client):
+    r = client.post("/forecast", json={"station_id": "EM"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["horizon_hours"] == 6
+    assert len(body["forecasts"]) == 6
+    assert body["warnings"] == []
+
+
+@pytest.mark.parametrize("horizon", [0, -1, 169])
+def test_horizon_outside_1_to_168_is_422(client, horizon):
+    assert _forecast(client, station_id="EM", horizon_hours=horizon).status_code == 422
 
 
 def test_unknown_station_is_404(client):
     r = _forecast(client, station_id="EMBR", horizon_hours=6)
     assert r.status_code == 404
     assert "EMBR" in r.json()["detail"]
+
+
+# ── as_of uses only months that have ended ─────────────────────────────────────
+# A month's ridership is a month total, known only once the month is over. as_of
+# keeps a month when that month's last day is on or before as_of's date, so a
+# date in the middle of June cannot see June's total (a leak when someone passes
+# today's date), while the month-end date 2025-06-30 keeps June.
+
+def _p50s(client, **body):
+    r = _forecast(client, station_id="EM", horizon_hours=6, **body)
+    assert r.status_code == 200, r.text
+    return [(row["timestamp"], row["p50"]) for row in r.json()["forecasts"]]
+
+
+@pytest.mark.parametrize("as_of", ["2025-06-15", "2025-06-01", "2025-05-31"])
+def test_mid_month_as_of_excludes_the_unfinished_month(client, as_of):
+    rows = _p50s(client, as_of=as_of)
+    assert rows[0][0] == "2025-06-01 00:00:00"
+    assert rows == _p50s(client, as_of="2025-05-31")
+
+
+def test_mid_month_as_of_differs_from_the_month_end_anchor(client):
+    assert _p50s(client, as_of="2025-06-15") != _p50s(client, as_of="2025-06-30")
+
+
+@pytest.mark.parametrize("as_of", ["2025-06-30", "2025-06-30T23:59:59", "2025-07-01", "2025-07-15"])
+def test_month_end_date_keeps_its_own_month(client, as_of):
+    rows = _p50s(client, as_of=as_of)
+    assert rows[0][0] == "2025-07-01 00:00:00"
+    assert rows == _p50s(client, as_of="2025-06-30")
 
 
 @pytest.mark.parametrize("as_of", ["not-a-date", ""])
@@ -132,6 +192,25 @@ def test_health_names_the_served_model(client):
     assert "chronos" not in str(body).lower()
 
 
+def test_health_reports_the_store_and_what_is_served(client):
+    body = client.get("/health").json()
+    assert {"status", "timestamp", "model", "interval", "store_loaded", "store_last_month"} <= set(body)
+    assert body["model"] == "SARIMA(0, 1, 1)x(0, 1, 1, 12)"
+    assert body["store_loaded"] is True
+    # The committed store ends 2025-12; /forecast's default anchor.
+    assert body["store_last_month"] == "2025-12-01"
+
+
+def test_health_before_the_store_loads_says_so_without_loading_it(client, monkeypatch):
+    import machine_learning_files.api as api
+    monkeypatch.setattr(api, "_feature_store", None)
+    body = client.get("/health").json()
+    assert body["status"] == "ok"
+    assert body["store_loaded"] is False
+    assert body["store_last_month"] is None
+    assert api._feature_store is None
+
+
 # ── Which P10/P90 band is served ───────────────────────────────────────────────
 # configs/model.yaml leaves SARIMA's band raw (calibration.models.SARIMA:
 # method none). The tests below check that the response says so, that the raw
@@ -149,7 +228,7 @@ def test_response_names_the_model_and_labels_sarimas_own_band(client):
     r = _forecast(client, station_id="EM", horizon_hours=6)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert list(body) == ["station_id", "horizon_hours", "generated_at", "model", "interval", "forecasts"]
+    assert list(body) == ["station_id", "horizon_hours", "generated_at", "model", "interval", "forecasts", "warnings"]
     assert body["model"] == "SARIMA(0, 1, 1)x(0, 1, 1, 12)"
     interval = body["interval"]
     assert interval["calibrated"] is False
@@ -243,3 +322,39 @@ def test_configured_calibration_without_a_saved_calibrator_is_503(client, monkey
     r = _forecast(client, station_id="EM", horizon_hours=6)
     assert r.status_code == 503, r.text
     assert "calibrator" in r.json()["detail"]
+
+
+# ── Non-finite quantiles ───────────────────────────────────────────────────────
+# statsmodels can return an infinite or NaN bound when a fit's forecast variance
+# blows up. A response must stay valid JSON (no Infinity/NaN) and keep every
+# month's row: the bad value is null and the top-level `warnings` list says so.
+
+
+@pytest.mark.parametrize("bad", [np.inf, -np.inf, np.nan])
+def test_non_finite_quantile_is_null_and_flagged_not_a_500(client, monkeypatch, bad):
+    from models.baselines import arima
+
+    real = arima.predict_station
+
+    def with_bad_p90(*args, **kwargs):
+        out = real(*args, **kwargs)
+        out.loc[out.index[2], "p90"] = bad
+        return out
+
+    monkeypatch.setattr(arima, "predict_station", with_bad_p90)
+    r = _forecast(client, station_id="EM", horizon_hours=6)
+    assert r.status_code == 200, r.text
+    assert "Infinity" not in r.text and "NaN" not in r.text
+    body = r.json()
+    rows = body["forecasts"]
+    assert len(rows) == 6
+    assert rows[2]["p90"] is None
+    assert rows[2]["p10"] is not None and rows[2]["p50"] is not None
+    assert all(row["p90"] is not None for i, row in enumerate(rows) if i != 2)
+    assert body["warnings"] == [
+        "2026-03-01 00:00:00: p90 is not finite; returned as null (the model gave no usable bound)."
+    ]
+
+
+def test_finite_forecast_carries_no_warnings(client):
+    assert _forecast(client, station_id="EM", horizon_hours=6).json()["warnings"] == []

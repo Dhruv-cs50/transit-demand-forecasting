@@ -1,0 +1,36 @@
+# Build and push the transit-ingest job image (Dockerfile.ingest).
+#
+#   gcloud builds submit --config=cloudbuild.ingest.yaml \
+#       --substitutions=_TAG=$(git rev-parse --short HEAD) .
+#
+# Unlike cloudbuild.yaml (fixed tag `tag1`), the tag is a substitution so each
+# image is traceable to a commit; it is also passed to the image as GIT_SHA.
+# This config only builds and pushes; it never deploys.
+substitutions:
+  _TAG: manual
+
+steps:
+  # Build with Dockerfile.ingest (linux/amd64 for Cloud Run Jobs)
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - --platform=linux/amd64
+      - --build-arg
+      - GIT_SHA=$_TAG
+      - -f
+      - Dockerfile.ingest
+      - -t
+      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-ingest:$_TAG
+      - .
+
+  # Push to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - push
+      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-ingest:$_TAG
+
+images:
+  - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-ingest:$_TAG
+
+options:
+  logging: CLOUD_LOGGING_ONLY

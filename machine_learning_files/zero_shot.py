@@ -1,7 +1,9 @@
 """
 machine_learning_files/zero_shot.py
 ─────────────────────────────
-Zero-shot Chronos-2 inference — no fine-tuning required.
+Zero-shot Chronos inference (Chronos-1, the T5-based ChronosPipeline; the model
+is configs/model.yaml chronos2.model_id, `amazon/chronos-t5-small`; the config
+key is named "chronos2" for historical reasons) — no fine-tuning required.
 Uses your historical ridership data as context, with weather and events
 as past/future covariates, and forecasts the next N hours per station.
 
@@ -52,7 +54,8 @@ def load_feature_store(station_id: str = None) -> pd.DataFrame:
 
 def build_chronos_pipeline(cfg: dict):
     """
-    Load Chronos-2 from HuggingFace. Requires:
+    Load the configured Chronos-1 model (chronos2.model_id, currently
+    amazon/chronos-t5-small) from HuggingFace. Requires:
         pip install chronos-forecasting
     """
     try:
@@ -112,7 +115,7 @@ def run_zero_shot_forecast(
     quantile_levels: list[float],
 ) -> pd.DataFrame:
     """
-    Run Chronos-2 zero-shot forecast for a single station.
+    Run the Chronos-1 (amazon/chronos-t5-small) zero-shot forecast for a single station.
 
     context_df  — historical ridership + past covariates
     future_df   — future-known covariates (weather forecast, events)
@@ -144,7 +147,8 @@ def run_zero_shot_forecast(
         f"covariates={available_past}, horizon={prediction_length}"
     )
 
-    # Chronos-2 predict_df interface
+    # Long-format layout (the Chronos-2 predict_df style); the model actually
+    # loaded is Chronos-1 via ChronosPipeline
     # Convert to the expected long format
     context_long = context_df[["timestamp", "station_id", "ridership"]].copy()
     context_long = context_long.rename(columns={"ridership": "target"})
@@ -200,7 +204,7 @@ def evaluate_predictions(
     # quantile column simultaneously — prefer the actual median quantile
     # column and only fall back to "mean" when no quantile column claimed
     # p50 (same failure mode already fixed in models/chronos2/predict.py's
-    # _zeroshot_forecast/_finetuned_forecast: mean-first here silently
+    # _zeroshot_forecast: mean-first here silently
     # substituted the point-forecast mean for the true median whenever both
     # columns were present).
     q50_col = [c for c in pred_df.columns if "0.5" in str(c)]
