@@ -31,8 +31,8 @@ the cloud.
 
 | ID | Goal | Owner | Est. | Depends on | Acceptance check | State |
 |---|---|---|---|---|---|---|
-| S8-01 | Deploy `abb0fe7` API to Cloud Run (Cloud Build → Artifact Registry → `gcloud run deploy`) | orchestrator | 30m | user: auth + yes | `/forecast` 200 with SARIMA model name for `EM`; `/health` names SARIMA | blocked (user: `gcloud auth login`, deploy yes) |
-| S8-02 | Deploy `website/` to App Engine and Firebase from a clean export of the gated SHA | orchestrator | 30m | S8-01; user: yes, `firebase login` | Both hosts serve `sections.jsx?v=18`+; live `model_comparison.json` = committed bytes | blocked (S8-01) |
+| S8-01 | Deploy `abb0fe7` API to Cloud Run (Cloud Build → Artifact Registry → `gcloud run deploy`) | orchestrator | 30m | user: auth + yes | `/forecast` 200 with SARIMA model name for `EM`; `/health` names SARIMA | in progress — user approved in the side session ("yes to deploy, and both", 2026-10-28); that session deploys `abb0fe7` from a clean export: Cloud Build a4dacbac SUCCESS 07:30Z, revision `transit-api-00002-cj7` rolling out |
+| S8-02 | Deploy `website/` to App Engine and Firebase from a clean export of the gated SHA | orchestrator | 30m | S8-01; user: yes, `firebase login` | Both hosts serve `sections.jsx?v=18`+; live `model_comparison.json` = committed bytes | in progress (side session, after S8-01; both hosts approved) |
 | S8-03 | Maps key: find its owning project; key in the billed project with Maps JavaScript API, referrer-restricted to both hosts + localhost | orchestrator + user | 20m | user: auth | No `BillingNotEnabledMapError`; tiles render, no watermark | blocked (user) |
 | S8-04 | `transit-demo.html` falls back to Leaflet + OpenStreetMap tiles when Google Maps fails to load or errors | frontend engineer | 45m | — | With a broken key the map still renders with markers; with a working key Google renders; no console errors besides Google's own | in progress (session s8-lane-c-frontend, branch sprint8-lane-c-frontend) |
 | S8-05 | CI: GitHub Actions running pytest (excl. `test_api`), `py_compile`, JSX parse, `bart_stations.py --check` on `requirements-lock.txt` | engineer | 45m | — | Workflow file valid; same commands pass locally in `tdf-py314` | in progress (session s8-lane-b-data-ci, after S8-09) |
@@ -57,7 +57,7 @@ demo calling Cloud Run `/forecast` and S8-11's findings.
 
 | ID | Goal | Owner | Depends on | State |
 |---|---|---|---|---|
-| S9-01 | Auth, billing check, enable APIs, bucket, SAs, bindings | user + orchestrator | — | blocked (user: `gcloud auth login`) |
+| S9-01 | Auth, billing check, enable APIs, bucket, SAs, bindings | user + orchestrator | — | todo — auth done (sjsu account), billing enabled; starts after the side session's deploy |
 | S9-02 | Seed bucket with 5 BART zips + 4 covariate archives, sha256 vs MANIFEST | user | S9-01 | blocked (S9-01) |
 | S9-03 | `cloud_store.py` storage abstraction + tests | engineer | — | in progress (subagent, branch sprint9-ingest-core) |
 | S9-04 | `ingest_fetch.py` closed-month fetchers + tests | engineer | S8-09 | todo (to lane B after S8-09) |
