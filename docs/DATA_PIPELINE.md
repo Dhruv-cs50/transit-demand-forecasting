@@ -26,6 +26,8 @@ Review `configs/sources.yaml` before running ingestion. Replace placeholder keys
 | NHL and Ticketmaster events | `machine_learning_files/fetch_events.py` | NHL API is public; Ticketmaster requires an API key. |
 | Caltrans PeMS roads | `models/baselines/fetch_pems_roads.py` | PeMS often requires authenticated manual download. |
 
+The cloud job fetches Open-Meteo weather and the Sharks schedule itself (see [Cloud ingest job](#cloud-ingest-job)); the commands below are the local path.
+
 ## Rebuild Steps
 
 ### 1. Fetch raw data
@@ -144,6 +146,81 @@ by App Engine Standard, configured via `website/app.yaml` — not Firebase
 Hosting. `firebase deploy --only hosting` will succeed without error but
 publishes to an unused Firebase Hosting site, leaving the real production URL
 unchanged.
+
+## Cloud ingest job
+
+Everything above runs on a laptop and writes the committed store. A second path
+runs in Google Cloud and writes the store the live API serves. Design:
+[`cloud-ingestion-design.md`](cloud-ingestion-design.md). The two stores are
+built by the same `merge_pipeline.build_feature_store`, but the cloud store is
+built on Python 3.11 / pandas 2.2 against the bucket, so its bytes differ from the
+committed store (sha256 `6cde32d4…`); the job's gate compares values instead.
+
+| | |
+|---|---|
+| Bucket | `gs://cs-163-final-project-tra-f1136-transit-data` (us-west1) |
+| Job | Cloud Run Job `transit-ingest` (us-west2), image `transit-ingest:<commit>`, entrypoint `python -m machine_learning_files.cloud_ingest` |
+| Trigger | Cloud Scheduler `transit-ingest-daily`, 03:15 America/Los_Angeles |
+| Settings | `configs/ingest.yaml` (bucket, `fetch_floor` 2026-01-01, `archive_lag_days` 7, the 20 pinned input sha256s, gate) |
+
+### What one run does
+
+1. **Fetch** closed months only (a month that ended at least 7 days ago), never before
+   2026-01-01, so the hand-seeded 2019–2025 archives are never touched: Open-Meteo weather for
+   the 7 locations in `configs/sources.yaml` and the Sharks home schedule, one object per source per year
+   (`raw/weather/weather_all_stations_<start>_<end>.parquet`, `raw/events/events_<start>_<end>.parquet`). A newer
+   same-year object replaces the older one, and an object is never replaced by one with fewer rows.
+2. **Fingerprint** the `raw/` object names and generations. Equal to the served pointer's
+   `input_fingerprint`: log `unchanged`, exit 0, publish nothing (`--force` overrides).
+3. **Stage** the inputs into a temp directory and check the 20 pinned sha256s; a missing or different
+   input fails the run before anything is built.
+4. **Rebuild** with `bart_od_from_xlsx.build` and `merge_pipeline.build_feature_store()`, pointed at the temp
+   directory. The committed store is never written.
+5. **Gate.** All of these must pass, and `processed/runs/<run_id>/gate.json` records each (the first run's passed all 10):
+   `validate_feature_store` (strict); unique `(station_id, timestamp)`; the same 50 stations in every month;
+   every key of the committed store present with `ridership` exactly equal and covariates within `1e-9`;
+   every month already served is still present; no month after the last closed month; SARIMA fitted on the candidate
+   at `as_of=2025-06-30` scores 3.21% WAPE over the 50 stations.
+6. **Publish.** Write `runs/<run_id>/feature_store.parquet` and `manifest.json` (git SHA, input generations and sha256s, store
+   sha256, months, gate results), then `processed/serving.json` last, only if its generation is still the one read.
+   A failed gate writes `gate.json` alone and leaves the pointer untouched.
+
+Exit codes: `0` published or unchanged; `1` the build or the gate failed; `2` a fetch failed (the rest still ran);
+`3` another execution published first.
+
+### What this does and does not change
+
+- The API's SARIMA reads only `ridership`. Weather and Sharks data the job fetches cannot change a forecast. A new BART
+  workbook can: it adds months, so the store's last month (`/health` `store_last_month`, 2025-12-01 on 2026-10-28) moves
+  and the default forecast starts the month after it.
+- **BART is manual.** bart.gov answers automated requests with HTTP 403. Download the workbook in a browser, upload it,
+  and run the job (or wait for the 03:15 run). The API picks the new store up within `STORE_TTL_SECONDS` (600) or on its next cold start:
+
+```bash
+gcloud storage cp Ridership_2026MM.xlsx gs://cs-163-final-project-tra-f1136-transit-data/raw/bart/
+gcloud run jobs execute transit-ingest --region us-west2 --wait
+```
+
+  The gate rejects a store with a month later than the last closed month.
+  No 2026 workbook has been uploaded yet, so this path has not run in the cloud (story S9-13).
+- The leaderboard, `benchmarks.py`, `export_website_data.py` and the website read the committed
+  `data/processed/feature_store.parquet` (through `feature_store_enriched.parquet`, which `feature_engineering.py` builds from it). Only the API reads the cloud store.
+
+### Operating it
+
+| Task | Command |
+|---|---|
+| Latest executions | `gcloud run jobs executions list --job transit-ingest --region us-west2` |
+| Run the job now | `gcloud run jobs execute transit-ingest --region us-west2 --wait` |
+| What is served | `curl <API>/health` → `store_source`, `store_run_id`, `store_sha256`, `store_last_month` |
+| What the pointer says | `gcloud storage cat gs://…-transit-data/processed/serving.json` |
+| Why a run did not publish | `gcloud storage cat gs://…-transit-data/processed/runs/<run_id>/gate.json` |
+| Check everything | `API_URL=<API> scripts/smoke_cloud.sh` (read-only; 7 checks) |
+| Roll back | Run directories are write-once and the bucket keeps noncurrent object versions for 30 days, so an earlier `processed/serving.json` can be restored (design §6). Not rehearsed |
+| Test without GCP | `python -m machine_learning_files.cloud_ingest --bucket file:///<dir> --dry-run` |
+
+A failed gate never publishes. If the API cannot read or verify the cloud store it logs a warning and serves
+the store baked into its image, and `/health` then reports `store_source: "baked"`.
 
 ## One-command Pipeline
 

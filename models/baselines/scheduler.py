@@ -1,11 +1,18 @@
 """
 models/baselines/scheduler.py
 ──────────────────────────────
-Nightly pipeline scheduler — refreshes the feature store and produces a
-batch Chronos forecast snapshot.
+Local nightly pipeline scheduler — refreshes the local feature store and
+produces a batch Chronos forecast snapshot. It is an offline, hand-run
+utility. It is NOT the cloud pipeline: the scheduled job that feeds the live
+API is the Cloud Run Job `transit-ingest` (Cloud Scheduler
+`transit-ingest-daily`, 03:15 America/Los_Angeles), which runs
+machine_learning_files/cloud_ingest.py, rebuilds the store from Cloud Storage,
+gates it and publishes it for the API (docs/cloud-ingestion-design.md,
+docs/DATA_PIPELINE.md "Cloud ingest job"). Nothing here runs in the cloud, and
+this script's output reaches neither the API nor the website.
 
-Runs every night at 2am (configurable), matching NightlyPipeline.run()
-below:
+Set up as a cron job it runs every night at 2am (configurable), matching
+NightlyPipeline.run() below:
   1. Pull weather forecast from Open-Meteo (7 days ahead)
   2. Pull upcoming events from NHL + Ticketmaster
   3. Merge into the raw feature store (--no-split)

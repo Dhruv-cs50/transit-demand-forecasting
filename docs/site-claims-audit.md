@@ -104,6 +104,42 @@ recorded in commit `83b9f3b` and in `configs/model.yaml:42`, `prophet_baseline.p
 re-run to the same number by nature), README's validation list (`evaluation/validators.py`:
 `check_required_columns`, `check_missing_windows`, `check_station_coverage`, `check_ridership_anomalies`). `index.html`: no model claims; it changes only the `?v=` cache-buster (to v=11: #139 ships v=9 and #140 v=10) and drops `<EDAViz />`. Dead code from the removals (`I.download`, `.shap*` CSS) is deleted.
 
+## Cloud pipeline claims (S9-12, 2026-10-28)
+
+Claims the README, `docs/ARCHITECTURE.md`, `docs/DATA_PIPELINE.md` and `data/MANIFEST.md` make about the cloud
+pipeline, with the evidence for each. Board rows are in `docs/sprint-board.md`; "design" is
+`docs/cloud-ingestion-design.md`. Live facts were verified by the orchestrator on 2026-10-28 unless the evidence
+column says it can be re-run; **re-run** means anyone with read access can repeat it. The site's own copy
+(`sections.jsx`) is story S9-15 and is held to the same list.
+
+| # | Claim | Evidence | Status |
+|---|---|---|---|
+| C1 | A daily Cloud Run Job on Cloud Scheduler fetches Open-Meteo weather and the Sharks schedule into Cloud Storage | Board S9-10: execution `transit-ingest-gmhg4` fetched Jan–Sep 2026 weather and Sharks data into `raw/`. Board S9-11: scheduler `transit-ingest-daily`, 03:15 America/Los_Angeles. **Re-run:** `gcloud scheduler jobs describe transit-ingest-daily --location us-west2`; `gcloud storage ls gs://cs-163-final-project-tra-f1136-transit-data/raw/weather/` | Supported. Wording is "scheduled daily"; the two runs so far were triggered through Scheduler, so no unattended 03:15 firing is claimed |
+| C2 | The job rebuilds the feature store from the bucket, validates it, and publishes only if the gate passes | `machine_learning_files/cloud_ingest.py` (docstring, steps 1–6) and `ingest_gate.py` `run_gate`; `tests/test_cloud_ingest.py` (a failed gate leaves the pointer untouched), `tests/test_ingest_gate.py` (each tampering fails). Live: board S9-10, run `20261028T084556Z-5e1329` passed all 10 checks. **Re-run:** `gcloud storage cat …/processed/runs/20261028T084556Z-5e1329/gate.json` | Supported |
+| C3 | The API runs SARIMA on Cloud Run from the latest published store, and `/health` names it | `/health` on 2026-10-28: `store_source` `cloud`, `store_run_id` `20261028T084556Z-5e1329`, `store_sha256` `f19f6051…` equal to the pointer. Board S9-11: revision `transit-api-00003-rfb`, `SERVING_STORE_DIR=/mnt/store`. **Re-run:** `curl https://transit-api-308878596074.us-west2.run.app/health`; `scripts/smoke_cloud.sh` | Supported |
+| C4 | The API verifies the store's sha256 and falls back to the baked store on any failure | `api.py` module docstring and `_load_cloud_store`; `tests/test_api_serving_store.py` (sha mismatch, missing pointer, missing directory, bad JSON, missing object, escaping path → baked, with a warning). Not exercised against the live bucket | Supported by tests, not by a live fault |
+| C5 | A new published run is picked up within `STORE_TTL_SECONDS` (600) | `tests/test_api_serving_store.py` (TTL reload on a new `run_id`; failed reload keeps the store). No second run has been published live | Supported by tests only |
+| C6 | The live API at `as_of=2025-06-30` reproduces the published SARIMA 3.21% WAPE | Board S9-11: `scripts/smoke_cloud.sh` 7/7 PASS, 50 live forecasts, WAPE 3.21 over 300 station-months. **Re-run:** `API_URL=https://transit-api-308878596074.us-west2.run.app scripts/smoke_cloud.sh` | Supported |
+| C7 | The bucket has versioning, public access prevented, noncurrent versions deleted after 30 days; the raw prefix holds 22 objects | Orchestrator's check, 2026-10-28. **Re-run:** `gcloud storage buckets describe gs://cs-163-final-project-tra-f1136-transit-data`; `gcloud storage ls gs://…/raw/**` | Supported (live fact, not in git) |
+| C8 | Least-privilege IAM: ingest SA `objectUser` on the bucket only; API SA `objectViewer` on the bucket only; scheduler SA `run.invoker` on the job only | Board S9-10, S9-11; design §6. **Re-run:** `gcloud storage buckets get-iam-policy`, `gcloud run jobs get-iam-policy transit-ingest --region us-west2` | Supported (live fact, not in git) |
+| C9 | BART workbooks are downloaded by hand and uploaded to `raw/bart/`; BART ingestion is not automated | bart.gov answers automated downloads with HTTP 403 (`data/MANIFEST.md`, `bart_od_from_xlsx.py`). The job fetches only weather and Sharks (`ingest_fetch.py`: `fetch_weather`, `fetch_sharks`) | Supported |
+| C10 | Weather and Sharks data do not change forecasts | `merge_pipeline.build_feature_store` takes its rows from the BART months (design, first section); the API's SARIMA reads only `ridership` (`api.py` `_run_forecast`, `arima.py` `SARIMAX(series, order, seasonal_order)`, no `exog`). `/health` `store_last_month` is 2025-12-01 although 2026 weather and events are in the bucket | Supported |
+| C11 | The cloud store is not byte-identical to the committed store (`6cde32d4…`); the gate compares ridership exactly and covariates within `1e-9` | Hashes: `f19f6051…` vs `6cde32d4…` (`/health`, `data/MANIFEST.md`). Different build environments (Python 3.11 / pandas 2.2 vs 3.14 / pandas 3). Gate: `configs/ingest.yaml` `gate`, `ingest_gate.py`; first run passed (board S9-10) | Supported |
+| C12 | The leaderboard, charts and website read the committed store | `models/baselines/benchmarks.py` and `scripts/export_website_data.py` read `data/processed/feature_store_enriched.parquet` (built by `feature_engineering.py` from the committed `feature_store.parquet`) and fall back to the committed store; neither opens the bucket (`git grep -n "storage\|gs://" -- models/baselines/benchmarks.py scripts/export_website_data.py` finds nothing) | Supported |
+| C13 | The cloud job is a gated, scheduled copy step for the API, not a nightly forecast refresh | Run logs: both Scheduler-triggered runs logged "unchanged: the 22 raw objects match run …" and exited 0 (board S9-11). Forecast origin moves only with a BART workbook (C9, C10) | Supported |
+
+**Must not be claimed** (each is false or unevidenced; `docs/cloud-ingestion-design.md` §4 lists the same):
+
+| Claim | Why not |
+|---|---|
+| Forecasts refresh nightly | Nightly runs are no-ops unless inputs change, and fetched weather/events do not move a forecast (C10, C13) |
+| BART ingestion is automated | bart.gov returns 403 (C9) |
+| Weather or events affect forecasts | No ranked model or the API reads them (C10) |
+| BigQuery is used | It is not; design "Dropped" list |
+| The cloud store equals the committed store (`6cde32d4…`) byte for byte | The hashes differ (C11) |
+| The pipeline picks up new BART months by itself, or a 2026 month has been served | No 2026 workbook has been uploaded; `store_last_month` is 2025-12-01. Story S9-13 |
+| The API call latency on Cloud Run is a measured figure | Not measured (README Scalability) |
+
 ## Not covered here
 
 `charts.jsx` captions (data-driven, checked), `transit-demo.html`, `api-demo.html`, README API/Docker text (PR #137),
