@@ -1,45 +1,27 @@
 """
 Processing/ablation.py
 ───────────────────────
-Ablation study — measures the accuracy impact of each covariate group
-by systematically zeroing out feature groups and re-evaluating.
+Offline covariate diagnostics on the enriched feature store: how strongly each
+numeric covariate correlates with ridership, and the empirical ridership lift on
+game days. Needs no model.
 
-Ablation groups tested:
-  1. Baseline        — no covariates at all (time series only)
-  2. + Calendar      — add hour/day/holiday features
-  3. + Weather       — add precipitation, temperature, wind
-  4. + Events        — add Sharks games, concerts, event proximity
-  5. + Station       — add hub flag, transit mode, distance from Diridon
-  6. Full model      — all covariates (production configuration)
-
-For each group we measure WAPE and MAE overall AND specifically on:
-  - Sharks game windows (the key use case)
-  - Rainy days (second most important signal)
-  - AM/PM peak hours
-
-This tells you exactly which data sources are earning their keep.
+An earlier version also re-ran a fine-tuned AutoGluon predictor with covariate
+groups zeroed out; that fine-tuning code never produced a result and was removed
+(Sprint 8, S8-07).
 
 Usage:
     python Processing/ablation.py
-    python Processing/ablation.py --model-dir models/chronos2/weights
+    python Processing/ablation.py --feature-store data/processed/feature_store_enriched.parquet
 """
 
 from __future__ import annotations
 
 import argparse
-import copy
 import logging
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-from evaluation.metrics import (
-    MetricsReport,
-    _compute,
-    wape,
-    mae,
-)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,505 +31,9 @@ log = logging.getLogger("ablation")
 
 PROCESSED_DIR = Path("data/processed")
 EVAL_DIR      = Path("evaluation/outputs")
-MODEL_DIR     = Path("models/chronos2/weights")
 
 
-# ── Covariate groups ───────────────────────────────────────────────────────────
-
-# Define which columns belong to each group so we can zero them out
-COVARIATE_GROUPS = {
-    "calendar": [
-        "hour_of_day", "day_of_week", "is_weekend", "is_monday", "is_friday",
-        "is_holiday", "is_holiday_eve", "is_am_peak", "is_pm_peak",
-        "is_midday", "is_late_night", "month", "week_of_year", "quarter",
-        "hour_sin", "hour_cos", "dow_sin", "dow_cos", "month_sin", "month_cos",
-    ],
-    "weather": [
-        "temp_f", "precip_mm", "precip_in", "windspeed_mph", "is_raining",
-        "precip_intensity", "weather_discomfort", "is_very_cold", "is_very_hot",
-        "is_windy", "temp_deviation", "precip_3hr_sum", "precip_6hr_sum",
-        "precip_24hr_sum", "is_rain_onset", "cloud_cover_pct", "humidity_pct",
-        "weather_code",
-    ],
-    "events": [
-        "is_game_day", "is_sharks_game_window", "game_start_hour",
-        "is_pre_event_window", "is_post_event_window", "is_playoff",
-        "is_any_event_day", "nearest_event_attendance_tier",
-        "hours_to_next_event", "hours_to_event", "hours_since_last_event",
-        "event_proximity_score",
-    ],
-    "station": [
-        "is_hub_station", "capacity_tier", "in_event_catchment",
-        "dist_from_diridon_km", "transit_mode",
-    ],
-    "lags": [
-        "ridership_lag_1", "ridership_lag_2", "ridership_lag_3",
-        "ridership_lag_6", "ridership_lag_12",
-        "ridership_rolling_mean_3mo", "ridership_rolling_std_3mo",
-        "ridership_rolling_mean_12mo",
-        "ridership_lag_4", "ridership_lag_8",
-        "ridership_lag_96", "ridership_lag_192", "ridership_lag_672",
-        "ridership_rolling_mean_24h", "ridership_rolling_std_24h",
-        "ridership_rolling_mean_7d",
-    ],
-}
-
-# Cumulative ablation configurations (add one group at a time)
-ABLATION_CONFIGS = {
-    "1_baseline":          [],
-    "2_plus_calendar":     ["calendar"],
-    "3_plus_weather":      ["calendar", "weather"],
-    "4_plus_events":       ["calendar", "weather", "events"],
-    "5_plus_station":      ["calendar", "weather", "events", "station"],
-    "6_full_model":        ["calendar", "weather", "events", "station", "lags"],
-}
-
-
-# ── Feature zeroing ────────────────────────────────────────────────────────────
-
-def zero_out_groups(
-    df: pd.DataFrame,
-    include_groups: list[str],
-) -> pd.DataFrame:
-    """
-    Return a copy of df where all covariate groups NOT in include_groups
-    are zeroed out (numeric → 0, bool → False).
-
-    This simulates running the model without those features.
-    """
-    df = df.copy()
-    all_groups = list(COVARIATE_GROUPS.keys())
-    exclude_groups = [g for g in all_groups if g not in include_groups]
-
-    for group in exclude_groups:
-        for col in COVARIATE_GROUPS[group]:
-            if col not in df.columns:
-                continue
-            if pd.api.types.is_bool_dtype(df[col]):
-                df[col] = False
-            elif pd.api.types.is_numeric_dtype(df[col]):
-                df[col] = 0.0
-            else:
-                # String/categorical columns (e.g. "station" group's
-                # transit_mode) -- leave as-is. `df[col].dtype == object`
-                # used to gate this branch, but pandas 3.x infers a plain
-                # string dtype ("str", not "object") for columns like this
-                # by default -- the installed pandas here is 3.0.5, and
-                # requirements.txt's floor (pandas>=2.1.0) sets no upper
-                # bound, so this is the real dtype on a fresh install today,
-                # not a future hypothetical. That comparison silently missed
-                # every such column and fell through to the numeric branch
-                # instead, overwriting transit_mode with the float 0.0 for
-                # every ablation config that excludes "station" (baseline,
-                # +calendar, +weather, +events -- 4 of 6 configs) -- a
-                # dtype-corrupting mismatch against the string values the
-                # predictor was fine-tuned on, not the "no station info"
-                # neutral state this function's docstring promises. Checking
-                # via pd.api.types.is_bool_dtype/is_numeric_dtype instead of
-                # raw dtype-string comparisons is correct under both the
-                # object-dtype (pandas < 3) and str-dtype (pandas >= 3)
-                # backends.
-                pass
-
-    return df
-
-
-# ── Model runner ───────────────────────────────────────────────────────────────
-
-def run_inference_with_config(
-    model_dir: Path,
-    feature_store: pd.DataFrame,
-    include_groups: list[str],
-    cfg: dict,
-    as_of: pd.Timestamp,
-) -> pd.DataFrame:
-    """
-    Run inference using the fine-tuned predictor with only the specified
-    covariate groups active (all others zeroed out).
-
-    Returns a DataFrame with columns: timestamp, station_id, p10, p50, p90
-    """
-    try:
-        from autogluon.timeseries import TimeSeriesPredictor, TimeSeriesDataFrame
-    except ImportError:
-        raise ImportError("Install AutoGluon: pip install autogluon.timeseries")
-
-    if not model_dir.exists():
-        raise FileNotFoundError(
-            f"Model not found at {model_dir}. "
-            "Run: python models/chronos2/finetune.py first."
-        )
-
-    # Clip to the context window ending at as_of (val_end) -- feeding the
-    # full feature_store (which also contains the test rows themselves)
-    # made predictor.predict() forecast prediction_length steps past the
-    # *last* timestamp in the store, i.e. past the test window entirely,
-    # so eval_on_slices()'s merge against test_df never found an
-    # overlapping timestamp and every ablation config silently produced
-    # zero results. Restricting to history up to as_of mirrors
-    # zero_shot.py's prepare_context()/predict.py's _build_context(),
-    # which forecast prediction_length steps starting right after as_of.
-    context_df = feature_store[feature_store["timestamp"] <= as_of]
-
-    # Zero out excluded covariate groups
-    ablated_df = zero_out_groups(context_df, include_groups)
-
-    # Convert to AutoGluon format
-    ablated_df = ablated_df.copy()
-    ablated_df = ablated_df.rename(columns={"station_id": "item_id", "ridership": "target"})
-    ablated_df = ablated_df.sort_values(["item_id", "timestamp"])
-
-    # Select columns from ALL covariate groups, not just include_groups: the
-    # predictor was fine-tuned once on the full covariate schema, so every
-    # ablation config must feed it that same schema. zero_out_groups() already
-    # zeroed the excluded groups' values above -- selecting only
-    # include_groups' columns here discarded that zeroing entirely and fed
-    # the predictor a smaller, mismatched schema per config (e.g. "1_baseline"
-    # got only "target", with none of the covariates the model expects).
-    all_covariate_cols = [c for g in COVARIATE_GROUPS for c in COVARIATE_GROUPS[g] if c in ablated_df.columns]
-    ts_df = TimeSeriesDataFrame.from_data_frame(
-        ablated_df[["item_id", "timestamp", "target"] + all_covariate_cols],
-        id_column="item_id",
-        timestamp_column="timestamp",
-    )
-
-    predictor = TimeSeriesPredictor.load(str(model_dir))
-
-    # build_predictor() (finetune.py) always fits with a non-empty
-    # known_covariates_names (calendar columns are always present), so
-    # predict() unconditionally requires known_covariates for the forecast
-    # horizon -- omitting it raised "ValueError: known_covariates ... should
-    # be provided at prediction time" on every call, same root cause class as
-    # models/chronos2/predict.py's _finetuned_forecast(). Mirror that
-    # function's pattern: slice the horizon rows from feature_store, apply
-    # the SAME ablation zeroing used for context (so a config's zeroed
-    # covariates stay zeroed for the forecast window too, not just history),
-    # and feed only the columns the predictor was actually fit to expect
-    # ahead of time (KNOWN_FUTURE_COLS).
-    from models.chronos2.finetune import KNOWN_FUTURE_COLS
-
-    horizon_steps = cfg["data"].get("forecast_horizon_steps") \
-        or cfg["chronos2"].get("prediction_length_steps")
-
-    future_raw = feature_store[feature_store["timestamp"] > as_of]
-    future_ablated = zero_out_groups(future_raw, include_groups)
-    future_ablated = future_ablated.rename(columns={"station_id": "item_id"})
-
-    known_covariates = None
-    known_cols = [c for c in KNOWN_FUTURE_COLS if c in future_ablated.columns]
-    if known_cols and not future_ablated.empty:
-        fut = future_ablated.sort_values(["item_id", "timestamp"]).groupby("item_id").head(horizon_steps)
-        known_covariates = TimeSeriesDataFrame.from_data_frame(
-            fut[["item_id", "timestamp"] + known_cols],
-            id_column="item_id",
-            timestamp_column="timestamp",
-        )
-
-    preds = predictor.predict(ts_df, known_covariates=known_covariates)
-
-    # Convert AutoGluon output to flat DataFrame
-    preds_df = preds.reset_index()
-    preds_df = preds_df.rename(columns={
-        "item_id":  "station_id",
-        "0.1":      "p10",
-        "0.9":      "p90",
-    })
-
-    # Prefer the actual 0.5 quantile column for "p50" (the true median);
-    # only fall back to the separate "mean" point-forecast column when no
-    # quantile column claimed p50. Unconditionally mapping "mean" -> "p50"
-    # here (as this used to) made the "0.5" fallback below dead code, since
-    # AutoGluon's predict() output always includes "mean" alongside the
-    # configured quantile columns — every "p50" value silently became the
-    # point-forecast mean instead of the median, same class of bug already
-    # fixed in models/chronos2/predict.py's _finetuned_forecast/_zeroshot_forecast.
-    if "p50" not in preds_df.columns:
-        q50_col = [c for c in preds_df.columns if "0.5" in str(c)]
-        if q50_col:
-            preds_df = preds_df.rename(columns={q50_col[0]: "p50"})
-        elif "mean" in preds_df.columns:
-            preds_df = preds_df.rename(columns={"mean": "p50"})
-
-    return preds_df[["timestamp", "station_id", "p10", "p50", "p90"]]
-
-
-# ── Slice evaluations ──────────────────────────────────────────────────────────
-
-def eval_on_slices(
-    actuals: pd.DataFrame,
-    preds: pd.DataFrame,
-    config_name: str,
-) -> list[dict]:
-    """
-    Evaluate predictions across multiple diagnostic slices.
-    Returns a list of result dicts for this ablation configuration.
-    """
-    merged = actuals.merge(preds, on=["timestamp", "station_id"], how="inner")
-    if merged.empty:
-        return []
-
-    results = []
-
-    def _row(label: str, subset: pd.DataFrame) -> dict | None:
-        if subset.empty:
-            return None
-        y_true = subset["ridership"].values.astype(float)
-        y_pred = subset["p50"].values.astype(float)
-        y_pred = np.maximum(y_pred, 0.0)
-        return {
-            "config":    config_name,
-            "slice":     label,
-            "n":         len(subset),
-            "WAPE_%":    round(wape(y_true, y_pred), 2),
-            "MAE":       round(mae(y_true, y_pred),  2),
-        }
-
-    # Overall
-    r = _row("overall", merged)
-    if r: results.append(r)
-
-    # Sharks game windows — the primary use case
-    if "is_sharks_game_window" in merged.columns:
-        sharks = merged[merged["is_sharks_game_window"] == True]
-        r = _row("sharks_game_window", sharks)
-        if r: results.append(r)
-
-    # All game days
-    if "is_game_day" in merged.columns:
-        game = merged[merged["is_game_day"] == True]
-        r = _row("game_day", game)
-        if r: results.append(r)
-
-    # Rainy days
-    if "is_raining" in merged.columns:
-        rainy = merged[merged["is_raining"] == True]
-        r = _row("rainy_day", rainy)
-        if r: results.append(r)
-
-    # Heavy rain specifically
-    if "precip_intensity" in merged.columns:
-        heavy = merged[merged["precip_intensity"] >= 3]
-        r = _row("heavy_rain", heavy)
-        if r: results.append(r)
-
-    # AM peak
-    if "is_am_peak" in merged.columns:
-        am = merged[merged["is_am_peak"] == True]
-        r = _row("am_peak", am)
-        if r: results.append(r)
-
-    # PM peak
-    if "is_pm_peak" in merged.columns:
-        pm = merged[merged["is_pm_peak"] == True]
-        r = _row("pm_peak", pm)
-        if r: results.append(r)
-
-    # Diridon catchment stations
-    if "in_event_catchment" in merged.columns:
-        catchment = merged[merged["in_event_catchment"] == True]
-        r = _row("event_catchment_stations", catchment)
-        if r: results.append(r)
-
-    return results
-
-
-# ── Main ablation runner ───────────────────────────────────────────────────────
-
-def run_ablation(
-    model_dir: Path,
-    test_df: pd.DataFrame,
-    feature_store: pd.DataFrame,
-    cfg: dict,
-    configs: dict = None,
-) -> pd.DataFrame:
-    """
-    Run the full ablation study across all covariate configurations.
-
-    For each config:
-      1. Zero out excluded covariate groups in the feature store
-      2. Run inference with the fine-tuned model
-      3. Evaluate on all diagnostic slices
-      4. Record WAPE and MAE
-
-    Returns a tidy DataFrame with all results, ready for plotting/reporting.
-    """
-    if configs is None:
-        configs = ABLATION_CONFIGS
-
-    # test_df (--test, defaults to data/processed/splits/test.parquet) is
-    # written by merge_pipeline.py's make_splits() from the RAW feature
-    # store -- it never goes through feature_engineering.py's build_features(),
-    # so it carries none of is_sharks_game_window/is_game_day/is_raining/
-    # precip_intensity/is_am_peak/is_pm_peak/in_event_catchment. Every one of
-    # eval_on_slices()'s `if <col> in merged.columns` guards then silently
-    # skips that slice on every config, every day -- only "overall" ever
-    # printed, even though feature_store (--feature-store, the enriched
-    # store used for inference above) has these columns for the exact same
-    # (timestamp, station_id) rows. Backfill them from feature_store so the
-    # diagnostic slices this module exists for actually run.
-    diagnostic_cols = [
-        "is_sharks_game_window", "is_game_day", "is_raining",
-        "precip_intensity", "is_am_peak", "is_pm_peak", "in_event_catchment",
-    ]
-    # is_raining is NOT actually missing from the raw test_df -- merge_pipeline.py's
-    # build_feature_store() already writes it there as a per-station-month MEAN
-    # FRACTION (agg_kwargs' is_raining=("is_raining", "mean")), not the enriched
-    # boolean feature_engineering.py recomputes. A plain "missing" filter would
-    # skip it here, leaving eval_on_slices()'s `merged["is_raining"] == True`
-    # comparing a fraction against True (i.e. == 1.0), which only matches a
-    # month that rained every single hour -- silently zeroing out rainy_day on
-    # every run. Always overwrite it from feature_store; only backfill the rest
-    # when genuinely absent.
-    always_overwrite = {"is_raining"}
-    cols_to_pull = [
-        c for c in diagnostic_cols
-        if c in feature_store.columns and (c not in test_df.columns or c in always_overwrite)
-    ]
-    if cols_to_pull:
-        test_df = test_df.drop(columns=[c for c in cols_to_pull if c in test_df.columns])
-        test_df = test_df.merge(
-            feature_store[["timestamp", "station_id"] + cols_to_pull],
-            on=["timestamp", "station_id"],
-            how="left",
-        )
-
-    # as_of = val_end: forecast prediction_length steps starting right after
-    # this, landing on the test window (val_end < ts <= test_end, as
-    # make_splits writes splits/test.parquet) that test_df covers.
-    as_of = pd.Timestamp(cfg["data"]["val_end"])
-    if feature_store["timestamp"].dt.tz is not None:
-        as_of = as_of.tz_localize("America/Los_Angeles") if as_of.tzinfo is None \
-            else as_of.tz_convert("America/Los_Angeles")
-    elif as_of.tzinfo is not None:
-        as_of = as_of.tz_localize(None)
-
-    all_rows = []
-
-    for config_name, include_groups in configs.items():
-        log.info(f"\n{'─'*55}")
-        log.info(f"Running ablation config: {config_name}")
-        log.info(f"  Active groups: {include_groups or ['none (baseline)']}")
-
-        try:
-            preds = run_inference_with_config(
-                model_dir, feature_store, include_groups, cfg, as_of
-            )
-            rows = eval_on_slices(test_df, preds, config_name)
-            all_rows.extend(rows)
-            log.info(f"  → {len(rows)} slice evaluations complete")
-        except Exception as e:
-            log.error(f"  Config {config_name} failed: {e}")
-
-    results_df = pd.DataFrame(all_rows)
-    return results_df
-
-
-# ── Impact summary ─────────────────────────────────────────────────────────────
-
-def summarise_impact(ablation_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute the WAPE improvement of each covariate group over the previous step.
-
-    E.g. "Adding weather features reduces WAPE on rainy days from 28.4% to 19.1%
-          → 9.3 percentage point improvement."
-    """
-    if ablation_df.empty:
-        return pd.DataFrame()
-
-    configs_ordered = list(ABLATION_CONFIGS.keys())
-    slices = ablation_df["slice"].unique()
-
-    rows = []
-    for sl in slices:
-        slice_data = ablation_df[ablation_df["slice"] == sl]
-
-        for i in range(1, len(configs_ordered)):
-            prev_config = configs_ordered[i - 1]
-            curr_config = configs_ordered[i]
-
-            prev_row = slice_data[slice_data["config"] == prev_config]
-            curr_row = slice_data[slice_data["config"] == curr_config]
-
-            if prev_row.empty or curr_row.empty:
-                continue
-
-            prev_wape = prev_row["WAPE_%"].values[0]
-            curr_wape = curr_row["WAPE_%"].values[0]
-            delta     = prev_wape - curr_wape  # positive = improvement
-
-            # Which group was added?
-            prev_groups = set(ABLATION_CONFIGS[prev_config])
-            curr_groups = set(ABLATION_CONFIGS[curr_config])
-            added_group = list(curr_groups - prev_groups)
-
-            rows.append({
-                "slice":           sl,
-                "added_group":     added_group[0] if added_group else "all",
-                "prev_config":     prev_config,
-                "curr_config":     curr_config,
-                "prev_WAPE_%":     round(prev_wape, 2),
-                "curr_WAPE_%":     round(curr_wape, 2),
-                "WAPE_delta_pp":   round(delta, 2),
-                "pct_improvement": round(delta / prev_wape * 100, 1) if prev_wape > 0 else 0,
-            })
-
-    impact_df = pd.DataFrame(rows).sort_values(
-        ["slice", "WAPE_delta_pp"], ascending=[True, False]
-    )
-    return impact_df
-
-
-def print_ablation_report(
-    ablation_df: pd.DataFrame,
-    impact_df: pd.DataFrame,
-) -> None:
-    """Print a readable ablation study report."""
-    print(f"\n{'═'*65}")
-    print("  ABLATION STUDY — COVARIATE IMPACT ANALYSIS")
-    print(f"{'═'*65}")
-
-    # Overall WAPE progression
-    overall = ablation_df[ablation_df["slice"] == "overall"]
-    if not overall.empty:
-        print(f"\n📊 Overall WAPE progression (lower is better):")
-        print(f"  {'Config':<35} {'WAPE':>8}  {'MAE':>8}")
-        print(f"  {'─'*55}")
-        for _, row in overall.iterrows():
-            label = row["config"].replace("_", " ").title()
-            print(f"  {label:<35} {row['WAPE_%']:>7.1f}%  {row['MAE']:>8.0f}")
-
-    # Sharks game breakdown — most important use case
-    sharks = ablation_df[ablation_df["slice"] == "sharks_game_window"]
-    if not sharks.empty:
-        print(f"\n🦈 Sharks Game Window WAPE (Diridon/VTA stations):")
-        for _, row in sharks.iterrows():
-            label = row["config"].replace("_", " ").title()
-            print(f"  {label:<35} {row['WAPE_%']:>7.1f}%")
-
-    # Rainy day breakdown
-    rainy = ablation_df[ablation_df["slice"] == "rainy_day"]
-    if not rainy.empty:
-        print(f"\n🌧️  Rainy Day WAPE:")
-        for _, row in rainy.iterrows():
-            label = row["config"].replace("_", " ").title()
-            print(f"  {label:<35} {row['WAPE_%']:>7.1f}%")
-
-    # Key impact findings
-    if not impact_df.empty:
-        print(f"\n🎯 Biggest covariate impacts (WAPE reduction in pp):")
-        top = impact_df.nlargest(8, "WAPE_delta_pp")
-        for _, row in top.iterrows():
-            if row["WAPE_delta_pp"] > 0:
-                print(
-                    f"  +{row['added_group']:12s} on [{row['slice']:30s}]"
-                    f"  −{row['WAPE_delta_pp']:.1f}pp"
-                    f"  ({row['pct_improvement']:.0f}% improvement)"
-                )
-
-    print(f"\n{'═'*65}\n")
-
-
-# ── Lightweight offline ablation (no re-inference needed) ─────────────────────
+# ── Offline covariate diagnostics (no model needed) ───────────────────────────
 
 def offline_covariate_correlation(
     feature_store: pd.DataFrame,
@@ -555,7 +41,7 @@ def offline_covariate_correlation(
 ) -> pd.DataFrame:
     """
     Quick diagnostic: compute correlation of each covariate with ridership.
-    Does NOT require running the model — useful for exploratory analysis.
+    Does NOT require running a model — useful for exploratory analysis.
 
     High correlation → likely important feature.
     Near-zero correlation → feature may not be helping.
@@ -565,9 +51,8 @@ def offline_covariate_correlation(
     # dropped every boolean covariate (is_game_day, is_sharks_game_window,
     # is_raining, is_weekend, is_holiday, is_am_peak, is_pm_peak, is_playoff,
     # is_hub_station, ...) from this diagnostic -- exactly the event/weather
-    # flag columns this project's ablation study is built around, and the
-    # single largest category of columns in COVARIATE_GROUPS. `.corr()` on a
-    # bool column is well-defined (point-biserial correlation, the standard
+    # flag columns, and the single largest category of covariate columns.
+    # `.corr()` on a bool column is well-defined (point-biserial correlation, the standard
     # way to correlate a binary flag with a continuous target), so there's no
     # reason to exclude it. Confirmed with a repro: a boolean column with a
     # real 500-unit ridership lift reported a 0.91 Pearson correlation once
@@ -645,28 +130,17 @@ def event_day_impact_table(
 # ── Standalone script ──────────────────────────────────────────────────────────
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run ablation study")
-    parser.add_argument("--model-dir",    default=str(MODEL_DIR))
-    parser.add_argument("--test",         default=str(PROCESSED_DIR / "splits/test.parquet"))
-    parser.add_argument("--feature-store",default=str(PROCESSED_DIR / "feature_store_enriched.parquet"))
-    parser.add_argument("--offline-only", action="store_true",
-                        help="Only run correlation analysis, skip model inference")
+    parser = argparse.ArgumentParser(description="Offline covariate diagnostics")
+    parser.add_argument("--feature-store", default=str(PROCESSED_DIR / "feature_store_enriched.parquet"))
     return parser.parse_args()
 
 
 def main():
-    import yaml
     args = parse_args()
-
-    with open("configs/model.yaml") as f:
-        cfg = yaml.safe_load(f)
 
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Load data
     feature_store_path = Path(args.feature_store)
-    test_path = Path(args.test)
-
     if not feature_store_path.exists():
         log.error(f"Feature store not found: {feature_store_path}")
         return
@@ -674,8 +148,6 @@ def main():
     log.info("Loading feature store …")
     feature_store = pd.read_parquet(feature_store_path)
     feature_store["timestamp"] = pd.to_datetime(feature_store["timestamp"])
-
-    # ── Offline diagnostics (no model needed) ─────────────────────────────────
 
     log.info("Computing covariate correlations …")
     corr_df = offline_covariate_correlation(feature_store)
@@ -690,42 +162,6 @@ def main():
         print(f"\n🦈 Event-day ridership lift (top stations):")
         print(lift_df.head(15).to_string(index=False))
         lift_df.to_csv(EVAL_DIR / "event_day_lift.csv", index=False)
-
-    if args.offline_only:
-        log.info("Offline-only mode — skipping model inference ablation")
-        return
-
-    # ── Full ablation (requires trained model) ────────────────────────────────
-
-    model_dir = Path(args.model_dir)
-    if not model_dir.exists():
-        log.warning(
-            f"Model not found at {model_dir}. "
-            "Run finetune.py first, or use --offline-only for correlation analysis."
-        )
-        return
-
-    if not test_path.exists():
-        log.error(f"Test split not found: {test_path}")
-        return
-
-    test_df = pd.read_parquet(test_path)
-    test_df["timestamp"] = pd.to_datetime(test_df["timestamp"])
-
-    log.info("Running full ablation study …")
-    ablation_df = run_ablation(model_dir, test_df, feature_store, cfg)
-
-    if ablation_df.empty:
-        log.error("Ablation produced no results")
-        return
-
-    impact_df = summarise_impact(ablation_df)
-    print_ablation_report(ablation_df, impact_df)
-
-    # Save results
-    ablation_df.to_csv(EVAL_DIR / "ablation_results.csv", index=False)
-    impact_df.to_csv(EVAL_DIR / "ablation_impact.csv", index=False)
-    log.info(f"Ablation results saved → {EVAL_DIR}/")
 
 
 if __name__ == "__main__":

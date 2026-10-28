@@ -200,7 +200,7 @@ def evaluate_predictions(
     # quantile column simultaneously — prefer the actual median quantile
     # column and only fall back to "mean" when no quantile column claimed
     # p50 (same failure mode already fixed in models/chronos2/predict.py's
-    # _zeroshot_forecast/_finetuned_forecast: mean-first here silently
+    # _zeroshot_forecast: mean-first here silently
     # substituted the point-forecast mean for the true median whenever both
     # columns were present).
     q50_col = [c for c in pred_df.columns if "0.5" in str(c)]

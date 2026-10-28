@@ -1,23 +1,21 @@
 """
 models/chronos2/predict.py
 ───────────────────────────
-Production inference wrapper for the fine-tuned Chronos-2 model.
+Production inference wrapper for the zero-shot Chronos model.
 
 This is the entry point called by:
   - models/baselines/scheduler.py  (nightly batch forecast run)
   - evaluation scripts             (metrics, ablation)
 
 Note: machine_learning_files/api.py's live FastAPI endpoint does NOT call
-this module -- it runs its own independent zero-shot-only path via
-machine_learning_files/zero_shot.py (prepare_context/run_zero_shot_forecast),
-never touching the fine-tuned AutoGluon model or the Predictor class below.
+this module -- it serves SARIMA, fitted per request.
 
 It handles:
-  - Loading the fine-tuned model (cached after first load)
+  - Loading the zero-shot Chronos pipeline (cached after first load)
   - Building context windows from the feature store
   - Attaching future-known covariates (weather forecast, event schedule)
   - Returning clean P10/P50/P90 forecasts per station
-  - Graceful fallback to zero-shot if fine-tuned weights not found
+  - Graceful fallback to seasonal naive if Chronos is not installed
 
 Usage:
     from models.chronos2.predict import Predictor
@@ -38,7 +36,6 @@ import yaml
 
 log = logging.getLogger(__name__)
 
-MODEL_DIR     = Path("models/chronos2/weights")
 PROCESSED_DIR = Path("data/processed")
 CONFIG_PATH   = Path("configs/model.yaml")
 RAW_DIR       = Path("data/raw")
@@ -57,9 +54,8 @@ class Predictor:
     in memory after the first call. Thread-safe for FastAPI workers.
 
     Falls back gracefully:
-      1. Fine-tuned AutoGluon predictor (models/chronos2/weights/)
-      2. Zero-shot Chronos-2 (no training needed)
-      3. Seasonal naive (if Chronos not installed)
+      1. Zero-shot Chronos (no training needed)
+      2. Seasonal naive (if Chronos not installed)
     """
 
     _instance = None
@@ -74,18 +70,17 @@ class Predictor:
         if self._initialised:
             return
         self.cfg         = load_config()
-        self._predictor  = None   # AutoGluon TimeSeriesPredictor
-        self._pipeline   = None   # ChronosPipeline (zero-shot fallback)
+        self._pipeline   = None   # ChronosPipeline (zero-shot)
         self._store      = None   # feature store DataFrame
-        self._mode       = None   # "finetuned" | "zeroshot" | "naive"
+        self._mode       = None   # "zeroshot" | "naive"
         self._initialised = True
 
     @property
     def mode(self) -> str | None:
         """Which backend actually produced the most recent forecasts.
 
-        "naive" means neither the fine-tuned predictor nor Chronos could be
-        loaded and the seasonal-naive fallback ran instead. Callers that
+        "naive" means Chronos could not be loaded and the seasonal-naive
+        fallback ran instead. Callers that
         attribute results to a named model must check this: the fallback is
         silent by design, so forecasts come back looking normal.
         """
@@ -135,28 +130,13 @@ class Predictor:
         nightly forecast run to force a fresh read.
         """
         self._store = None
-        self._predictor = None
         self._pipeline = None
         self._mode = None
 
     # ── Model loading ──────────────────────────────────────────────────────────
 
-    def _load_finetuned(self) -> bool:
-        """Try to load the fine-tuned AutoGluon predictor."""
-        if not MODEL_DIR.exists():
-            return False
-        try:
-            from autogluon.timeseries import TimeSeriesPredictor
-            self._predictor = TimeSeriesPredictor.load(str(MODEL_DIR))
-            self._mode = "finetuned"
-            log.info("✅ Loaded fine-tuned AutoGluon predictor")
-            return True
-        except Exception as e:
-            log.warning(f"Fine-tuned model load failed: {e}")
-            return False
-
     def _load_zeroshot(self) -> bool:
-        """Fall back to zero-shot Chronos."""
+        """Load the zero-shot Chronos pipeline."""
         try:
             # configs/model.yaml pins a Chronos-1 T5 checkpoint
             # ("amazon/chronos-t5-small"), which loads via ChronosPipeline —
@@ -179,33 +159,33 @@ class Predictor:
 
     def _ensure_loaded(self, force_mode: str = None):
         # force_mode bypasses the cached auto-selected mode to explicitly load
-        # a specific backend (e.g. benchmarks.py comparing zero-shot vs.
-        # fine-tuned head-to-head needs an actual zero-shot run even when
-        # fine-tuned weights exist and would otherwise always win the
-        # finetuned-first fallback below).
+        # a specific backend ("zeroshot"; benchmarks.py and interval_study.py
+        # pass it so a result is never silently attributed to the wrong one).
+        if force_mode == "finetuned":
+            raise ValueError(
+                "force_mode='finetuned' is no longer supported: the AutoGluon "
+                "fine-tuning code was removed (it never produced a result)"
+            )
         if force_mode is not None:
             loaded = True
-            if force_mode == "finetuned" and self._predictor is None:
-                loaded = self._load_finetuned()
-            elif force_mode == "zeroshot" and self._pipeline is None:
+            if force_mode == "zeroshot" and self._pipeline is None:
                 loaded = self._load_zeroshot()
             if loaded:
                 self._mode = force_mode
             else:
-                # Forced backend failed to load (missing/incompatible weights,
-                # chronos-forecasting not installed, …) — fall back to naive
-                # instead of leaving self._mode pointed at a backend whose
-                # _predictor/_pipeline is still None, which would otherwise
-                # crash forecast() with an AttributeError on the next call.
+                # Forced backend failed to load (chronos-forecasting not
+                # installed, …) — fall back to naive instead of leaving
+                # self._mode pointed at a backend whose _pipeline is still
+                # None, which would otherwise crash forecast() with an
+                # AttributeError on the next call.
                 self._mode = "naive"
                 log.warning(f"⚠️  force_mode={force_mode!r} failed to load — using seasonal naive fallback")
             return
         if self._mode is not None:
             return
-        if not self._load_finetuned():
-            if not self._load_zeroshot():
-                self._mode = "naive"
-                log.warning("⚠️  Using seasonal naive fallback — install chronos-forecasting")
+        if not self._load_zeroshot():
+            self._mode = "naive"
+            log.warning("⚠️  Using seasonal naive fallback — install chronos-forecasting")
 
     # ── Context builder ────────────────────────────────────────────────────────
 
@@ -258,7 +238,7 @@ class Predictor:
     ) -> pd.DataFrame:
         """
         Seasonal naive: repeat the same-time-last-week values.
-        Used as emergency fallback if neither Chronos nor AutoGluon available.
+        Used as emergency fallback if Chronos is not available.
         """
         if context_df.empty or "ridership" not in context_df.columns:
             return pd.DataFrame()
@@ -323,9 +303,9 @@ class Predictor:
                               configs/model.yaml; otherwise the config's step
                               count wins (Sprint 2: one horizon for every model)
             as_of          : forecast origin timestamp (default: latest in store)
-            force_mode     : "finetuned" | "zeroshot" — bypass the cached
-                              finetuned-first auto-selection and load this
-                              backend explicitly (see _ensure_loaded)
+            force_mode     : "zeroshot" — bypass the cached auto-selection
+                              and load this backend explicitly (see
+                              _ensure_loaded)
             quantile_levels: e.g. [0.1, 0.5, 0.9] for P10/P50/P90
 
         Returns:
@@ -378,14 +358,8 @@ class Predictor:
             f"horizon={horizon_steps} steps at {freq} | context={len(context_df)} rows"
         )
 
-        # ── Fine-tuned AutoGluon ───────────────────────────────────────────────
-        if self._mode == "finetuned":
-            preds = self._finetuned_forecast(
-                context_df, future_df, station_id, horizon_steps, quantile_levels
-            )
-
-        # ── Zero-shot Chronos-2 ───────────────────────────────────────────────
-        elif self._mode == "zeroshot":
+        # ── Zero-shot Chronos ─────────────────────────────────────────────────
+        if self._mode == "zeroshot":
             preds = self._zeroshot_forecast(
                 context_df, future_df, station_id, horizon_steps, quantile_levels
             )
@@ -410,66 +384,6 @@ class Predictor:
         return preds[["timestamp", "station_id", "p10", "p50", "p90",
                        "generated_at", "model_mode"]]
 
-    def _finetuned_forecast(
-        self,
-        context_df, future_df, station_id, horizon_steps, quantile_levels
-    ) -> pd.DataFrame:
-        from autogluon.timeseries import TimeSeriesDataFrame
-        from models.chronos2.finetune import KNOWN_FUTURE_COLS
-
-        ctx = context_df.rename(columns={"station_id": "item_id", "ridership": "target"})
-        ctx = ctx.sort_values("timestamp")
-
-        ts_df = TimeSeriesDataFrame.from_data_frame(
-            ctx[["item_id", "timestamp", "target"]
-                + [c for c in ctx.columns if c not in ("item_id","timestamp","target")]],
-            id_column="item_id",
-            timestamp_column="timestamp",
-        )
-
-        # The predictor was fit with known_covariates_names=KNOWN_FUTURE_COLS
-        # (see build_predictor in finetune.py), so .predict() needs those same
-        # columns supplied for the forecast horizon — otherwise AutoGluon either
-        # errors or silently ignores the weather/event signal fine-tuning relied on.
-        known_covariates = None
-        known_cols = [c for c in KNOWN_FUTURE_COLS if c in future_df.columns]
-        if known_cols and not future_df.empty:
-            fut = future_df.rename(columns={"station_id": "item_id"}).sort_values("timestamp").head(horizon_steps)
-            known_covariates = TimeSeriesDataFrame.from_data_frame(
-                fut[["item_id", "timestamp"] + known_cols],
-                id_column="item_id",
-                timestamp_column="timestamp",
-            )
-
-        # TimeSeriesPredictor.predict() has no `prediction_length` parameter --
-        # the horizon is fixed at fit() time (build_predictor() in finetune.py
-        # already passes prediction_length=horizon_steps there). Passing it
-        # here raised "TypeError: predict() got an unexpected keyword argument
-        # 'prediction_length'" on every finetuned-mode forecast call.
-        preds = self._predictor.predict(
-            ts_df, known_covariates=known_covariates
-        )
-        preds_df = preds.reset_index()
-
-        # AutoGluon's predict() output carries BOTH a "mean" column and a "0.5"
-        # quantile column (quantile_levels includes 0.5) — mapping "mean" to
-        # "p50" unconditionally, on top of the "0.5" match, produced two columns
-        # both named "p50" after rename(), which silently turned every
-        # downstream preds["p50"] access (ridership_lift, benchmarks.py's
-        # compute_metrics, evaluation/metrics.py) into a 2-column DataFrame
-        # instead of a Series. Only fall back to "mean" when no quantile
-        # column already claimed p50.
-        col_map = {}
-        for c in preds_df.columns:
-            if "0.1" in str(c): col_map[c] = "p10"
-            elif "0.5" in str(c): col_map[c] = "p50"
-            elif "0.9" in str(c): col_map[c] = "p90"
-        if "p50" not in col_map.values() and "mean" in preds_df.columns:
-            col_map["mean"] = "p50"
-        preds_df = preds_df.rename(columns=col_map)
-
-        return preds_df[["timestamp", "p10", "p50", "p90"]]
-
     def _zeroshot_forecast(
         self,
         context_df, future_df, station_id, horizon_steps, quantile_levels
@@ -493,8 +407,9 @@ class Predictor:
             station_id, horizon_steps, quantile_levels,
         )
 
-        # Same "mean" + "0.5" duplicate-p50 hazard as _finetuned_forecast —
-        # only use "mean" when no quantile column already mapped to p50.
+        # "mean" + "0.5" duplicate-p50 hazard: mapping both to "p50" yields two
+        # columns of that name -- only use "mean" when no quantile column
+        # already mapped to p50.
         col_map = {}
         for c in preds_df.columns:
             if "0.1" in str(c): col_map[c] = "p10"
@@ -689,8 +604,7 @@ def main():
             # lift.get(...) falls back to the string "N/A" when ridership_lift()
             # returned {} (e.g. no station data) — feeding that straight into the
             # ":+.1f" numeric format spec raises ValueError instead of printing
-            # "N/A" as intended. Same defeated-fallback class as the finetune.py
-            # summary-print fix (2026-08-18).
+            # "N/A" as intended.
             _lift_pct = lift.get("lift_pct")
             _lift_str = f"{_lift_pct:+.1f}%" if _lift_pct is not None else "N/A"
             print(f"Lift     : {_lift_str} vs typical")

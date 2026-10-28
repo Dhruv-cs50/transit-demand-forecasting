@@ -47,13 +47,6 @@ chronos2:
   context_length_steps: 24              # use last 24 months as context (~2 years)
   prediction_length_steps: 6            # forecast 6 months ahead
 
-# ── Fine-tuning (AutoGluon) ───────────────────────────────────────────────────
-finetune:
-  time_limit_seconds: 3600        # 1 hour budget; increase for best_quality
-  presets: "medium_quality"       # fast_training | medium_quality | best_quality
-  eval_metric: "MASE"             # scale-independent; MASE < 1 means MAE below the in-sample seasonal-naive error;
-                                  # not a comparison with the SeasonalNaive model on the test window
-
 # ── Prophet baseline ──────────────────────────────────────────────────────────
 prophet:
   seed: 42                   # interval sampling is stochastic; see fit_station
