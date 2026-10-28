@@ -1,5 +1,10 @@
 """
 =============================================================
+LEGACY (see transit_eda/legacy/README.md). The canonical EDA is
+transit_eda/notebooks/eda_complete.ipynb, which reads the committed feature
+store. This script analyses a different target (Avg Weekday OD, self-loops
+dropped) from raw BART workbooks that are not in git.
+
 CS163 Senior Project — Full EDA Notebook
 Public Transport Route Clustering and Demand Forecasting
 Authors: Ryder Sabale, Dhruv Shah
@@ -40,13 +45,16 @@ VTA_RED   = '#CC0000'
 GOLD      = '#F5A800'
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
+# This file lives in transit_eda/legacy/; BASE stays transit_eda/ so the raw
+# inputs below resolve exactly as they did before the move.
 BASE   = str(Path(__file__).resolve().parents[1])
+LEGACY = str(Path(__file__).resolve().parent)
 BART19 = os.path.join(BASE, "data/bart/2019/ridership_2019")
 BART22 = os.path.join(BASE, "data/bart/2022/Ridership_2022")
 BART23 = os.path.join(BASE, "data/bart/2023")
 BART24 = os.path.join(BASE, "data/bart/2024")
 VTA    = os.path.join(BASE, "data/vta")
-OUT    = os.path.join(BASE, "outputs/figures")
+OUT    = os.path.join(LEGACY, "outputs/figures")
 os.makedirs(OUT, exist_ok=True)
 
 def section(title):
@@ -378,8 +386,12 @@ vta_clean = vta_yr[vta_yr['LineType'] != 'Out of Service'].copy()
 print(f"  VTA after removing OOS: {len(vta_clean):,} records ({vta_clean['Route'].nunique()} routes)")
 
 # Save cleaned versions
-bart_clean.to_csv(os.path.join(BASE, "data/bart_clean.csv"), index=False)
-vta_clean.to_csv(os.path.join(BASE, "data/vta_clean.csv"), index=False)
+# Written under legacy/data/, NOT transit_eda/data/: the tracked
+# transit_eda/data/bart_clean.csv is read by machine_learning_files/
+# bart_od_from_csv.py and must not be silently overwritten by a re-run.
+os.makedirs(os.path.join(LEGACY, "data"), exist_ok=True)
+bart_clean.to_csv(os.path.join(LEGACY, "data/bart_clean.csv"), index=False)
+vta_clean.to_csv(os.path.join(LEGACY, "data/vta_clean.csv"), index=False)
 
 # Figure S2 — Missing data & distributions
 fig, axes = plt.subplots(1, 3, figsize=(16, 5))
