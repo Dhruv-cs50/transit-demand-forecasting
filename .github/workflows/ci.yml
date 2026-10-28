@@ -70,7 +70,7 @@ jobs:
         run: python machine_learning_files/bart_stations.py --check --store data/processed/feature_store.parquet
 
   api:
-    name: tests/test_api.py (Python 3.11, Dockerfile.api pins)
+    name: API tests (Python 3.11, Dockerfile.api pins)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -102,5 +102,7 @@ jobs:
           python -m pip install $pins pytest==9.2.0 httpx==0.28.1
           python -m pip check
 
-      - name: pytest tests/test_api.py
-        run: python -m pytest tests/test_api.py -q
+      # test_api_serving_store skips itself without fastapi, so only this job
+      # runs it; test_ingest_gate also runs in `checks`.
+      - name: pytest API tests
+        run: python -m pytest tests/test_api.py tests/test_api_serving_store.py tests/test_ingest_gate.py -q
