@@ -1,5 +1,61 @@
 # Sprint board
 
+## Sprint 8 — Ship the gated numbers, harden, design cloud ingestion (opened 2026-10-28)  |  Deadline: 2026-11-03  |  Status: At risk (blocked on user: gcloud auth, deploy yes, Maps billing)
+
+**Goal.** By 2026-11-03: the live site and API serve the numbers gated in S7-13; the live map
+renders; ML inference runs on Cloud Run and the demo visibly uses it; data ingestion runs on
+GCP; the project is reviewed end to end. Integration branch `sprint8/base` (cut from
+`origin/main` @ `abb0fe7`). Lane branches are pushed, not PR'd; the orchestrator merges them
+into `sprint8/base`, gates it, and opens one PR to `main`. Merges to `main` and every deploy
+stay the user's. Board edited only by the orchestrator.
+
+**User decisions (2026-10-28).** Hard date 2026-11-03. Correct model outputs; alternative models
+only if the current results are not good enough; working Maps API in the live demo; correct
+website numbers; full project review; ML inference on the cloud and an ingestion pipeline on
+the cloud.
+
+**Recon findings (2026-10-28).**
+- Both live hosts serve stale builds: Firebase `web.app` `sections.jsx?v=7`, App Engine `?v=8`,
+  `main` `?v=18`; live `model_comparison.json` sha256 `c6780a0d…` / `5391292f…` vs gated
+  `07e44486…`. The "wrong numbers" are a deploy gap, not a model fault.
+- Live Cloud Run `/forecast` → `{"detail":"No module named 'chronos'"}` (pre-Sprint-2 image).
+  `main`'s `Dockerfile.api` serves SARIMA and has no chronos dependency.
+- `transit-demo.html`: `BillingNotEnabledMapError` — the project owning the Maps key has no
+  billing. The demo reads `data/stations_ridership.json` only; it never calls the Cloud Run API.
+- No cloud ingestion exists: every fetcher runs locally; bart.gov answers automated fetches with
+  403 (BART workbooks are downloaded by hand). An earlier README BigQuery dataset was fabricated
+  and removed (dcd2ae5).
+- `gcloud` token expired (needs interactive `gcloud auth login`).
+- Models: SARIMA 3.21 % WAPE vs seasonal naive 10.75 % on 300 held-out station-months. Meets the
+  "good enough" bar; no alternative model is planned unless the review finds a fault.
+
+| ID | Goal | Owner | Est. | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|---|
+| S8-01 | Deploy `abb0fe7` API to Cloud Run (Cloud Build → Artifact Registry → `gcloud run deploy`) | orchestrator | 30m | user: auth + yes | `/forecast` 200 with SARIMA model name for `EM`; `/health` names SARIMA | blocked (user: `gcloud auth login`, deploy yes) |
+| S8-02 | Deploy `website/` to App Engine and Firebase from a clean export of the gated SHA | orchestrator | 30m | S8-01; user: yes, `firebase login` | Both hosts serve `sections.jsx?v=18`+; live `model_comparison.json` = committed bytes | blocked (S8-01) |
+| S8-03 | Maps key: find its owning project; key in the billed project with Maps JavaScript API, referrer-restricted to both hosts + localhost | orchestrator + user | 20m | user: auth | No `BillingNotEnabledMapError`; tiles render, no watermark | blocked (user) |
+| S8-04 | `transit-demo.html` falls back to Leaflet + OpenStreetMap tiles when Google Maps fails to load or errors | frontend engineer | 45m | — | With a broken key the map still renders with markers; with a working key Google renders; no console errors besides Google's own | todo |
+| S8-05 | CI: GitHub Actions running pytest (excl. `test_api`), `py_compile`, JSX parse, `bart_stations.py --check` on `requirements-lock.txt` | engineer | 45m | — | Workflow file valid; same commands pass locally in `tdf-py314` | todo |
+| S8-06 | API: `/health` reports the served model and store; infinite-quantile gaps handled; `tests/test_api.py` docstring pins | engineer | 45m | — | `test_api` passes in `tdf-api-py311`; no behaviour change to forecasts | todo |
+| S8-07 | Remove AutoGluon/AutoETS scaffolding (`finetune.py`, `run_pipeline.sh` step + `.venv311` comment, requirements); README lines move to S8-11 | engineer | 45m | — | No import of autogluon anywhere; full pytest passes; leaderboard untouched | todo |
+| S8-08 | Export all-or-nothing; site headline numbers derived from `model_comparison.json`, not literals | engineer | 1h | — | Export failure leaves `website/data` unchanged; no WAPE/coverage literal left in `sections.jsx`; cache-busters bumped | todo |
+| S8-09 | Covariate zero-fill guard: months no archive covers give NaN | engineer | 45m | — | Tests; full gate before/after; any leaderboard change reported to the user, not republished | todo |
+| S8-10 | Design: cloud ingestion pipeline on GCP and how the API reads it, honest about BART's 403 | systems architect | 1h | — | Written design: services, schedule, storage, IAM, cost, what stays manual, serving store vs scored store, stories ≤ 1h | todo |
+| S8-11 | Whole-project review: correctness of model outputs, live API vs offline run, site claims, docs, demo | principal engineer | 1h | — | Findings ranked by severity with file:line; each becomes a Sprint 9/10 story or a ruling | todo |
+| S8-12 | Gate `sprint8/base` after lane merges (S7-13 gate set) and open one PR to `main` | QA + orchestrator | 1h | S8-04..09 | WAPE 3.21/5.75/9.70/10.75, coverage 96.67/74.00/84.67/83.67, n = 300; two runs byte-identical; full pytest + `test_api`; export byte-identical | todo |
+
+Deferred from the planned Sprint 8 (after Nov 3 unless time allows): favicon and contrast,
+`interval_study` cache key, Chronos `generated_at`, `fetch_pems_roads.py`, raw archive off
+`~/Desktop` (user's files), `Dockerfile.api` calibrator path.
+
+### Sprint 9 — Cloud ingestion and live inference in the demo (planned 2026-10-29 – 30)
+
+Stories cut from S8-10's design (each ≤ 1h); the map demo calls Cloud Run `/forecast` for the
+selected station; S8-11 findings. Then deploy, each step confirmed by the user.
+
+### Sprint 10 — Review fixes, final gate, final deploy (planned 2026-10-31); buffer 2026-11-01 – 02
+
+
 ## Sprint 7 — Integrate every open PR into main and verify it (opened 2026-10-26)  |  Status: On track
 
 (Named 7: Sprint 5 is the adaptive-calibration branch, Sprint 6 the bias-shift plan.)
@@ -43,7 +99,7 @@ the merged PRs publish it (SARIMA 96.67, Prophet 74.00, Chronos-1 72.67, Seasona
 "Sprint 4e", was renamed 4h by #154, so "Sprint 4c" is now the only duplicate. Commit messages cite those IDs, so they are not renumbered; headings gain their PR number instead
 (Sprint 8 hygiene).
 
-### Sprint 8 — Harden (planned)
+### Sprint 8 — Harden (planned; superseded by the Sprint 8 section at the top, 2026-10-28)
 
 CI (pytest, `py_compile`, JSX parse, `bart_stations.py --check`) on the lock from S7-08; headline
 site numbers derived from data, not literals; all-or-nothing export; uncovered event months give
