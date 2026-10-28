@@ -1,0 +1,76 @@
+# ── Cloud Run Job image: transit-ingest ──────────────────────────────────────
+# Fetch closed-month weather + Sharks data into Cloud Storage, rebuild the
+# feature store from the bucket, gate it, and publish it only if it passes.
+# Design: docs/cloud-ingestion-design.md. Entrypoint:
+#   python -m machine_learning_files.cloud_ingest
+# Target: Cloud Run Jobs (linux/amd64).
+#
+# Build & push (Apple Silicon -- use Cloud Build, not a local docker build):
+#   gcloud builds submit --config=cloudbuild.ingest.yaml \
+#       --substitutions=_TAG=$(git rev-parse --short HEAD) .
+#
+# Smoke test locally (no GCP; a directory stands in for the bucket):
+#   docker build --platform linux/amd64 -t transit-ingest -f Dockerfile.ingest .
+#   docker run --rm -v "$PWD/seed:/seed" transit-ingest --bucket file:///seed --dry-run
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Python deps -- Dockerfile.api's pins exactly (the job rebuilds the store with
+# the same pandas/statsmodels the API forecasts with, and the gate may import
+# helpers that live beside the serving layer), plus: openpyxl for the BART
+# .xlsx workbooks, requests for Open-Meteo and the NHL API, google-cloud-storage
+# for gs:// buckets. Every pin ships a cp311 manylinux wheel, so no compiler is
+# installed (Dockerfile.api carries gcc; it is not a pin).
+# scipy is held below 1.15 for the same reason as in Dockerfile.api: later
+# releases deprecate the L-BFGS `disp` option statsmodels passes.
+RUN pip install --no-cache-dir \
+    fastapi==0.115.0 \
+    "uvicorn[standard]==0.30.0" \
+    pydantic==2.7.0 \
+    pandas==2.2.0 \
+    pyarrow==16.0.0 \
+    numpy==1.26.4 \
+    PyYAML==6.0.1 \
+    scipy==1.14.1 \
+    patsy==1.0.1 \
+    statsmodels==0.14.4 \
+    openpyxl==3.1.5 \
+    requests==2.32.3 \
+    google-cloud-storage==2.18.2
+
+# App source. models/ and evaluation/ have no __init__.py (namespace packages,
+# as in Dockerfile.api); machine_learning_files/ is the only regular package.
+COPY machine_learning_files/__init__.py              ./machine_learning_files/__init__.py
+COPY machine_learning_files/cloud_store.py           ./machine_learning_files/cloud_store.py
+COPY machine_learning_files/cloud_ingest.py          ./machine_learning_files/cloud_ingest.py
+COPY machine_learning_files/ingest_fetch.py          ./machine_learning_files/ingest_fetch.py
+COPY machine_learning_files/ingest_gate.py           ./machine_learning_files/ingest_gate.py
+COPY machine_learning_files/bart_od_from_xlsx.py     ./machine_learning_files/bart_od_from_xlsx.py
+COPY machine_learning_files/bart_stations.py         ./machine_learning_files/bart_stations.py
+COPY machine_learning_files/merge_pipeline.py        ./machine_learning_files/merge_pipeline.py
+COPY machine_learning_files/fetch_weather_openmeteo.py ./machine_learning_files/fetch_weather_openmeteo.py
+COPY machine_learning_files/fetch_events.py          ./machine_learning_files/fetch_events.py
+COPY models/baselines/arima.py                       ./models/baselines/arima.py
+COPY evaluation/validators.py                        ./evaluation/validators.py
+
+# Config: ingest.yaml (job settings), sources.yaml (weather locations, event
+# teams, merge_pipeline's CONFIG_PATH), model.yaml (merge_pipeline and arima).
+COPY configs/ ./configs/
+
+# The tracked store: the gate's reference. The job reads it, never writes it.
+COPY data/processed/feature_store.parquet ./data/processed/feature_store.parquet
+
+# Which commit built this image; the job records it in manifest.json.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
+
+# One BLAS thread: a SARIMA fit works on tiny matrices, and OpenBLAS's default
+# of one thread per visible CPU made each fit 3-4x slower (see Dockerfile.api).
+ENV OPENBLAS_NUM_THREADS=1
+
+# Unbuffered so Cloud Logging sees lines as they are printed.
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python","-m","machine_learning_files.cloud_ingest"]
