@@ -64,6 +64,13 @@ the store's `station_name` column.
 If the leaderboard does not exist (and --allow-val-fallback is not given),
 the script exits 1 before writing any file.
 
+The five files are all-or-nothing. They are written to a staging directory
+beside the output directory and moved into it only when every one was produced
+(os.replace, one file at a time, with the previous copies restored if a move
+fails). A refused forecasts.json, or any error while exporting, therefore leaves
+the output directory exactly as it was; nothing stale is published beside fresh
+data.
+
 The evaluation/outputs/ inputs are read relative to the working directory, so
 run this from the repo root after benchmarks.py.
 
@@ -76,7 +83,10 @@ import argparse
 import json
 import logging
 import math
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -661,6 +671,36 @@ def export_model_comparison(out_dir: Path) -> None:
     log.info(f"model_comparison.json → {out_dir / 'model_comparison.json'}  ({len(comparison)} models)")
 
 
+def publish_outputs(staging: Path, out_dir: Path) -> list[str]:
+    """Move every file in `staging` into `out_dir`, all or none.
+
+    Each move is an os.replace, so a reader never sees a half-written file.
+    The set is not atomic, so each file being replaced is first copied into
+    staging/.backup and put back if a later move fails; a file the target did
+    not have is removed again. Returns the published file names.
+    """
+    names = sorted(p.name for p in staging.iterdir() if p.is_file())
+    backup = staging / ".backup"
+    backup.mkdir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    done: list[str] = []
+    try:
+        for name in names:
+            target = out_dir / name
+            if target.exists():
+                shutil.copy2(target, backup / name)
+            os.replace(staging / name, target)
+            done.append(name)
+    except BaseException:
+        for name in done:
+            if (backup / name).exists():
+                os.replace(backup / name, out_dir / name)
+            else:
+                (out_dir / name).unlink(missing_ok=True)
+        raise
+    return names
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -690,8 +730,7 @@ def main():
 
     # Every check that can stop the run goes before the first write, so a
     # failed input leaves website/data/ as it was rather than partly
-    # regenerated. A refused forecasts.json is the exception: the other files
-    # are still written and the exit code reports it (below).
+    # regenerated.
     df = load_feature_store(Path(args.feature_store))
     check_station_ids(df)
     agg = compute_station_ridership(df)
@@ -704,30 +743,39 @@ def main():
     ridership_json = build_ridership_json(agg)
     meta_json = build_meta_json(agg)
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    with open(out_dir / "stations_ridership.json", "w") as f:
-        json.dump(ridership_json, f, indent=2)
-    log.info(f"stations_ridership.json → {out_dir / 'stations_ridership.json'}  ({len(ridership_json)} stations)")
+    # Everything is written to a staging directory on the same filesystem as
+    # out_dir (os.replace cannot cross filesystems) and published only if every
+    # step succeeded; see publish_outputs().
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".export-staging-", dir=out_dir.parent))
+    try:
+        with open(staging / "stations_ridership.json", "w") as f:
+            json.dump(ridership_json, f, indent=2)
+        log.info(f"stations_ridership.json staged  ({len(ridership_json)} stations)")
 
-    with open(out_dir / "stations_meta.json", "w") as f:
-        json.dump(meta_json, f, indent=2)
-    log.info(f"stations_meta.json     → {out_dir / 'stations_meta.json'}  ({len(meta_json)} stations)")
+        with open(staging / "stations_meta.json", "w") as f:
+            json.dump(meta_json, f, indent=2)
+        log.info(f"stations_meta.json      staged  ({len(meta_json)} stations)")
 
-    export_ridership_actuals(df, out_dir)
-    forecasts_refused = export_forecasts(out_dir, df)
-    export_model_comparison(out_dir)
+        export_ridership_actuals(df, staging)
+        forecasts_refused = export_forecasts(staging, df)
+        export_model_comparison(staging)
 
-    if forecasts_refused is not None:
-        # Exit non-zero so scripts/run_pipeline.sh (set -e) stops before it
-        # prints the deploy command, rather than inviting a deploy of the
-        # stale file beside fresh data.
-        log.error(
-            f"forecasts.json NOT written; {out_dir / 'forecasts.json'} (if "
-            f"present) is stale. Reason: {forecasts_refused}. The other files "
-            f"were written; exiting 1."
-        )
-        raise SystemExit(1)
+        if forecasts_refused is not None:
+            # Exit non-zero so scripts/run_pipeline.sh (set -e) stops before it
+            # prints the deploy command. Nothing is published, so the old
+            # forecasts.json is not left beside fresh data.
+            log.error(
+                f"forecasts.json NOT written. Reason: {forecasts_refused}. "
+                f"Nothing was published; {out_dir} is unchanged. Exiting 1."
+            )
+            raise SystemExit(1)
 
+        published = publish_outputs(staging, out_dir)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    log.info(f"Published {', '.join(published)} → {out_dir}")
     log.info("Done. Commit website/data/ to repo.")
 
 
