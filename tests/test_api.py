@@ -5,8 +5,9 @@ Contract tests for the serving API (machine_learning_files/api.py) against the
 committed feature store.
 
 Run from the repository root:
-    pip install fastapi==0.115.0 pydantic==2.7.0 pandas==2.2.0 pyarrow==16.0.0 \
-        numpy==1.26.4 PyYAML==6.0.1 scipy==1.14.1 statsmodels==0.14.4 httpx pytest
+    pip install fastapi==0.115.0 "uvicorn[standard]==0.30.0" pydantic==2.7.0 \
+        pandas==2.2.0 pyarrow==16.0.0 numpy==1.26.4 PyYAML==6.0.1 scipy==1.14.1 \
+        patsy==1.0.1 statsmodels==0.14.4 httpx pytest
     python -m pytest tests/
 """
 
@@ -132,6 +133,25 @@ def test_health_names_the_served_model(client):
     assert "chronos" not in str(body).lower()
 
 
+def test_health_reports_the_store_and_what_is_served(client):
+    body = client.get("/health").json()
+    assert set(body) == {"status", "timestamp", "model", "interval", "store_loaded", "store_last_month"}
+    assert body["model"] == "SARIMA(0, 1, 1)x(0, 1, 1, 12)"
+    assert body["store_loaded"] is True
+    # The committed store ends 2025-12; /forecast's default anchor.
+    assert body["store_last_month"] == "2025-12-01"
+
+
+def test_health_before_the_store_loads_says_so_without_loading_it(client, monkeypatch):
+    import machine_learning_files.api as api
+    monkeypatch.setattr(api, "_feature_store", None)
+    body = client.get("/health").json()
+    assert body["status"] == "ok"
+    assert body["store_loaded"] is False
+    assert body["store_last_month"] is None
+    assert api._feature_store is None
+
+
 # ── Which P10/P90 band is served ───────────────────────────────────────────────
 # configs/model.yaml leaves SARIMA's band raw (calibration.models.SARIMA:
 # method none). The tests below check that the response says so, that the raw
@@ -149,7 +169,7 @@ def test_response_names_the_model_and_labels_sarimas_own_band(client):
     r = _forecast(client, station_id="EM", horizon_hours=6)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert list(body) == ["station_id", "horizon_hours", "generated_at", "model", "interval", "forecasts"]
+    assert list(body) == ["station_id", "horizon_hours", "generated_at", "model", "interval", "forecasts", "warnings"]
     assert body["model"] == "SARIMA(0, 1, 1)x(0, 1, 1, 12)"
     interval = body["interval"]
     assert interval["calibrated"] is False
@@ -243,3 +263,39 @@ def test_configured_calibration_without_a_saved_calibrator_is_503(client, monkey
     r = _forecast(client, station_id="EM", horizon_hours=6)
     assert r.status_code == 503, r.text
     assert "calibrator" in r.json()["detail"]
+
+
+# ── Non-finite quantiles ───────────────────────────────────────────────────────
+# statsmodels can return an infinite or NaN bound when a fit's forecast variance
+# blows up. A response must stay valid JSON (no Infinity/NaN) and keep every
+# month's row: the bad value is null and the top-level `warnings` list says so.
+
+
+@pytest.mark.parametrize("bad", [np.inf, -np.inf, np.nan])
+def test_non_finite_quantile_is_null_and_flagged_not_a_500(client, monkeypatch, bad):
+    from models.baselines import arima
+
+    real = arima.predict_station
+
+    def with_bad_p90(*args, **kwargs):
+        out = real(*args, **kwargs)
+        out.loc[out.index[2], "p90"] = bad
+        return out
+
+    monkeypatch.setattr(arima, "predict_station", with_bad_p90)
+    r = _forecast(client, station_id="EM", horizon_hours=6)
+    assert r.status_code == 200, r.text
+    assert "Infinity" not in r.text and "NaN" not in r.text
+    body = r.json()
+    rows = body["forecasts"]
+    assert len(rows) == 6
+    assert rows[2]["p90"] is None
+    assert rows[2]["p10"] is not None and rows[2]["p50"] is not None
+    assert all(row["p90"] is not None for i, row in enumerate(rows) if i != 2)
+    assert body["warnings"] == [
+        "2026-03-01 00:00:00: p90 is not finite; returned as null (the model gave no usable bound)."
+    ]
+
+
+def test_finite_forecast_carries_no_warnings(client):
+    assert _forecast(client, station_id="EM", horizon_hours=6).json()["warnings"] == []

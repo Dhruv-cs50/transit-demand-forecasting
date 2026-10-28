@@ -24,9 +24,12 @@ never changed.
 
 Endpoints:
     POST /forecast   — returns P10/P50/P90 monthly ridership for a station,
-                       naming the model and the P10/P90 band served
+                       naming the model and the P10/P90 band served. A
+                       quantile the model could not produce (NaN or infinite)
+                       is null, and `warnings` names each one.
     GET  /stations   — lists available station IDs
-    GET  /health     — liveness check
+    GET  /health     — liveness check: the model and band served, whether the
+                       feature store is loaded, and its last month
 
 Run locally:
     uvicorn machine_learning_files.api:app --reload --port 8000
@@ -125,6 +128,7 @@ if _FASTAPI_AVAILABLE:
         model:         str          = Field(..., description="Model that produced the forecasts")
         interval:      IntervalInfo = Field(..., description="Which P10/P90 band the forecasts carry")
         forecasts:     list[QuantileForecast]
+        warnings:      list[str]    = Field(default_factory=list, description="One line per quantile returned as null because the model gave no finite value; empty when every P10/P50/P90 is a number")
 
     class StationsResponse(BaseModel):
         stations: list[str]
@@ -164,6 +168,11 @@ def get_feature_store() -> pd.DataFrame:
 def _clean_quantile(value) -> float | None:
     """Coerce a raw quantile cell to a JSON-safe value.
 
+    NaN and +-inf both become None: JSON has no Infinity/NaN (the response
+    encoder rejects them, which would turn a forecast into a 500), and an
+    infinite bound is no more a usable number than a missing one. /forecast
+    lists each such cell in the response's `warnings`.
+
     `max(0.0, x)` silently returns 0.0 when `x` is NaN (NaN always loses
     float comparisons, so `nan > 0.0` is False and `max` picks the first
     arg) -- turning a station-month the model genuinely couldn't forecast
@@ -171,9 +180,19 @@ def _clean_quantile(value) -> float | None:
     response emit JSON `null` (which the frontends already render as "—"),
     matching how export_website_data.py handles NaN forecast cells.
     """
-    if value is None or pd.isna(value):
+    if value is None or pd.isna(value) or not np.isfinite(value):
         return None
     return max(0.0, float(value))
+
+
+def _null_quantile_warnings(rows: list[dict]) -> list[str]:
+    """One line per P10/P50/P90 cell _clean_quantile returned as null."""
+    return [
+        f"{row['timestamp']}: {q} is not finite; returned as null (the model gave no usable bound)."
+        for row in rows
+        for q in ("p10", "p50", "p90")
+        if row[q] is None
+    ]
 
 
 def _run_forecast(
@@ -313,12 +332,19 @@ if _FASTAPI_AVAILABLE:
 
     @app.get("/health")
     def health():
+        # Reports the store without loading it: a failed startup preload
+        # shows here as store_loaded false instead of being retried by a probe.
+        store = _feature_store
+        last_month = None
+        if store is not None and len(store):
+            last_month = store["timestamp"].max().strftime("%Y-%m-%d")
         return {
             "status":       "ok",
             "timestamp":    datetime.utcnow().isoformat() + "Z",
             "model":        _model_name(),
             "interval":     interval_plan(CALIBRATION_KEY, _get_config())["label"],
-            "store_loaded": _feature_store is not None,
+            "store_loaded": store is not None,
+            "store_last_month": last_month,
         }
 
     @app.get("/stations", response_model=StationsResponse)
@@ -369,6 +395,7 @@ if _FASTAPI_AVAILABLE:
                 "description":   plan["description"],
             },
             "forecasts":     forecasts,
+            "warnings":      _null_quantile_warnings(forecasts),
         }
 
     @app.get("/")
