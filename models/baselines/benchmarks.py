@@ -4,14 +4,15 @@ models/baselines/benchmarks.py
 Head-to-head comparison of all models on the held-out test set.
 
 Models compared:
-  1. Seasonal Naive   — repeat same-time-last-week (zero-effort baseline)
+  1. Seasonal Naive   — repeat the same month of the previous year (zero-effort baseline)
   2. SARIMA           — classical statistical model
   3. Prophet          — classical + holidays + regressors
   4. Chronos (zero-shot) — foundation model, no fine-tuning
 
 Produces:
   - Leaderboard table (WAPE, MAE, RMSE, MAPE, MASE)
-  - Per-slice breakdown (game days, rainy days, AM peak, PM peak)
+  - Per-slice breakdown (game days, rainy days, holidays, ...). The data is monthly, so the
+    AM/PM-peak slices need hour-level flags the store does not have and are skipped.
   - Latex-ready table for your project report
 
 Usage:
@@ -118,11 +119,13 @@ def seasonal_naive_forecast(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     freq: str,
-    seasonality_hours: int = 168,   # 7-day seasonal period
+    seasonality_hours: int = 168,   # used only for sub-daily freq (168 h = 7 days); monthly freq uses a fixed 12-step lag
 ) -> pd.DataFrame:
     """
-    For each test row, predict the value from exactly
-    `seasonality_hours` ago in the training data.
+    For each test row, predict the value one season ago in the training data.
+    For monthly freq ("MS"/"M"/"ME"; what the feature store uses) the season is
+    12 months, so each test month repeats the same month of the last 12 training
+    months. `seasonality_hours` (168 = 7 days) applies only to sub-daily freq.
     This is the absolute minimum any model must beat.
     """
     if freq.upper() in {"MS", "M", "ME"} or "month" in freq.lower():
@@ -139,7 +142,7 @@ def seasonal_naive_forecast(
         if len(train_grp) < lag:
             continue
 
-        # Repeat the last week of training data cyclically
+        # Repeat the last `lag` training steps cyclically (12 months for monthly freq)
         last_week = train_grp["ridership"].values[-lag:]
         n_test = len(grp)
         repeated = np.tile(last_week, (n_test // lag) + 1)[:n_test]

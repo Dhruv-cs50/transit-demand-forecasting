@@ -154,7 +154,7 @@
   {
     "bart_id": "WC",
     "api_code": "WCRK",
-    "website_id": null,
+    "website_id": "wlc",
     "station_name": "Walnut Creek",
     "weather_station": null,
     "avg_monthly_ridership": 77137.0
@@ -226,7 +226,7 @@
   {
     "bart_id": "AS",
     "api_code": "ASHB",
-    "website_id": null,
+    "website_id": "ash",
     "station_name": "Ashby",
     "weather_station": null,
     "avg_monthly_ridership": 57055.0
@@ -234,7 +234,7 @@
   {
     "bart_id": "EP",
     "api_code": "PLZA",
-    "website_id": null,
+    "website_id": "elp",
     "station_name": "El Cerrito Plaza",
     "weather_station": null,
     "avg_monthly_ridership": 55653.0
@@ -322,7 +322,7 @@
   {
     "bart_id": "SH",
     "api_code": "SHAY",
-    "website_id": null,
+    "website_id": "shy",
     "station_name": "South Hayward",
     "weather_station": null,
     "avg_monthly_ridership": 38339.0
@@ -338,7 +338,7 @@
   {
     "bart_id": "ML",
     "api_code": "MLPT",
-    "website_id": null,
+    "website_id": "mlp",
     "station_name": "Milpitas",
     "weather_station": null,
     "avg_monthly_ridership": 35602.0
@@ -362,7 +362,7 @@
   {
     "bart_id": "WS",
     "api_code": "WARM",
-    "website_id": null,
+    "website_id": "wsp",
     "station_name": "Warm Springs/South Fremont",
     "weather_station": null,
     "avg_monthly_ridership": 32698.0
@@ -378,7 +378,7 @@
   {
     "bart_id": "OA",
     "api_code": "OAKL",
-    "website_id": null,
+    "website_id": "oak",
     "station_name": "Oakland International Airport",
     "weather_station": null,
     "avg_monthly_ridership": 16954.0
@@ -386,7 +386,7 @@
   {
     "bart_id": "NC",
     "api_code": "NCON",
-    "website_id": null,
+    "website_id": "ncn",
     "station_name": "North Concord/Martinez",
     "weather_station": null,
     "avg_monthly_ridership": 16879.0
@@ -394,7 +394,7 @@
   {
     "bart_id": "PC",
     "api_code": "PCTR",
-    "website_id": null,
+    "website_id": "pcr",
     "station_name": "Pittsburg Center",
     "weather_station": null,
     "avg_monthly_ridership": 14293.0

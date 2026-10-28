@@ -8,7 +8,7 @@ classical gold standard for time series. It explicitly models:
   - AR terms: autocorrelation (ridership now predicts ridership soon)
   - I terms:  differencing to remove trends
   - MA terms: moving average of past errors
-  - S terms:  seasonal patterns (daily + weekly cycles)
+  - S terms:  seasonal patterns (annual cycle for the monthly store; daily for hourly data)
 
 The leaderboard's SARIMA reads no covariate. Covariates are optional
 (`exog_cols` in run_arima_all_stations) and are used only by the covariate
@@ -48,7 +48,8 @@ logging.basicConfig(
 log = logging.getLogger("arima_baseline")
 
 PROCESSED_DIR = Path("data/processed")
-OUTPUT_DIR    = Path("models/baselines/outputs/arima")
+OUTPUT_DIR    = Path("models/baselines/outputs/arima")          # benchmarks.py test forecasts
+STANDALONE_OUTPUT_DIR = OUTPUT_DIR / "standalone"                # `python arima.py` CLI only
 CONFIG_PATH   = Path("configs/model.yaml")
 
 
@@ -73,11 +74,14 @@ SARIMA_ORDERS = {
         "seasonal_order": (1, 1, 1, 96),   # 96 steps = 24hrs at 15min
     },
     "monthly": {
-        # Airline model. The BART target has ~30 monthly observations per
-        # station; with d=1 and D=1 at s=12 that leaves ~17 effective points,
-        # which cannot support the 4 parameters of (1,1,1)(1,1,0,12). Two MA
-        # terms fit that budget, and measured 6.89% WAPE against 7.32% for the
-        # larger order on the same split.
+        # Airline model. With configs/model.yaml's train_start (2022-01), a
+        # station has 36 monthly observations when fit through train_end
+        # (2024-12) and 42 through val_end (2025-06); the 2019 months sit
+        # before train_start and are not used. d=1 and D=1 at s=12 consume 13
+        # of them, leaving 23 and 29 effective points, so a small order is
+        # needed: two MA terms rather than (1,1,1)(1,1,0,12). The published
+        # Jul-Dec 2025 holdout WAPE for this order is 3.21% (README.md,
+        # website/data/model_comparison.json).
         "order":          (0, 1, 1),
         "seasonal_order": (0, 1, 1, 12),   # annual seasonal period for monthly BART data
     },
@@ -506,7 +510,11 @@ def main():
     if args.horizon:
         cfg["data"]["forecast_horizon_steps"] = args.horizon
 
-    run_arima_all_stations(df, cfg, use_auto=args.auto)
+    # Standalone runs write to their own directory. The default cutoff here is
+    # train_end, so the forecasts are validation-period forecasts; the shared
+    # OUTPUT_DIR holds the benchmark's Jul-Dec 2025 test forecasts (read by
+    # scripts/export_website_data.py) and must not be overwritten by this CLI.
+    run_arima_all_stations(df, cfg, output_dir=STANDALONE_OUTPUT_DIR, use_auto=args.auto)
 
 
 if __name__ == "__main__":

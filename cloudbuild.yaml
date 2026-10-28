@@ -1,3 +1,27 @@
+# Builds the serving image (Dockerfile.api) and pushes it to Artifact Registry
+# twice: transit-api:$_TAG (the commit, so the live revision can be traced to
+# code) and transit-api:tag1 (kept for anything that still pulls that tag).
+#
+# Tag the build with the commit:
+#   gcloud builds submit --config=cloudbuild.yaml \
+#     --substitutions=_TAG=$(git rev-parse --short HEAD) .
+# A bare `gcloud builds submit --config=cloudbuild.yaml .` still works: _TAG
+# defaults to "latest" (not "tag1", so the two tags never name the same image
+# twice). Such a build cannot be traced to a commit; tag real builds.
+#
+# Deploy by digest, not by tag, so a revision names exactly the image it runs
+# (a tag can move; a digest cannot). Read the digest of the build you just pushed:
+#   P=cs-163-final-project-tra-f1136
+#   IMG=us-west2-docker.pkg.dev/$P/transit-repo/transit-api
+#   DIGEST=$(gcloud artifacts docker images describe $IMG:$(git rev-parse --short HEAD) \
+#     --format='value(image_summary.digest)')
+#   gcloud run deploy transit-api --region us-west2 --image $IMG@$DIGEST
+# and confirm what is live:
+#   gcloud run services describe transit-api --region us-west2 \
+#     --format='value(spec.template.spec.containers[0].image)'
+substitutions:
+  _TAG: latest
+
 steps:
   # Build the serving image using Dockerfile.api (linux/amd64 for Cloud Run)
   - name: 'gcr.io/cloud-builders/docker'
@@ -5,18 +29,22 @@ steps:
       - build
       - --platform=linux/amd64
       - -t
+      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:$_TAG
+      - -t
       - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:tag1
       - -f
       - Dockerfile.api
       - .
 
-  # Push to Artifact Registry
+  # Push both tags to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - push
-      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:tag1
+      - --all-tags
+      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api
 
 images:
+  - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:$_TAG
   - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-api:tag1
 
 options:

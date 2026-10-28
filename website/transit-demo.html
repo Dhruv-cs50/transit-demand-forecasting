@@ -154,7 +154,7 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
   <div>
     <div class="lbl">Network</div>
     <div class="seg" id="sysSeg">
-      <button class="on" data-sys="bart">BART · 41 stations</button>
+      <button class="on" data-sys="bart">BART · 50 stations</button>
       <button data-sys="vta">VTA · 39 stations</button>
     </div>
   </div>
@@ -242,54 +242,71 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
 
 <script>
 /* ── Station data ─────────────────────────────────────────────── */
+/* BART geometry from BART's GTFS feed (https://www.bart.gov/dev/schedules/google_transit.zip,
+   feed_version 72, valid 2026-01-12 to 2026-08-30): each node's lat/lng is its parent
+   station's stop_lat/stop_lon in stops.txt, and each line is the stop order of the
+   longest trip of that route in trips.txt/stop_times.txt. Line colours are
+   routes.txt's, with yellow and grey darkened to show on a light map. aM/pM/type
+   are illustrative (real levels come from data/stations_ridership.json). */
 const BART = [
-  {id:'rich', nm:'Richmond',          lat:37.9372,lng:-122.3531,type:'commuter',aM:1.4,pM:1.1,eb:0},
-  {id:'elc',  nm:'El Cerrito',        lat:37.9252,lng:-122.3170,type:'commuter',aM:1.2,pM:1.0,eb:0},
-  {id:'nbk',  nm:'N. Berkeley',       lat:37.8741,lng:-122.2832,type:'commuter',aM:1.0,pM:0.9,eb:0},
-  {id:'bky',  nm:'Berkeley',          lat:37.8699,lng:-122.2681,type:'urban',   aM:1.6,pM:1.5,eb:0},
-  {id:'mac',  nm:'MacArthur',         lat:37.8286,lng:-122.2672,type:'transfer',aM:1.7,pM:1.6,eb:0},
-  {id:'ant',  nm:'Antioch',           lat:37.9959,lng:-121.7806,type:'commuter',aM:1.6,pM:0.6,eb:0},
-  {id:'pit',  nm:'Pittsburg',         lat:38.0183,lng:-121.9456,type:'commuter',aM:1.5,pM:0.7,eb:0},
-  {id:'ccd',  nm:'Concord',           lat:37.9732,lng:-122.0290,type:'commuter',aM:1.4,pM:0.8,eb:0},
-  {id:'plh',  nm:'Pleasant Hill',     lat:37.9279,lng:-122.0571,type:'commuter',aM:1.3,pM:0.9,eb:0},
-  {id:'lfy',  nm:'Lafayette',         lat:37.8934,lng:-122.1238,type:'commuter',aM:1.2,pM:0.9,eb:0},
-  {id:'orn',  nm:'Orinda',            lat:37.8784,lng:-122.1834,type:'commuter',aM:1.1,pM:0.9,eb:0},
-  {id:'rkr',  nm:'Rockridge',         lat:37.8445,lng:-122.2512,type:'commuter',aM:1.0,pM:0.95,eb:0},
-  {id:'12th', nm:'12th St / Oakland', lat:37.8031,lng:-122.2716,type:'transfer',aM:1.9,pM:1.9,eb:0.4},
-  {id:'19th', nm:'19th St / Oakland', lat:37.8083,lng:-122.2693,type:'transfer',aM:1.7,pM:1.7,eb:0},
-  {id:'lkm',  nm:'Lake Merritt',      lat:37.7979,lng:-122.2651,type:'urban',   aM:1.4,pM:1.4,eb:0},
-  {id:'fvw',  nm:'Fruitvale',         lat:37.7750,lng:-122.2242,type:'urban',   aM:1.3,pM:1.3,eb:0},
-  {id:'col',  nm:'Coliseum',          lat:37.7539,lng:-122.1977,type:'transfer',aM:1.0,pM:1.0,eb:0.9},
-  {id:'sl',   nm:'San Leandro',       lat:37.7222,lng:-122.1609,type:'commuter',aM:1.1,pM:1.0,eb:0},
-  {id:'bayp', nm:'Bay Fair',          lat:37.6970,lng:-122.1272,type:'transfer',aM:1.0,pM:0.95,eb:0},
-  {id:'hyw',  nm:'Hayward',           lat:37.6695,lng:-122.0872,type:'commuter',aM:1.0,pM:0.95,eb:0},
-  {id:'unc',  nm:'Union City',        lat:37.5908,lng:-122.0174,type:'commuter',aM:1.0,pM:0.95,eb:0},
-  {id:'frm',  nm:'Fremont',           lat:37.5574,lng:-121.9763,type:'commuter',aM:1.05,pM:0.95,eb:0},
-  {id:'brb',  nm:'Berryessa',         lat:37.4479,lng:-121.9007,type:'commuter',aM:1.0,pM:0.95,eb:0},
-  {id:'wo',   nm:'West Oakland',      lat:37.8046,lng:-122.2949,type:'urban',   aM:1.3,pM:1.5,eb:0},
-  {id:'emb',  nm:'Embarcadero',       lat:37.7930,lng:-122.3969,type:'core',    aM:2.4,pM:2.5,eb:0.2},
-  {id:'mtg',  nm:'Montgomery',        lat:37.7892,lng:-122.4014,type:'core',    aM:2.6,pM:2.7,eb:0.2},
-  {id:'pwl',  nm:'Powell',            lat:37.7844,lng:-122.4080,type:'core',    aM:2.3,pM:2.4,eb:0.3},
-  {id:'cvc',  nm:'Civic Center',      lat:37.7796,lng:-122.4137,type:'core',    aM:2.0,pM:2.1,eb:0.2},
-  {id:'16th', nm:'16th St Mission',   lat:37.7650,lng:-122.4194,type:'urban',   aM:1.5,pM:1.7,eb:0},
-  {id:'24th', nm:'24th St Mission',   lat:37.7524,lng:-122.4181,type:'urban',   aM:1.4,pM:1.6,eb:0},
-  {id:'gln',  nm:'Glen Park',         lat:37.7328,lng:-122.4345,type:'urban',   aM:1.1,pM:1.2,eb:0},
-  {id:'bls',  nm:'Balboa Park',       lat:37.7219,lng:-122.4475,type:'urban',   aM:1.1,pM:1.2,eb:0},
-  {id:'daly', nm:'Daly City',         lat:37.7061,lng:-122.4690,type:'transfer',aM:1.2,pM:1.1,eb:0},
-  {id:'colm', nm:'Colma',             lat:37.6844,lng:-122.4669,type:'commuter',aM:1.0,pM:0.9,eb:0},
-  {id:'ssf',  nm:'S. San Francisco',  lat:37.6547,lng:-122.4437,type:'commuter',aM:1.0,pM:0.9,eb:0},
-  {id:'sbr',  nm:'San Bruno',         lat:37.6302,lng:-122.4120,type:'commuter',aM:1.0,pM:0.9,eb:0},
-  {id:'mil',  nm:'Millbrae',          lat:37.5995,lng:-122.3869,type:'transfer',aM:1.2,pM:1.0,eb:0},
-  {id:'sfo',  nm:'SFO Airport',       lat:37.6162,lng:-122.3924,type:'airport', aM:1.5,pM:1.5,eb:0},
-  {id:'cas',  nm:'Castro Valley',     lat:37.6902,lng:-121.9825,type:'commuter',aM:1.0,pM:0.9,eb:0},
-  {id:'dub',  nm:'Dublin/Pleasanton', lat:37.7016,lng:-121.8998,type:'commuter',aM:1.3,pM:0.7,eb:0},
-  {id:'wdb',  nm:'W. Dublin',         lat:37.6995,lng:-121.9287,type:'commuter',aM:1.1,pM:0.8,eb:0},
+  {id:'rich', nm:'Richmond',          lat:37.9368,lng:-122.3530,type:'commuter',aM:1.4,pM:1.1,eb:0},
+  {id:'elc',  nm:'El Cerrito',        lat:37.9252,lng:-122.3169,type:'commuter',aM:1.2,pM:1.0,eb:0},
+  {id:'nbk',  nm:'N. Berkeley',       lat:37.8740,lng:-122.2835,type:'commuter',aM:1.0,pM:0.9,eb:0},
+  {id:'bky',  nm:'Berkeley',          lat:37.8701,lng:-122.2681,type:'urban',   aM:1.6,pM:1.5,eb:0},
+  {id:'mac',  nm:'MacArthur',         lat:37.8288,lng:-122.2671,type:'transfer',aM:1.7,pM:1.6,eb:0},
+  {id:'ant',  nm:'Antioch',           lat:37.9954,lng:-121.7803,type:'commuter',aM:1.6,pM:0.6,eb:0},
+  {id:'pit',  nm:'Pittsburg',         lat:38.0189,lng:-121.9442,type:'commuter',aM:1.5,pM:0.7,eb:0},
+  {id:'ccd',  nm:'Concord',           lat:37.9738,lng:-122.0291,type:'commuter',aM:1.4,pM:0.8,eb:0},
+  {id:'plh',  nm:'Pleasant Hill',     lat:37.9284,lng:-122.0560,type:'commuter',aM:1.3,pM:0.9,eb:0},
+  {id:'lfy',  nm:'Lafayette',         lat:37.8932,lng:-122.1246,type:'commuter',aM:1.2,pM:0.9,eb:0},
+  {id:'orn',  nm:'Orinda',            lat:37.8785,lng:-122.1837,type:'commuter',aM:1.1,pM:0.9,eb:0},
+  {id:'rkr',  nm:'Rockridge',         lat:37.8448,lng:-122.2512,type:'commuter',aM:1.0,pM:0.95,eb:0},
+  {id:'12th', nm:'12th St / Oakland', lat:37.8035,lng:-122.2716,type:'transfer',aM:1.9,pM:1.9,eb:0.4},
+  {id:'19th', nm:'19th St / Oakland', lat:37.8081,lng:-122.2688,type:'transfer',aM:1.7,pM:1.7,eb:0},
+  {id:'lkm',  nm:'Lake Merritt',      lat:37.7973,lng:-122.2652,type:'urban',   aM:1.4,pM:1.4,eb:0},
+  {id:'fvw',  nm:'Fruitvale',         lat:37.7748,lng:-122.2241,type:'urban',   aM:1.3,pM:1.3,eb:0},
+  {id:'col',  nm:'Coliseum',          lat:37.7536,lng:-122.1967,type:'transfer',aM:1.0,pM:1.0,eb:0.9},
+  {id:'sl',   nm:'San Leandro',       lat:37.7218,lng:-122.1607,type:'commuter',aM:1.1,pM:1.0,eb:0},
+  {id:'bayp', nm:'Bay Fair',          lat:37.6969,lng:-122.1264,type:'transfer',aM:1.0,pM:0.95,eb:0},
+  {id:'hyw',  nm:'Hayward',           lat:37.6697,lng:-122.0870,type:'commuter',aM:1.0,pM:0.95,eb:0},
+  {id:'unc',  nm:'Union City',        lat:37.5907,lng:-122.0172,type:'commuter',aM:1.0,pM:0.95,eb:0},
+  {id:'frm',  nm:'Fremont',           lat:37.5575,lng:-121.9766,type:'commuter',aM:1.05,pM:0.95,eb:0},
+  {id:'brb',  nm:'Berryessa',         lat:37.3685,lng:-121.8747,type:'commuter',aM:1.0,pM:0.95,eb:0},
+  {id:'wo',   nm:'West Oakland',      lat:37.8049,lng:-122.2952,type:'urban',   aM:1.3,pM:1.5,eb:0},
+  {id:'emb',  nm:'Embarcadero',       lat:37.7928,lng:-122.3970,type:'core',    aM:2.4,pM:2.5,eb:0.2},
+  {id:'mtg',  nm:'Montgomery',        lat:37.7892,lng:-122.4016,type:'core',    aM:2.6,pM:2.7,eb:0.2},
+  {id:'pwl',  nm:'Powell',            lat:37.7846,lng:-122.4073,type:'core',    aM:2.3,pM:2.4,eb:0.3},
+  {id:'cvc',  nm:'Civic Center',      lat:37.7794,lng:-122.4138,type:'core',    aM:2.0,pM:2.1,eb:0.2},
+  {id:'16th', nm:'16th St Mission',   lat:37.7652,lng:-122.4197,type:'urban',   aM:1.5,pM:1.7,eb:0},
+  {id:'24th', nm:'24th St Mission',   lat:37.7524,lng:-122.4185,type:'urban',   aM:1.4,pM:1.6,eb:0},
+  {id:'gln',  nm:'Glen Park',         lat:37.7332,lng:-122.4335,type:'urban',   aM:1.1,pM:1.2,eb:0},
+  {id:'bls',  nm:'Balboa Park',       lat:37.7217,lng:-122.4475,type:'urban',   aM:1.1,pM:1.2,eb:0},
+  {id:'daly', nm:'Daly City',         lat:37.7063,lng:-122.4689,type:'transfer',aM:1.2,pM:1.1,eb:0},
+  {id:'colm', nm:'Colma',             lat:37.6846,lng:-122.4662,type:'commuter',aM:1.0,pM:0.9,eb:0},
+  {id:'ssf',  nm:'S. San Francisco',  lat:37.6645,lng:-122.4442,type:'commuter',aM:1.0,pM:0.9,eb:0},
+  {id:'sbr',  nm:'San Bruno',         lat:37.6377,lng:-122.4163,type:'commuter',aM:1.0,pM:0.9,eb:0},
+  {id:'mil',  nm:'Millbrae',          lat:37.6002,lng:-122.3868,type:'transfer',aM:1.2,pM:1.0,eb:0},
+  {id:'sfo',  nm:'SFO Airport',       lat:37.6161,lng:-122.3920,type:'airport', aM:1.5,pM:1.5,eb:0},
+  {id:'cas',  nm:'Castro Valley',     lat:37.6907,lng:-122.0756,type:'commuter',aM:1.0,pM:0.9,eb:0},
+  {id:'dub',  nm:'Dublin/Pleasanton', lat:37.7016,lng:-121.8992,type:'commuter',aM:1.3,pM:0.7,eb:0},
+  {id:'wdb',  nm:'W. Dublin',         lat:37.6997,lng:-121.9283,type:'commuter',aM:1.1,pM:0.8,eb:0},
+  {id:'elp', nm:'El Cerrito Plaza',     lat:37.9026,lng:-122.2989,type:'commuter',          aM:1.0,pM:0.9,eb:0},
+  {id:'ash', nm:'Ashby',                lat:37.8531,lng:-122.2698,type:'urban',             aM:1.0,pM:0.9,eb:0},
+  {id:'shy', nm:'South Hayward',        lat:37.6343,lng:-122.0572,type:'commuter',          aM:1.0,pM:0.9,eb:0},
+  {id:'wlc', nm:'Walnut Creek',         lat:37.9058,lng:-122.0673,type:'commuter',          aM:1.0,pM:0.9,eb:0},
+  {id:'ncn', nm:'N. Concord/Martinez',  lat:38.0034,lng:-122.0245,type:'commuter',          aM:1.0,pM:0.9,eb:0},
+  {id:'oak', nm:'Oakland Airport',      lat:37.7133,lng:-122.2122,type:'airport',           aM:1.0,pM:0.9,eb:0},
+  {id:'wsp', nm:'Warm Springs',         lat:37.5023,lng:-121.9394,type:'commuter',          aM:1.0,pM:0.9,eb:0},
+  {id:'mlp', nm:'Milpitas',             lat:37.4103,lng:-121.8911,type:'commuter',          aM:1.0,pM:0.9,eb:0},
+  {id:'pcr', nm:'Pittsburg Center',     lat:38.0168,lng:-121.8891,type:'commuter',          aM:1.0,pM:0.9,eb:0},
 ];
 const BART_LINES = [
-  {c:'#f04e23',ids:['rich','elc','nbk','bky','mac','19th','12th','wo','emb','mtg','pwl','cvc','16th','24th','gln','bls','daly','colm','ssf','sbr','mil']},
-  {c:'#fdb62a',ids:['ant','pit','ccd','plh','lfy','orn','rkr','mac','19th','12th','wo','emb','mtg','pwl','cvc','16th','24th','gln','bls','daly','colm','ssf','sbr','sfo','mil']},
-  {c:'#0099d8',ids:['dub','wdb','cas','bayp','sl','col','fvw','lkm','12th','19th','mac','rkr','orn','lfy','plh','ccd','pit','ant']},
-  {c:'#1a8a3f',ids:['brb','frm','unc','hyw','bayp','sl','col','fvw','lkm','12th','wo','emb','mtg','pwl','cvc','daly']},
+  {c:'#e6b800',ids:['ant','pcr','pit','ncn','ccd','plh','wlc','lfy','orn','rkr','mac','19th','12th','wo','emb','mtg','pwl','cvc','16th','24th','gln','bls','daly','colm','ssf','sbr','sfo','mil']},  // Yellow: Antioch – Millbrae
+  {c:'#ff9933',ids:['brb','mlp','wsp','frm','unc','shy','hyw','bayp','sl','col','fvw','lkm','12th','19th','mac','ash','bky','nbk','elp','elc','rich']},  // Orange: Berryessa / North San Jose – Richmond
+  {c:'#339933',ids:['brb','mlp','wsp','frm','unc','shy','hyw','bayp','sl','col','fvw','lkm','wo','emb','mtg','pwl','cvc','16th','24th','gln','bls','daly']},  // Green: Berryessa / North San Jose – Daly City
+  {c:'#e60000',ids:['rich','elc','elp','nbk','bky','ash','mac','19th','12th','wo','emb','mtg','pwl','cvc','16th','24th','gln','bls','daly','colm','ssf','sbr','sfo','mil']},  // Red: Richmond – Millbrae
+  {c:'#0099cc',ids:['dub','wdb','cas','bayp','sl','col','fvw','lkm','wo','emb','mtg','pwl','cvc','16th','24th','gln','bls','daly']},  // Blue: Dublin / Pleasanton – Daly City
+  {c:'#90a4ae',ids:['oak','col']},  // Grey (OAK connector): Oakland International Airport – Coliseum
 ];
 const VTA = [
   {id:'mtv',  nm:'Mountain View',     lat:37.3943,lng:-122.0761,type:'transfer',aM:1.4,pM:1.2,eb:0},
@@ -674,7 +691,7 @@ function redraw() {
   const top   = ranked[0];
   const mean  = heat.reduce((a,v)=>a+v,0)/heat.length;
   const tier  = mean<0.45?'low':mean<0.95?'med':'high';
-  const tLbl  = tier==='low'?'Off-peak':tier==='med'?'Building':'Peak crush';
+  const tLbl  = tier==='low'?'Off-peak':tier==='med'?'Building':'High';
   const DAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const hStr  = String(S.hour).padStart(2,'0')+':00';
 
@@ -767,6 +784,6 @@ document.getElementById('darkBtn').addEventListener('click',()=>{
   if (R) R.setDark(dark);
 });
 </script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCz98JSskfF4HNnltmwgmCLYLb8HziY3zI&callback=initMap" async defer onerror="useFallback('script error')"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDcTkQ94n8-mpvSSYnv0fE6l3TH-mHjIHs&callback=initMap" async defer onerror="useFallback('script error')"></script>
 </body>
 </html>

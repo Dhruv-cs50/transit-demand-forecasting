@@ -18,8 +18,9 @@ Columns and where they come from:
                      verbatim; fetch_bart_od now imports API_CODE_TO_NAME
                      from here under that name
     website_id       node id in the `const BART = [ ... ];` array of
-                     website/transit-demo.html (41 nodes; None for the nine
-                     stations the map does not draw)
+                     website/transit-demo.html (all 50 stations; the nine
+                     added in S10-04 -- EP AS SH WC NC OA WS ML PC -- take
+                     their coordinates from BART's GTFS stops.txt)
     weather_station  key of configs/sources.yaml `weather.station_coords` for
                      the six locations that name-match a BART station
                      (`diridon` has no BART station and stays regional-only)
@@ -27,7 +28,8 @@ Columns and where they come from:
 
     SRC_META       META: name from website/data/stations_meta.json as
                    committed in c5f5891 (2026-05-07), equal to
-                   STATION_NAMES[api_code]; no website node.
+                   STATION_NAMES[api_code]. (Its website node, where it has one,
+                   was added in S10-04, not by this evidence.)
     SRC_META_MAPS  META+MAPS: META, plus website id from both c5f5891's
                    2-letter BART_CODE_TO_WEBSITE_ID and the 4-letter map that
                    replaced it.
@@ -102,10 +104,10 @@ class BartStation:
 STATIONS: tuple[BartStation, ...] = (
     BartStation("RM", "RICH", "Richmond", "rich", None, SRC_META_MAPS),
     BartStation("EN", "DELN", "El Cerrito Del Norte", "elc", None, SRC_META_MAPS),
-    BartStation("EP", "PLZA", "El Cerrito Plaza", None, None, SRC_META),
+    BartStation("EP", "PLZA", "El Cerrito Plaza", "elp", None, SRC_META),
     BartStation("NB", "NBRK", "North Berkeley", "nbk", None, SRC_META_MAPS),
     BartStation("BK", "DBRK", "Downtown Berkeley", "bky", None, SRC_META_MAPS),
-    BartStation("AS", "ASHB", "Ashby", None, None, SRC_META),
+    BartStation("AS", "ASHB", "Ashby", "ash", None, SRC_META),
     BartStation("MA", "MCAR", "MacArthur", "mac", None, SRC_META_MAPS),
     BartStation("19", "19TH", "19th St. Oakland", "19th", "oakland_19th", SRC_META_MAPS),
     BartStation("12", "12TH", "12th St. Oakland City Center", "12th", None, SRC_META_MAPS),
@@ -115,12 +117,12 @@ STATIONS: tuple[BartStation, ...] = (
     BartStation("SL", "SANL", "San Leandro", "sl", None, SRC_META_MAPS),
     BartStation("BF", "BAYF", "Bay Fair", "bayp", None, SRC_BF),
     BartStation("HY", "HAYW", "Hayward", "hyw", None, SRC_META_MAPS),
-    BartStation("SH", "SHAY", "South Hayward", None, None, SRC_META),
+    BartStation("SH", "SHAY", "South Hayward", "shy", None, SRC_META),
     BartStation("UC", "UCTY", "Union City", "unc", None, SRC_META_MAPS),
     BartStation("FM", "FRMT", "Fremont", "frm", "fremont_bart", SRC_META_MAPS),
     BartStation("CN", "CONC", "Concord", "ccd", None, SRC_META_MAPS),
     BartStation("PH", "PHIL", "Pleasant Hill/Contra Costa Centre", "plh", None, SRC_META_MAPS),
-    BartStation("WC", "WCRK", "Walnut Creek", None, None, SRC_META),
+    BartStation("WC", "WCRK", "Walnut Creek", "wlc", None, SRC_META),
     BartStation("LF", "LAFY", "Lafayette", "lfy", None, SRC_META_MAPS),
     BartStation("OR", "ORIN", "Orinda", "orn", None, SRC_META_MAPS),
     BartStation("RR", "ROCK", "Rockridge", "rkr", None, SRC_META_MAPS),
@@ -137,18 +139,18 @@ STATIONS: tuple[BartStation, ...] = (
     BartStation("CM", "COLM", "Colma", "colm", None, SRC_META_MAPS),
     BartStation("CV", "CAST", "Castro Valley", "cas", None, SRC_META_MAPS),
     BartStation("ED", "DUBL", "Dublin/Pleasanton", "dub", None, SRC_META_MAPS),
-    BartStation("NC", "NCON", "North Concord/Martinez", None, None, SRC_META),
+    BartStation("NC", "NCON", "North Concord/Martinez", "ncn", None, SRC_META),
     BartStation("WP", "PITT", "Pittsburg/Bay Point", "pit", None, SRC_USER),
     BartStation("SS", "SSAN", "South San Francisco", "ssf", None, SRC_META_MAPS),
     BartStation("SB", "SBRN", "San Bruno", "sbr", None, SRC_META_MAPS),
     BartStation("SO", "SFIA", "SFO", "sfo", "sfo", SRC_META_MAPS),
     BartStation("MB", "MLBR", "Millbrae", "mil", "millbrae", SRC_META_MAPS),
     BartStation("WD", "WDUB", "West Dublin/Pleasanton", "wdb", None, SRC_META_MAPS),
-    BartStation("OA", "OAKL", "Oakland International Airport", None, None, SRC_META),
-    BartStation("WS", "WARM", "Warm Springs/South Fremont", None, None, SRC_META),
-    BartStation("ML", "MLPT", "Milpitas", None, None, SRC_USER),
+    BartStation("OA", "OAKL", "Oakland International Airport", "oak", None, SRC_META),
+    BartStation("WS", "WARM", "Warm Springs/South Fremont", "wsp", None, SRC_META),
+    BartStation("ML", "MLPT", "Milpitas", "mlp", None, SRC_USER),
     BartStation("BE", "BERY", "Berryessa/North San José", "brb", "berryessa", SRC_META_MAPS),
-    BartStation("PC", "PCTR", "Pittsburg Center", None, None, SRC_META_PC),
+    BartStation("PC", "PCTR", "Pittsburg Center", "pcr", None, SRC_META_PC),
     BartStation("AN", "ANTC", "Antioch", "ant", None, SRC_META_MAPS),
 )
 

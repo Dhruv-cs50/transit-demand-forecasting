@@ -18,12 +18,11 @@ Note: this pipeline never re-fetches BART OD ridership itself (the
 forecast target) — machine_learning_files/fetch_511_transit.py exists but
 is not wired into any step here; it's a standalone/future-expansion
 utility (docs/DATA_PIPELINE.md). Also note: machine_learning_files/api.py's
-live /forecast endpoint does NOT read forecasts_latest.parquet — it runs its
-own zero-shot path via machine_learning_files/zero_shot.py (or a
-zero_shot_forecasts_*.parquet cache) independently of this pipeline (see
-models/chronos2/predict.py's own docstring for the same caveat). So today
-this step's output is a standalone batch artifact for offline
-analysis/benchmarking, not something the live website's demo actually
+live /forecast endpoint does NOT read forecasts_latest.parquet, and it does
+not run Chronos at all. It serves SARIMA, fitted on demand per request
+(models/baselines/arima.py fit_station/predict_station), independently of
+this pipeline. So today this step's output is a standalone batch artifact
+for offline analysis/benchmarking, not something the live website's demo
 serves from.
 
 Usage:
