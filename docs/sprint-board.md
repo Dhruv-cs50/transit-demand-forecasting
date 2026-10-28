@@ -41,7 +41,7 @@ the cloud.
 | S8-08 | Export all-or-nothing; site headline numbers derived from `model_comparison.json`, not literals | engineer | 1h | — | Export failure leaves `website/data` unchanged; no WAPE/coverage literal left in `sections.jsx`; cache-busters bumped | in progress (session s8-lane-c-frontend, after S8-04) |
 | S8-09 | Covariate zero-fill guard: months no archive covers give NaN | engineer | 45m | — | Tests; full gate before/after; any leaderboard change reported to the user, not republished | in progress (session s8-lane-b-data-ci, branch sprint8-lane-b-data-ci) |
 | S8-10 | Design: cloud ingestion pipeline on GCP and how the API reads it, honest about BART's 403 | systems architect | 1h | — | Written design: services, schedule, storage, IAM, cost, what stays manual, serving store vs scored store, stories ≤ 1h | done — [docs/cloud-ingestion-design.md](cloud-ingestion-design.md): GCS bucket + Cloud Run Job + Cloud Scheduler; API mounts the bucket read-only and serves the latest gated store, falling back to the baked one; BART upload stays manual (403); no BigQuery; leaderboard keeps the tracked store |
-| S8-11 | Whole-project review: correctness of model outputs, live API vs offline run, site claims, docs, demo | principal engineer | 1h | — | Findings ranked by severity with file:line; each becomes a Sprint 9/10 story or a ruling | in progress (principal-engineer subagent) |
+| S8-11 | Whole-project review: correctness of model outputs, live API vs offline run, site claims, docs, demo | principal engineer | 1h | — | Findings ranked by severity with file:line; each becomes a Sprint 9/10 story or a ruling | done — [docs/review-2026-10-28.md](review-2026-10-28.md): leaderboard and export re-run byte-identical; API vs benchmark max diff 0; no leakage; SARIMA good enough (no alternative model). 3 HIGH (past-month forecasts unlabelled, site showcases Chronos-1, stale AutoGluon claims), 6 MEDIUM, 11 LOW → Sprint 10 |
 | S8-12 | Gate `sprint8/base` after lane merges (S7-13 gate set) and open one PR to `main` | QA + orchestrator | 1h | S8-04..09 | WAPE 3.21/5.75/9.70/10.75, coverage 96.67/74.00/84.67/83.67, n = 300; two runs byte-identical; full pytest + `test_api`; export byte-identical | todo |
 | S8-13 | README: drop AutoGluon/AutoETS lines (lane A's list), `scheduler.py` stale API docstring, stale `covariate-experiment-plan.md` DM line | orchestrator | 30m | S8-07 | Every changed line true against the repo | todo |
 
@@ -74,7 +74,28 @@ demo calling Cloud Run `/forecast` and S8-11's findings.
 | S9-17 | Map demo calls Cloud Run `/forecast` for the selected station (visible cloud inference) | frontend engineer | S8-04, S8-01 | todo |
 | S9-14, S9-16 | Stretch: upload trigger; failure alert | — | S9-11 | deferred |
 
-### Sprint 10 — Review fixes, final gate, final deploy (planned 2026-10-31); buffer 2026-11-01 – 02
+### Sprint 10 — Review fixes, final gate, final deploy (2026-10-28 – 31); buffer 2026-11-01 – 02
+
+From [docs/review-2026-10-28.md](review-2026-10-28.md). **Ruling (orchestrator, 2026-10-28):** no
+alternative model — SARIMA beats every model at 46–48 of 50 stations and is stable across three
+half-years (6.36 / 4.27 / 3.21 %); Coliseum's miss wants an intervention dummy, not a new family
+(deferred). Frontend files are one owner at a time: `sections.jsx`, `charts.jsx`, `index.html`,
+`export_website_data.py` stay with lane C until S8-08 lands; `transit-demo.html` until S8-04.
+
+| ID | Goal | Findings | Owner | Depends on | State |
+|---|---|---|---|---|---|
+| S10-01 | Site showcases SARIMA: export SARIMA test forecasts as their own band; SARIMA default + model toggle; live panel shows `model` and "forecast from data through {store_last_month}" | R2, R1 (site) | lane C | S8-08 | todo |
+| S10-02 | Site copy: AutoGluon claims, holdout wording, three half-years, `charts.jsx` literal + comment, small claim errors; cache-busters | R3, R4, R5, R10, R17 | lane C | S10-01 | todo |
+| S10-03 | Production React builds (pinned, SRI) in `index.html` | R9 | lane C | S10-02 | todo |
+| S10-04 | Map geometry from BART GTFS (9 missing stations, coordinates, real line sequences); "Peak crush" → "High" | R7, R13 | frontend engineer | S8-04 | todo |
+| S10-05 | `api-demo.html`: holdout replay (`as_of=2025-06-30` vs `ridership_actuals.json`), forecast-origin caption, 30–45 s timeouts with "waking…" + one retry, no silent 14-station fallback | R1 (demo), R6 (client) | frontend subagent | — | in progress (subagent) |
+| S10-06 | Legacy EDA `.py` + outputs to `transit_eda/legacy/` with a note; standalone `arima.py` own output dir; stale docstrings (`benchmarks.py`, `arima.py`, `zero_shot.py`, `scheduler.py`) | R8, R12, R18 | engineer subagent | — | in progress (subagent) |
+| S10-07 | README: S8-13 lines + holdout wording + three half-years + port 8080 + steps start at `feature_engineering.py` | R3, R4, R5, R11 (doc), R15 | orchestrator | S8-07 | todo |
+| S10-08 | `merge_pipeline.py` exits 1 when it builds nothing | R11 | lane B | S8-09 | todo |
+| S10-09 | `horizon_hours` default/cap 6 or echo rows; `as_of` counts months ending ≤ it | R16, R20 | lane A | S9-08 | todo |
+| S10-10 | `cloudbuild.yaml` tags with commit SHA; deploy by digest | R19 | orchestrator | S8-01 | todo |
+| S10-11 | Demo-day ops: `--min-instances=1 --cpu-boost` (user's yes: small idle cost) + warm-up curl before presenting | R6 (deploy) | orchestrator + user | S9-11 | todo |
+| — | Deferred: benchmark slice names (R14, unpublished); Coliseum intervention dummy | R14 | — | — | deferred |
 
 
 ## Sprint 7 — Integrate every open PR into main and verify it (opened 2026-10-26)  |  Status: On track
