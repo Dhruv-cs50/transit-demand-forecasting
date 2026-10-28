@@ -31,15 +31,19 @@ Schema:
     windspeed_mph   float64
     cloud_cover_pct float64
     humidity_pct    float64
-    is_game_day     bool
+    is_game_day     boolean  (nullable; <NA> for a month the events archive does
+                              not cover, False for a covered month with no
+                              event -- see event_coverage())
     game_start_hour float64  (NaN if no game -- compute_event_features()
                               always emits a Python float here, so this
                               column can never actually be int dtype)
     hours_to_event  float64  (despite the name, this is a monthly home-game/
                               event COUNT for that station-month, not an
-                              hours-scale value -- see compute_event_features())
-    is_sharks_game  bool
-    is_playoff      bool
+                              hours-scale value -- see compute_event_features();
+                              NaN for a month the archive does not cover, 0.0
+                              for a covered month with no event)
+    is_sharks_game  boolean  (nullable, same coverage rule as is_game_day)
+    is_playoff      boolean  (nullable, same coverage rule as is_game_day)
     is_holiday      bool
     is_weekend      bool
     hour_of_day     int
@@ -62,8 +66,10 @@ Usage:
 
 import argparse
 import logging
+import re
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 from pandas.tseries.holiday import USFederalHolidayCalendar
@@ -353,7 +359,15 @@ def load_events() -> pd.DataFrame:
         log.warning("No events files found")
         return pd.DataFrame()
 
-    frames = [df for df in (_read_parquet_safe(f) for f in files) if df is not None]
+    frames, coverage = [], []
+    for f in files:
+        fdf = _read_parquet_safe(f)
+        if fdf is None:
+            continue
+        frames.append(fdf)
+        span = file_event_coverage(fdf, f)
+        if span is not None:
+            coverage.append(span)
     if not frames:
         log.warning("No readable events files found")
         return pd.DataFrame()
@@ -366,12 +380,115 @@ def load_events() -> pd.DataFrame:
         df["timestamp_start"] = df["timestamp_start"].dt.tz_localize("America/Los_Angeles")
     else:
         df["timestamp_start"] = df["timestamp_start"].dt.tz_convert("America/Los_Angeles")
+    df.attrs["coverage"] = merge_coverage(coverage)
 
     log.info(f"  Loaded {len(df):,} events")
     return df
 
 
+# ── Event archive coverage ─────────────────────────────────────────────────────
+#
+# A month with no event in the archive is only "no game" when the archive
+# covers that month. Before it was added, a month no archive covered came out
+# the same as an off-season month (False / 0 games), so a store rebuilt without
+# the 2024-25 file would still have produced a Sharks row (docs/covariate-
+# experiment.md). Coverage is a list of (first_day, last_day) spans carried on
+# the events frame's .attrs["coverage"]; a month is covered only when the whole
+# month lies inside one span.
+
+_EVENT_FILE_RE = re.compile(r"events_\d{4}-\d{2}-\d{2}_(\d{4}-\d{2}-\d{2})\.parquet$")
+
+
+def _wall_clock(ts: pd.Series) -> pd.Series:
+    """Datetimes as tz-naive LA wall-clock, the value _year/_month bucketing uses."""
+    ts = pd.to_datetime(ts)
+    return ts.dt.tz_localize(None) if ts.dt.tz is not None else ts
+
+
+def file_event_coverage(events: pd.DataFrame, path) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    """
+    The span one events file vouches for: from the first day of the month of its
+    first event to the end date in its name (events_{start}_{end}.parquet).
+
+    The start comes from the data, not the name: the 2019 file is named from
+    2019-01-01 but its first game is 2019-09-17, so the months before September
+    2019 were never fetched. The end comes from the name because the last game
+    of a season says nothing about the off-season months after it; a name that
+    does not parse falls back to the end of the last event's month. None when
+    the file holds no events.
+    """
+    if events is None or events.empty or "timestamp_start" not in events.columns:
+        return None
+    ts = _wall_clock(events["timestamp_start"])
+    start = ts.min().to_period("M").start_time
+    match = _EVENT_FILE_RE.search(Path(path).name)
+    end = pd.Timestamp(match.group(1)) if match else ts.max().to_period("M").end_time
+    return start, end.normalize()
+
+
+def merge_coverage(spans: list) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Sort spans and join overlapping or touching ones; a gap between files stays a gap."""
+    merged: list[list[pd.Timestamp]] = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1] + pd.Timedelta(days=1):
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(a, b) for a, b in merged]
+
+
+def event_coverage(events: pd.DataFrame) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """
+    Spans of months the events frame covers. The loaders record them in
+    .attrs["coverage"]; for a frame built elsewhere, the span from its first to
+    its last event month (months after the last game then read as unknown, the
+    conservative side). Empty list: no archive, nothing is covered.
+    """
+    if events is None or events.empty:
+        return []
+    recorded = events.attrs.get("coverage")
+    if recorded is not None:
+        return list(recorded)
+    ts = _wall_clock(events["timestamp_start"])
+    return [(ts.min().to_period("M").start_time, ts.max().to_period("M").end_time.normalize())]
+
+
+def months_covered(timestamps: pd.Series, coverage: list) -> np.ndarray:
+    """True where the timestamp's whole calendar month lies inside one coverage span."""
+    periods = _wall_clock(pd.Series(timestamps)).dt.to_period("M")
+    first = periods.dt.start_time.to_numpy()
+    last = periods.dt.end_time.dt.normalize().to_numpy()
+    covered = np.zeros(len(periods), dtype=bool)
+    for start, end in coverage:
+        covered |= (first >= np.datetime64(start)) & (last <= np.datetime64(end))
+    return covered
+
+
 # ── Event feature computation ──────────────────────────────────────────────────
+
+EVENT_FLAG_COLS = ("is_game_day", "is_sharks_game", "is_playoff")
+
+
+def _event_frame(rows: list[dict], index) -> pd.DataFrame:
+    """Rows of event features as a frame; flags are nullable boolean, so unknown stays <NA>."""
+    out = pd.DataFrame(rows, index=index)
+    for col in EVENT_FLAG_COLS:
+        out[col] = out[col].astype("boolean")
+    for col in ("hours_to_event", "game_start_hour"):
+        out[col] = out[col].astype("float64")
+    return out
+
+
+_UNKNOWN_EVENT_ROW = {
+    "is_game_day": pd.NA, "hours_to_event": np.nan, "is_sharks_game": pd.NA,
+    "game_start_hour": np.nan, "is_playoff": pd.NA,
+}
+
+
+def unknown_event_features(index) -> pd.DataFrame:
+    """Event columns for rows no events archive covers: <NA> / NaN, not False / 0."""
+    return _event_frame([dict(_UNKNOWN_EVENT_ROW) for _ in range(len(index))], index)
+
 
 def compute_event_features(
     timestamps: pd.Series,
@@ -389,34 +506,31 @@ def compute_event_features(
     - is_sharks_game : True if any Sharks game in that month
     - game_start_hour: modal game start hour in that month
     - is_playoff     : True if any playoff game in that month
+
+    A month the archive covers (event_coverage()) with no event is False / 0.0.
+    A month it does not cover -- or any month, when there is no archive -- is
+    unknown: <NA> flags and NaN counts, never False / 0.
     """
-    n = len(timestamps)
     if events.empty:
-        return pd.DataFrame({
-            "is_game_day":     [False] * n,
-            "hours_to_event":  [0.0] * n,
-            "is_sharks_game":  [False] * n,
-            "game_start_hour": [float("nan")] * n,
-            "is_playoff":      [False] * n,
-        }, index=timestamps.index)
+        return unknown_event_features(timestamps.index)
 
     ev = events.copy()
-    ev_ts = pd.to_datetime(ev["timestamp_start"])
-    if ev_ts.dt.tz is not None:
-        # tz_convert(None) would shift to UTC before stripping the tz label,
-        # pushing evening LA events past midnight into the wrong month.
-        # tz_localize(None) drops the tz label in place, preserving the
-        # LA wall-clock value that _year/_month bucketing expects.
-        ev_ts = ev_ts.dt.tz_localize(None)
+    ev_ts = _wall_clock(ev["timestamp_start"])
+    # tz_convert(None) would shift to UTC before stripping the tz, pushing
+    # evening LA events past midnight into the wrong month; _wall_clock drops
+    # the tz label in place, preserving the LA wall-clock value that
+    # _year/_month bucketing expects.
     ev["_year"]  = ev_ts.dt.year
     ev["_month"] = ev_ts.dt.month
 
-    ts_series = pd.to_datetime(timestamps)
-    if ts_series.dt.tz is not None:
-        ts_series = ts_series.dt.tz_localize(None)
+    ts_series = _wall_clock(timestamps)
+    covered = months_covered(ts_series, event_coverage(events))
 
     results = []
-    for ts in ts_series:
+    for ts, is_covered in zip(ts_series, covered):
+        if not is_covered:
+            results.append(dict(_UNKNOWN_EVENT_ROW))
+            continue
         month_ev = ev[(ev["_year"] == ts.year) & (ev["_month"] == ts.month)]
         if month_ev.empty:
             results.append({
@@ -436,7 +550,7 @@ def compute_event_features(
                 "is_playoff":      bool(month_ev["is_playoff"].any()) if "is_playoff" in month_ev.columns else False,
             })
 
-    return pd.DataFrame(results, index=timestamps.index)
+    return _event_frame(results, timestamps.index)
 
 
 # ── Calendar features ──────────────────────────────────────────────────────────
@@ -567,11 +681,10 @@ def build_feature_store(
         )
         base = pd.concat([base.reset_index(drop=True), event_features.reset_index(drop=True)], axis=1)
     else:
-        base["is_game_day"] = False
-        base["hours_to_event"] = float("nan")
-        base["is_sharks_game"] = False
-        base["game_start_hour"] = float("nan")
-        base["is_playoff"] = False
+        # No events archive: every month is unknown, not a month without a game.
+        log.warning("No events archive: event columns are <NA> / NaN for every row")
+        for col, values in unknown_event_features(base.index).items():
+            base[col] = values
 
     # 5. Calendar features
     if "timestamp" in base.columns:
