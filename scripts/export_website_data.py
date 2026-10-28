@@ -1,7 +1,7 @@
 """
 scripts/export_website_data.py
 ────────────────────────────────
-Reads the feature store and the benchmark run's outputs and exports the five
+Reads the feature store and the benchmark run's outputs and exports the six
 JSON files under website/data/. Every station id in them is BART's two-letter
 workbook code (`EM`, `MT`, `12`, ...), i.e. the feature store's `station_id`;
 no file is keyed by website node id. Station names, website node ids and
@@ -57,6 +57,12 @@ the store's `station_name` column.
       website/sections.jsx and
       website/charts.jsx.
 
+  forecasts_sarima.json
+      SARIMA's test-window forecasts (the leaderboard's best model), same fields
+      as forecasts.json plus `model`; p10/p90 are SARIMA's own band, labelled by
+      the leaderboard's Interval_method. Refused unless the parquet reproduces
+      the leaderboard's SARIMA row (n, WAPE, MAE, coverage).
+
   model_comparison.json
       The benchmark leaderboard (evaluation/outputs/benchmark_leaderboard.csv).
       Read by website/sections.jsx and website/charts.jsx.
@@ -64,7 +70,7 @@ the store's `station_name` column.
 If the leaderboard does not exist (and --allow-val-fallback is not given),
 the script exits 1 before writing any file.
 
-The five files are all-or-nothing. They are written to a staging directory
+The six files are all-or-nothing. They are written to a staging directory
 beside the output directory and moved into it only when every one was produced
 (os.replace, one file at a time, with the previous copies restored if a move
 fails). A refused forecasts.json, or any error while exporting, therefore leaves
@@ -89,6 +95,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -97,7 +104,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from evaluation.calibration import CalibratorUnavailable, serve_band  # noqa: E402
-from evaluation.metrics import coverage  # noqa: E402
+from evaluation.metrics import coverage, mae as metric_mae, wape as metric_wape  # noqa: E402
 from machine_learning_files.bart_stations import (  # noqa: E402
     BY_CODE,
     CODE_TO_NAME,
@@ -120,6 +127,10 @@ AVERAGE_WINDOW_MONTHS = 12
 LEADERBOARD_PATH = Path("evaluation/outputs/benchmark_leaderboard.csv")
 PREDS_PATH = Path("evaluation/outputs/chronos2_zeroshot_preds.parquet")
 CALIBRATOR_PATH = Path("evaluation/outputs/calibration/calibrators/Chronos.json")
+# benchmarks.py's SARIMA test-window forecasts (train_cutoff = val_end). A
+# standalone `models/baselines/arima.py` run writes the same file with another
+# cutoff, so export_sarima_forecasts() checks it against the leaderboard row.
+SARIMA_PREDS_PATH = Path("models/baselines/outputs/arima/arima_forecasts.parquet")
 # The config benchmarks.py ran with: which band each model gets, and the
 # Chronos checkpoint the calibrator must have been fitted for.
 CONFIG_PATH = Path("configs/model.yaml")
@@ -576,6 +587,116 @@ def export_forecasts(out_dir: Path, actuals: pd.DataFrame) -> str | None:
     return None
 
 
+def export_sarima_forecasts(out_dir: Path, actuals: pd.DataFrame) -> str | None:
+    """Export SARIMA's test-window forecasts to forecasts_sarima.json.
+
+    SARIMA is the leaderboard's best model, so the site shows its forecasts by
+    default beside Chronos-1's (forecasts.json). Records have forecasts.json's
+    fields plus `model`; p10/p90 are SARIMA's own band and p10_raw/p90_raw repeat
+    them, so the two files read the same way.
+
+    The parquet is the one benchmarks.py wrote and scored, and is refused unless
+    it reproduces the leaderboard's overall SARIMA row against the feature-store
+    actuals: row count (`n`), WAPE_%, MAE, Coverage_% and Coverage_raw_%, and the
+    row's Interval_method must be a "raw: ..." label (its band is the model's
+    own; a calibrated SARIMA band would need the calibrator applied here). A
+    standalone arima.py run (another cutoff) therefore cannot be published.
+
+    Returns None when written, else the reason it was refused; nothing is
+    written on refusal, and main() then publishes nothing.
+    """
+    preds_path, leaderboard_path = SARIMA_PREDS_PATH, LEADERBOARD_PATH
+
+    def _refuse(reason: str) -> str:
+        log.error(f"forecasts_sarima.json NOT written: {reason}")
+        return reason
+
+    if not preds_path.exists():
+        return _refuse(f"{preds_path} not found (run models/baselines/benchmarks.py)")
+    if not leaderboard_path.exists():
+        return _refuse(f"{leaderboard_path} not found")
+    leaderboard = pd.read_csv(leaderboard_path)
+    need = {"model", "slice", "n", "WAPE_%", "MAE", "Coverage_%", "Interval_method"}
+    if not need <= set(leaderboard.columns):
+        return _refuse(f"{leaderboard_path} lacks columns {sorted(need - set(leaderboard.columns))}")
+    rows = leaderboard[(leaderboard["slice"] == "overall") & (leaderboard["model"].astype(str) == "SARIMA")]
+    if len(rows) != 1:
+        return _refuse(f"{leaderboard_path} has {len(rows)} overall SARIMA rows, expected 1")
+    row = rows.iloc[0]
+    label = row["Interval_method"]
+    if not isinstance(label, str) or not label.startswith("raw:"):
+        return _refuse(
+            f"leaderboard SARIMA Interval_method is {label!r}, not a 'raw: ...' label; "
+            f"this export publishes SARIMA's own band only"
+        )
+
+    df = pd.read_parquet(preds_path)
+    missing = {"timestamp", "station_id", "p10", "p50", "p90"} - set(df.columns)
+    if missing:
+        return _refuse(f"{preds_path} lacks columns {sorted(missing)}")
+    if "model" in df.columns and not (df["model"].astype(str) == "SARIMA").all():
+        return _refuse(f"{preds_path} model column is not all 'SARIMA'")
+    unknown = sorted(set(df["station_id"].astype(str).unique()) - set(CODES))
+    if unknown:
+        return _refuse(f"{preds_path} station_ids not in the station table: {unknown}")
+    df = df.assign(station_id=df["station_id"].astype(str), month=_month_strings(df["timestamp"]))
+    key = ["station_id", "month"]
+    if df.duplicated(key).any():
+        return _refuse(f"{preds_path} has more than one prediction for a (station_id, month)")
+    if float(row["n"]) != len(df):
+        return _refuse(f"{preds_path} has {len(df)} predictions but the leaderboard's SARIMA row has n={float(row['n']):g}")
+    if not np.isfinite(df[["p10", "p50", "p90"]].to_numpy(dtype=float)).all():
+        return _refuse(f"{preds_path} has non-finite quantiles")
+
+    truth = pd.DataFrame({
+        "station_id": actuals["station_id"].astype(str).to_numpy(),
+        "month": _month_strings(actuals["timestamp"]).to_numpy(),
+        "actual": pd.to_numeric(actuals["ridership"], errors="coerce").astype("float64").to_numpy(),
+    })
+    joined = df.merge(truth, on=key, how="left")
+    if len(joined) != len(df) or joined["actual"].isna().any():
+        return _refuse("an exported (station_id, month) has no single feature-store actual")
+    y = joined["actual"].to_numpy(dtype=float)
+    p50 = joined["p50"].to_numpy(dtype=float)
+    checks = [
+        ("WAPE_%", metric_wape(y, p50)),
+        ("MAE", metric_mae(y, p50)),
+        ("Coverage_%", coverage(y, joined["p10"].to_numpy(float), joined["p90"].to_numpy(float))),
+    ]
+    if "Coverage_raw_%" in leaderboard.columns:
+        checks.append(("Coverage_raw_%", checks[2][1]))  # the band is the raw band
+    for col, got in checks:
+        got, want = round(float(got), 2), float(pd.to_numeric(row[col], errors="coerce"))
+        if not (math.isfinite(got) and math.isfinite(want) and math.isclose(got, want, abs_tol=0.011)):
+            return _refuse(
+                f"{preds_path} scores {col}={got} against the feature-store actuals but the "
+                f"leaderboard's SARIMA row has {want}; these are not the forecasts it scored"
+            )
+
+    records = [
+        {
+            "station_id": r.station_id,
+            "month": r.month,
+            "p10": round(float(r.p10), 0),
+            "p50": round(float(r.p50), 0),
+            "p90": round(float(r.p90), 0),
+            "p10_raw": round(float(r.p10), 0),
+            "p90_raw": round(float(r.p90), 0),
+            "interval_method": label,
+            "model": "SARIMA",
+        }
+        for r in df.sort_values(key, kind="stable").itertuples(index=False)
+    ]
+    with open(out_dir / "forecasts_sarima.json", "w") as f:
+        json.dump(records, f)
+    log.info(
+        f"forecasts_sarima.json → {out_dir / 'forecasts_sarima.json'}  ({len(records)} records, "
+        f"{df['station_id'].nunique()} stations, {df['month'].min()} … {df['month'].max()}; "
+        f"band: {label}, coverage {row['Coverage_%']}% and WAPE {row['WAPE_%']}% as on the leaderboard)"
+    )
+    return None
+
+
 def export_model_comparison(out_dir: Path) -> None:
     leaderboard_path = LEADERBOARD_PATH
     if leaderboard_path.exists():
@@ -758,7 +879,8 @@ def main():
         log.info(f"stations_meta.json      staged  ({len(meta_json)} stations)")
 
         export_ridership_actuals(df, staging)
-        forecasts_refused = export_forecasts(staging, df)
+        refusals = [r for r in (export_forecasts(staging, df), export_sarima_forecasts(staging, df)) if r]
+        forecasts_refused = "; ".join(refusals) if refusals else None
         export_model_comparison(staging)
 
         if forecasts_refused is not None:
@@ -766,7 +888,7 @@ def main():
             # prints the deploy command. Nothing is published, so the old
             # forecasts.json is not left beside fresh data.
             log.error(
-                f"forecasts.json NOT written. Reason: {forecasts_refused}. "
+                f"A forecasts file was refused. Reason: {forecasts_refused}. "
                 f"Nothing was published; {out_dir} is unchanged. Exiting 1."
             )
             raise SystemExit(1)
