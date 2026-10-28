@@ -854,6 +854,8 @@ function renderCloud() {
   if (C.status === 'error') { out.innerHTML = '<div class="cf-err"><b>Forecast failed.</b> ' + esc(C.err) + ' The map still works; try again.</div>'; return; }
   const d = C.data, rows = Array.isArray(d.forecasts) ? d.forecasts : [];
   const through = C.health ? throughLabel(C.health) : null;
+  const hs = C.health && typeof C.health.store_source === 'string' && C.health.store_source ? C.health : null;
+  const storeLine = hs ? '<div class="cf-meta"><b>Feature store:</b> ' + esc(hs.store_source) + (typeof hs.store_run_id === 'string' && hs.store_run_id ? ', run ' + esc(hs.store_run_id) : '') + '</div>' : '';
   const origin = through ? 'Forecast from data through ' + esc(through)
     : C.health ? 'Forecast origin not reported by this API revision'
     : 'Reading the forecast origin from /health…';
@@ -863,7 +865,7 @@ function renderCloud() {
     '<span class="cf-live">Ran live on Cloud Run</span>' +
     '<div class="cf-meta"><b>Model:</b> ' + esc(d.model || 'not reported') + '</div>' +
     '<div class="cf-meta"><b>Band:</b> ' + esc(label || 'not labelled by this API version') + '</div>' +
-    '<div class="cf-meta">' + origin + '</div>' +
+    '<div class="cf-meta">' + origin + '</div>' + storeLine +
     '<table class="cf-table"><tr><th>Month</th><th>P10</th><th>P50</th><th>P90</th></tr>' +
     rows.map(f => '<tr><td>' + esc(monthLabel(f)) + '</td><td>' + kfmt(f.p10) + '</td><td class="p50">' + kfmt(f.p50) + '</td><td>' + kfmt(f.p90) + '</td></tr>').join('') +
     '</table>' +

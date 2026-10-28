@@ -161,11 +161,11 @@ const AtAGlance = () => {
 /* ── Methodology timeline ──────────────────────────────────────── */
 const Method = () => {
   const steps = [
-    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public ridership reports (bart.gov workbooks, 2019 + 2022–2025; BART published none for 2020–21), joined with Open-Meteo weather aggregated to months and a San Jose Sharks home-game schedule. Weather covers every month in the store; the schedule starts in September 2019, so the January–May 2019 games are missing. Stored as Parquet in a local feature store.", tools:['BART reports','Open-Meteo','Parquet'] },
+    { ic: <I.database />, n:'01', t:'Data ingestion', d:"Monthly OD ridership comes from BART's public ridership reports (bart.gov workbooks, 2019 + 2022–2025; BART published none for 2020–21), which are downloaded by hand because bart.gov blocks automated downloads. It is joined with Open-Meteo weather aggregated to months and a San Jose Sharks home-game schedule. Weather covers every month in the store; the schedule starts in September 2019, so the January–May 2019 games are missing. A daily Cloud Run job (triggered by Cloud Scheduler) fetches the weather and the schedule into Cloud Storage, rebuilds the station-month feature store (Parquet) from the files in the bucket, runs a 10-check publish gate, and publishes the store only if every check passes — among them that ridership matches the committed store exactly and that the SARIMA backtest reproduces its published score.", tools:['BART reports','Open-Meteo','Cloud Run job','Cloud Storage','Parquet'] },
     { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built lag and rolling-mean features, calendar flags, monthly weather summaries and Sharks game-day indicators. The weather and game data reach December 2025, the test window included; that weather is observed, so for the test window it is hindsight, not a forecast. No ranked model reads these features: SARIMA and the seasonal-naive baseline are univariate, Prophet uses only a US federal holiday calendar, and the Chronos-1 checkpoint cannot accept covariates. A separate experiment that adds them to SARIMA does not improve it.', tools:['pandas'] },
     { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
     { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations. Intervals are not yet calibrated.', tools:['WAPE','MAE'] },
-    { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station). The website reads JSON exported from the pipeline: forecasts, actuals, station levels and the model comparison.', tools:['FastAPI','React','JSON'] },
+    { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts are served by a FastAPI service on Google Cloud Run (P10/P50/P90 per station): it fits SARIMA on request from the latest published feature store, and its /health names the store it read. The website itself is static. It reads JSON exported from the benchmark run on the store committed in the repo (forecasts, actuals, station levels and the model comparison), so the leaderboard and charts do not move with the cloud store.', tools:['FastAPI','Cloud Run','React','JSON'] },
   ];
   return (
     <section id="method">
@@ -214,7 +214,7 @@ const Dataset = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Dataset</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>BART OD · 3,000 station‑months across 50 stations.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public ridership reports (bart.gov), joined with Open-Meteo weather and a San Jose Sharks home-game schedule (weather for every month, the schedule from September 2019; no ranked model uses them). Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
+            <p className="lede" style={{ maxWidth:'46ch' }}>Monthly origin-destination ridership from BART's public ridership reports (bart.gov, downloaded by hand), joined with Open-Meteo weather and a San Jose Sharks home-game schedule (weather for every month, the schedule from September 2019; no ranked model uses them). Splits are strictly temporal — never random — so the test set genuinely simulates deployment six months ahead.</p>
           </div></Reveal>
         </div>
         <div className="ds-grid">
@@ -661,7 +661,7 @@ const About = () => (
           { lbl:'Repo · GitHub', t:'Source code', d:'Pipeline scripts, the benchmark runner (SARIMA, Prophet, seasonal naive, Chronos-1 zero-shot) and this website.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting' },
           { lbl:'Notebook', t:'Exploratory analysis', d:'Summary statistics, seasonality, missing-data and correlation plots. Its saved plots come from an earlier version of the feature store and are due to be regenerated.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting/blob/main/transit_eda/notebooks/eda_complete.ipynb' },
           { lbl:'BART OD ridership', t:'Dataset · BART OD', d:'Public BART origin-destination monthly ridership data from BART.gov.', href:'https://www.bart.gov/about/reports/ridership' },
-          { lbl:'Open-Meteo weather', t:'Dataset · Open-Meteo', d:'Free historical weather API. The feature store holds its monthly aggregates for 2019 and 2022–2025; no ranked model uses it yet.', href:'https://open-meteo.com' },
+          { lbl:'Open-Meteo weather', t:'Dataset · Open-Meteo', d:'Free historical weather API. The feature store holds its monthly aggregates for 2019 and 2022–2025, and the cloud ingest job fetches it daily; no ranked model uses it yet.', href:'https://open-meteo.com' },
         ].map((r,i) => (
           <Reveal key={i} delay={(i%3)+1}>
             <a href={r.href} target={r.href !== '#' ? '_blank' : undefined} rel="noopener noreferrer">
@@ -758,7 +758,9 @@ const BARTForecasts = () => {
 
   // "Forecast from data through {month}" — the store's last month, from /health.
   const lastMonth = liveHealth && typeof liveHealth.store_last_month === 'string' ? monthSpan([{ month: liveHealth.store_last_month }]) : null;
-  const liveOrigin = lastMonth ? `Forecast from data through ${lastMonth.range}`
+  const storeSrc = liveHealth && typeof liveHealth.store_source === 'string' && liveHealth.store_source
+    ? ` · feature store: ${liveHealth.store_source}${typeof liveHealth.store_run_id === 'string' && liveHealth.store_run_id ? `, run ${liveHealth.store_run_id}` : ''}` : '';
+  const liveOrigin = lastMonth ? `Forecast from data through ${lastMonth.range}${storeSrc}`
     : liveHealth ? 'Forecast origin unavailable (/health did not report the store\'s last month)'
     : 'Reading the forecast origin from /health…';
 
@@ -1032,6 +1034,7 @@ const BARTForecasts = () => {
         {comparison.length > 0 && (
           <Reveal className="card" style={{ padding:'24px' }}>
             <h3 style={{ fontSize:16, marginBottom:16 }}>Model comparison — {split ? split.label : 'held-out split'}{split && split.stations ? `, ${split.stations} stations` : ''}</h3>
+            <div style={{ overflowX:'auto' }}>
             <table style={{ width:'100%', fontSize:13, borderCollapse:'collapse' }}>
               <thead>
                 <tr style={{ borderBottom:'1px solid var(--line)' }}>
@@ -1054,6 +1057,7 @@ const BARTForecasts = () => {
                 ))}
               </tbody>
             </table>
+            </div>
           </Reveal>
         )}
       </div>
