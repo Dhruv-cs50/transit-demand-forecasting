@@ -78,6 +78,8 @@ demo calling Cloud Run `/forecast` and S8-11's findings.
 
 ### Sprint 10 — Review fixes, final gate, final deploy (2026-10-28 – 31); buffer 2026-11-01 – 02
 
+**Shipped 2026-10-28.** PR #158 (`sprint8/base` → `main`, merge `7c6d7b8`, tree = the S8-12-gated tree). Website deployed from a clean export of `7c6d7b8` to App Engine and Firebase: both serve `sections.jsx?v=25` / `charts.jsx?v=12`, all 6 `website/data/*.json` byte-identical to `main`, Maps key = repo. Live check on web.app: Google renderer (no watermark); "Forecast Embarcadero on Cloud Run" returns SARIMA Jan–Jun 2026 "from data through Dec 2025", feature store "cloud, run 20261028T084556Z-5e1329". API (`transit-api-00006-zpk`, min-instances 1) and ingest job (`transit-ingest:a156811`) already ran code identical to `main` for everything they contain. Open: S9-13 (BART 2026 workbooks, if published), S10-08 (`merge_pipeline.py` exit code), S10-12 (min-instances off on 2026-11-04).
+
 From [docs/review-2026-10-28.md](review-2026-10-28.md). **Ruling (orchestrator, 2026-10-28):** no
 alternative model — SARIMA beats every model at 46–48 of 50 stations and is stable across three
 half-years (6.36 / 4.27 / 3.21 %); Coliseum's miss wants an intervention dummy, not a new family
