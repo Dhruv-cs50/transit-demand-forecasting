@@ -121,9 +121,10 @@ Expected outputs:
   `benchmark_leaderboard.csv`, every prediction `model_mode == "zeroshot"`,
   one prediction per station and month, and as many predictions as that row's
   `n` (and `n_expected`). Otherwise the export refuses it: an error is logged,
-  no `forecasts.json` is written (an existing one is left as it is, and is
-  then stale), the other four files are still written, and the export
-  **exits 1**, so `scripts/run_pipeline.sh` stops before its deploy message.
+  nothing is published (the export stages every file and moves them into
+  `website/data/` only if all succeed, so the previous set stays in place),
+  and the export **exits 1**, so `scripts/run_pipeline.sh` stops before its
+  deploy message.
 - `website/data/model_comparison.json` — one entry per model from
   `evaluation/outputs/benchmark_leaderboard.csv`.
 

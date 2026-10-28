@@ -20,7 +20,7 @@ The current production path models BART origin-destination ridership at a month-
 
 - Monthly station-level BART ridership forecasting with chronological train, validation, and test splits.
 - Weather (Open-Meteo) and San Jose Sharks home-game columns in the feature store: weather for every store month (2019, 2022–2025), Sharks games from September 2019 (see `data/MANIFEST.md`). No ranked model uses them yet (see the Chronos caveat below); Ticketmaster ingestion exists but needs a key.
-- Baselines and model comparison across seasonal naive, SARIMA, Prophet and Chronos-1 zero-shot. AutoGluon fine-tuning code exists but has never produced a result (see below).
+- Baselines and model comparison across seasonal naive, SARIMA, Prophet and Chronos-1 zero-shot.
 - Data validation for required columns, missing windows, station coverage, and ridership anomalies.
 - Static website export that turns feature stores and model outputs into JSON consumed by the frontend.
 - FastAPI service that fits the leaderboard's best model (SARIMA) per request for station forecasts.
@@ -28,8 +28,12 @@ The current production path models BART origin-destination ridership at a month-
 ## Current Results
 
 Produced by a single `models/baselines/benchmarks.py` run against BART's actual
-monthly trip counts, scored on **Jul–Dec 2025** — a holdout not used for model
-selection. Each row of `website/data/model_comparison.json` carries `source`
+monthly trip counts, scored on **Jul–Dec 2025**. No model, order or setting was
+chosen on that window, so the point forecasts (P50, WAPE, MAE) are untuned to
+it. The interval methods are not: they were revised after the test window had
+been scored three times (Sprints 4–6, see
+[docs/interval-calibration.md](docs/interval-calibration.md)), so read the
+coverage column, Chronos-1's 84.7% especially, with that in mind. Each row of `website/data/model_comparison.json` carries `source`
 and `scored_split` so any figure can be traced to the run that made it.
 
 | Model | MAE | WAPE | Coverage (nominal 80%) | Model's own band | Interval | Predictions |
@@ -41,7 +45,17 @@ and `scored_split` so any figure can be traced to the run that made it.
 
 All models are scored on the same 300 station-months (50 stations × 6 forecast
 steps). Reproduce with the four steps listed under "Reproduce The Pipeline"
-below; `scripts/run_pipeline.sh` as a whole does not reproduce this table.
+below.
+
+**3.21% is SARIMA's best of three half-years.** The same specification, refit
+at each origin, scores 6.36% WAPE on Jul–Dec 2024 (fit through Jun 2024,
+coverage 80.3%), 4.27% on Jan–Jun 2025 (fit through Dec 2024, coverage 91.0%)
+and 3.21% on Jul–Dec 2025. Read it as 3.2–6.4%. It beats Prophet at 46 and
+seasonal naive at 48 of 50 stations on the test window, and its error does not
+grow with the horizon (2.6 / 2.5 / 3.3 / 3.5 / 4.4 / 2.9% for months 1–6). The
+largest miss is Coliseum (17.9%: August 2025 forecast 37% high after an
+Aug–Sep 2024 spike). Source: the whole-project review,
+[docs/review-2026-10-28.md](docs/review-2026-10-28.md).
 
 Prophet and Chronos both sample, so `configs/model.yaml` seeds them
 (`prophet.seed`, `chronos2.seed`). Unseeded, Chronos moved between 8.06% and
@@ -78,14 +92,10 @@ any calibration fit on the past. The comparison, the validation numbers each
 choice rests on, and why the earlier Prophet MCMC attempt failed are in
 [docs/interval-calibration.md](docs/interval-calibration.md).
 The API serves SARIMA's own band and labels it in each response;
-`website/data/forecasts.json` carries Chronos-1's bias-shifted band (84.7%
-test coverage). See
+`website/data/forecasts_sarima.json` carries SARIMA's test forecasts with that
+band (the site's default), and `website/data/forecasts.json` carries
+Chronos-1's bias-shifted band (84.7% test coverage) behind a toggle. See
 [Serving](docs/interval-calibration.md#serving).
-
-**AutoETS (AutoGluon) carries no row, deliberately rather than silently.**
-`autogluon.timeseries` requires Python <3.14 and cannot be installed here, and
-no code path in this repository has ever emitted an AutoETS result. A
-previously published figure of 14.2% WAPE was hand-entered, not computed.
 
 Two caveats on the Chronos row:
 
@@ -111,8 +121,9 @@ are experiment rows, not leaderboard rows: the table above is unchanged.
 naive, and the row is omitted rather than credited to Chronos. Any model whose
 WAPE exceeds 100% — worse than forecasting a flat zero — is rejected outright.
 
-Earlier published figures (Prophet 176.3%, SARIMA 22.5%, AutoETS 14.2%) are
-superseded. `benchmarks.py` could not execute at all — it failed on import — so
+Earlier published figures (Prophet 176.3%, SARIMA 22.5%, and an AutoETS 14.2%
+that was hand-entered, never computed) are superseded; the AutoGluon/AutoETS
+code that never produced a result was removed in Sprint 8. `benchmarks.py` could not execute at all — it failed on import — so
 no leaderboard existed and the website export silently scored a different split.
 See `updates/` for the audit trail.
 
@@ -145,11 +156,11 @@ See `updates/` for the audit trail.
 |   `-- metrics.py                 # MAE, RMSE, MAPE, WAPE, MASE, sMAPE, coverage
 |-- models/
 |   |-- baselines/                 # SARIMA, Prophet, benchmark runner, PeMS fetcher
-|   `-- chronos2/                  # AutoGluon training, prediction, and saved outputs
+|   `-- chronos2/                  # Chronos-1 zero-shot prediction and saved outputs
 |-- scripts/
 |   |-- run_pipeline.sh            # end-to-end local pipeline
 |   `-- export_website_data.py     # model artifacts -> website/data/*.json
-|-- transit_eda/                   # EDA data, notebooks, and generated figures
+|-- transit_eda/                   # EDA notebook (eda_complete.ipynb) and data; legacy/ holds the superseded .py EDA
 |-- website/                       # static React/Babel frontend served by Google App Engine
 `-- docs/                          # architecture and data-pipeline runbooks
 ```
@@ -193,11 +204,8 @@ Do not put the venv under `/tmp`: macOS cleanup deletes files there and leaves
 a half-broken environment behind. A path outside the repo also keeps it out of
 git (`.gitignore` only covers `.venv/` and `.venv311/`).
 
-AutoGluon is not in the lock: `autogluon.timeseries` needs Python below 3.14,
-so it cannot be installed on this environment, and its scaffolding is scheduled
-for removal. `machine_learning_files/requirements.txt` (unpinned) still lists it
-until then. The lock also omits the serving stack; the API tests use the
-separate install under [Forecast API](#forecast-api).
+The lock omits the serving stack; the API tests use the separate install under
+[Forecast API](#forecast-api).
 
 **API keys** — before running source fetchers, edit `configs/sources.yaml`:
 
@@ -220,38 +228,38 @@ bash scripts/run_pipeline.sh
 
 That script performs:
 
-1. Build `data/processed/feature_store.parquet` and chronological splits.
-2. Build `data/processed/feature_store_enriched.parquet`, then regenerate the
-   chronological splits from it (step 1's splits are pre-enrichment and get
-   overwritten here so `finetune.py` trains on the full enriched schema).
-3. Validate the enriched feature store.
-4. Run Chronos zero-shot forecasts.
-5. Run SARIMA and Prophet baselines.
-6. Train the AutoGluon time-series ensemble.
-7. Run model benchmarks.
-8. Export JSON files for the website.
+1. Build `data/processed/feature_store.parquet` and chronological splits
+   (`merge_pipeline.py`; needs the raw BART workbooks under `data/raw/`, see
+   `data/MANIFEST.md`).
+2. Build `data/processed/feature_store_enriched.parquet` and regenerate the
+   splits from it, then validate it.
+3. Run Chronos zero-shot forecasts (`zero_shot.py`, a standalone artifact).
+4. Run SARIMA standalone (writes `models/baselines/outputs/arima/standalone/`,
+   so it never overwrites the benchmark's test forecasts).
+5. Run Prophet standalone, then the model benchmarks.
+6. Export JSON files for the website.
 
-**The published leaderboard does not come from this script.** It came from four
-steps: `python machine_learning_files/bart_od_from_xlsx.py --zips <zips>` (see
+**The published leaderboard comes from four steps:** `python
+machine_learning_files/bart_od_from_xlsx.py --zips <zips>` (see
 `data/MANIFEST.md`), `merge_pipeline.py`, `Processing/feature_engineering.py`,
-then `models/baselines/benchmarks.py`. The script runs under `set -e`, so where
-AutoGluon is not installed (it cannot be on Python 3.14) step 6 stops it before
-the benchmark runs; where AutoGluon is installed, the benchmark adds an
-`AutoGluon_Ensemble` row the published table does not have.
+then `models/baselines/benchmarks.py`. The gate that checks every published
+number (S7-13 in `docs/sprint-board.md`) starts at `feature_engineering.py`
+from the committed store, because `data/raw/` is not in git.
 
-For faster iteration, run individual steps:
+For faster iteration, run individual steps. With only the committed store
+(no raw workbooks), skip `merge_pipeline.py` and start at
+`feature_engineering.py`:
 
 ```bash
 source ~/.venvs/tdf-py314/bin/activate
 
-python machine_learning_files/merge_pipeline.py
+python machine_learning_files/merge_pipeline.py   # needs data/raw/, see data/MANIFEST.md
 python Processing/feature_engineering.py
 python evaluation/validators.py --input data/processed/feature_store_enriched.parquet --mode lenient --freq MS
 
 python machine_learning_files/zero_shot.py
 python models/baselines/arima.py
 python models/baselines/prophet_baseline.py
-python models/chronos2/finetune.py --time-limit 1800
 python models/baselines/benchmarks.py
 
 python scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
@@ -284,13 +292,16 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 | API (Cloud Run) | https://transit-api-308878596074.us-west2.run.app |
 | API Docs (Swagger) | https://transit-api-308878596074.us-west2.run.app/docs |
 
-The Cloud Run revision live at that URL was not built from this code. Checked
-2026-10-22 (Pacific): it titles itself "Bay Area Traffic Forecast API … Chronos-2
-powered" and answers `/forecast` from a Chronos cache for Jan–Jun 2024 on the
-pre-Sprint-2 target definition (EM p50 1.16–1.45M riders/month, against 326–390k
-actual for those months in the current feature store). The [Forecast API](#forecast-api) section describes
-what `Dockerfile.api` builds; the live service matches it only after a rebuild
-and redeploy.
+Firebase Hosting serves the same site at
+https://cs-163-final-project-tra-f1136.web.app.
+
+Redeployed 2026-10-28 from `main` @ `abb0fe7` (Cloud Run revision
+`transit-api-00002-cj7`). Before that the live revision was a May 2026 image
+that answered `/forecast` with `No module named 'chronos'`. Checked after the
+deploy: `/health` names `SARIMA(0, 1, 1)x(0, 1, 1, 12)`, and `/forecast` for EM,
+MT and OW at `as_of=2025-06-30` matches a local run to 4.2e-5 riders (the local
+run matches `benchmarks.py`'s SARIMA predictions exactly). Both hosts serve the
+committed `website/data/model_comparison.json`.
 
 ## Cloud Deployment
 
@@ -409,17 +420,17 @@ gcloud app deploy website/app.yaml --quiet
 
 Live URL: **https://transit-api-308878596074.us-west2.run.app**
 
-(See the note under [Live Deployment](#live-deployment): that URL still runs an
-older image.)
-
 The API serves **SARIMA airline (0,1,1)(0,1,1,12)**, the leaderboard's best
 model. Each `/forecast` fits it for the requested station on demand with the
 same functions `benchmarks.py` scores (`fit_station` / `predict_station` in
 `models/baselines/arima.py`):
 
-- **History:** months from `data.train_start` (2022-01) whose start is `<= as_of`.
-  Without `as_of`, that is Jan 2022 through Dec 2025 (the store's 2019 months
-  are never used), so the forecast covers Jan–Jun 2026.
+- **History:** months from `data.train_start` (2022-01) that have ended on or
+  before `as_of` (a mid-month date leaves its own month out; a month-end date
+  keeps it). Without `as_of`, that is Jan 2022 through Dec 2025 (the store's
+  2019 months are never used), so the forecast covers Jan–Jun 2026. Those
+  months had no actuals when the store was built; `/health` reports the store's
+  last month as `store_last_month`.
 - **What the 3.21% means here:** it is the holdout score of this spec trained
   through Jun 2025 (`"as_of": "2025-06-30"` reproduces those forecasts exactly).
   The default forecast, refit through Dec 2025, has not been scored — its months
@@ -429,8 +440,11 @@ same functions `benchmarks.py` scores (`fit_station` / `predict_station` in
   forecasts covered 96.7% of actuals — over-wide. Each response says so in its
   `interval` field (`"calibrated": false`, `"method": "none"`); see the output
   below.
-- **`horizon_hours` counts months.** The name predates the monthly target; at
-  most 6 rows come back.
+- **`horizon_hours` counts months.** The name predates the monthly target. It
+  defaults to 6; a larger request is clamped to 6, and the response echoes the
+  number of rows returned and adds a `warnings` entry.
+- **Non-finite bounds:** a NaN or infinite P10/P90 comes back as `null`, with a
+  line in the top-level `warnings` list.
 - **Errors:** unknown station → `404`; malformed `as_of`, or one that leaves
   fewer than 24 months of history → `400`. If `configs/model.yaml` names a
   calibration method for SARIMA but no matching fitted calibrator ships with
@@ -456,7 +470,7 @@ python -m pytest tests/test_api.py
 Start locally (the feature store is committed, so no pipeline run is needed):
 
 ```bash
-uvicorn machine_learning_files.api:app --reload --port 8000
+uvicorn machine_learning_files.api:app --reload --port 8080
 ```
 
 Endpoints:
@@ -521,6 +535,5 @@ Additional project documentation:
 | `Feature store not found` | Run `python machine_learning_files/merge_pipeline.py`. |
 | `feature_store_enriched.parquet` missing | Run `python Processing/feature_engineering.py`. |
 | `No BART OD files found` | bart.gov answers automated requests with HTTP 403, so `fetch_bart_od.py` cannot fill `data/raw/transit/bart/`. Download the Ridership workbooks by hand and run `python machine_learning_files/bart_od_from_xlsx.py --zips <zips>` (see `data/MANIFEST.md`). Do not use `bart_od_from_csv.py` for the pipeline: `merge_pipeline.py` rejects the months it builds. |
-| AutoGluon import/install failures | Expected in the Setup environment: `autogluon.timeseries` needs Python below 3.14 and is not in `requirements-lock.txt`. The published leaderboard does not use it; run the four steps under [Reproduce The Pipeline](#reproduce-the-pipeline) instead of `scripts/run_pipeline.sh`, which stops at its AutoGluon step. |
 | Chronos device errors | Change `chronos2.device` in `configs/model.yaml`. |
 | Website shows stale data | Re-run `scripts/export_website_data.py` before deploying. |
