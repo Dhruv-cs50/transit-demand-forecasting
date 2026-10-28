@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Cloud ingestion job — settings
+#  Read by machine_learning_files/cloud_ingest.py (docs/cloud-ingestion-design.md §5).
+#  The weather locations and the NHL team stay in configs/sources.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The bucket. `--bucket` and then $INGEST_BUCKET override it.
+bucket: "gs://cs-163-final-project-tra-f1136-transit-data"
+
+# Never fetch before this date: the 2019-2025 archives are hand-seeded, are
+# never fetched again, and are never replaced or deleted.
+fetch_floor: "2026-01-01"
+
+# A month is fetched only once it ended at least this many days ago
+# (Open-Meteo's archive lags the present).
+archive_lag_days: 7
+
+# Cloud Scheduler cron (America/Los_Angeles). Informational: the schedule lives
+# in the `gcloud scheduler jobs create` command, not here.
+schedule: "15 3 * * *"
+
+# The 20 inputs the committed feature store was built from, keyed by the object
+# name they must have in the bucket: the 2019/2022/2023/2024 BART zips, the 12
+# 2025 workbooks as loose files (data/MANIFEST.md's "Ridership 2025 (1).zip"
+# holds the same months but was not available to upload) and the four
+# weather/events archives. A missing object or a different sha256 fails the run
+# before anything is built. Objects added later (2026 BART workbooks, fetched
+# 2026 weather/events) are not pinned; the gate covers them.
+pinned_inputs:
+  "raw/bart/Ridership Report 2019.zip": "599465433bb1f5c28503fe36d4345ae5d3820e7d1fd34aea287e2d961b2b6c92"
+  "raw/bart/BART Ridership 2022.zip": "5c8b402b1614843634c5e8eba86b87e1e168582649481f690ea4726d1ffa930f"
+  "raw/bart/Ridership 2023 (2).zip": "a90b928f6c84ddbde3f9555f6d23f7b8ace54665003947ab49bd1838a4ea3cce"
+  "raw/bart/Ridership 2024.zip": "b4b66414acda2ea6ce26ba68d3bd2f048cc158d3936c3c17cdbd026bf047a666"
+  "raw/bart/Ridership_202501.xlsx": "6b33dd16b05ad2279fb0e68e12d4d06ffeefec00c9c2489b3bc64355525df4b9"
+  "raw/bart/Ridership_202502.xlsx": "ec0d1b43994af0b7ce9686696ca906c622ec58cd539a708a6cf08cbc07c142d0"
+  "raw/bart/Ridership_202503.xlsx": "0d68bebb24414184584ab20e9da4a9afb066d5747d4e7a83cd2c7f8440b62688"
+  "raw/bart/Ridership_202504.xlsx": "41b07b98ca4ab981223d19968dd5372e8656c075ae09fe6ae94bfc59b5baeceb"
+  "raw/bart/Ridership_202505.xlsx": "10d6bc8785a780f4a26f483e7b9f7c6b64d081e3ca93de5b1ad9b1a341a1d9fb"
+  "raw/bart/Ridership_202506.xlsx": "4d19c5d1471cee9dd2a4ae4f83e7bc58920b1fe5212f90b95e52d89385d434f0"
+  "raw/bart/Ridership_202507.xlsx": "b2bdb82098bb004d2c4b828e8fed3da58a36bc24751a83b02d371c0008f60372"
+  "raw/bart/Ridership_202508.xlsx": "2730458fc3f8964ba8b0645ad069716db328eef759efd3100edd6cf97c10ae5f"
+  "raw/bart/Ridership_202509.xlsx": "dd69bf6ce34d389fb1bd1bf69712c66275c0695798ceeb6ead4b682478126184"
+  "raw/bart/Ridership_202510.xlsx": "9dd16beb585dcdd84787594b03f1d64e813e7c79dd3040bed09a5ff3b0f0a7bf"
+  "raw/bart/Ridership_202511.xlsx": "79eb7b7abfa65a8ce4741042cd336aab7b92067ef73a06a7e835fc40a635a7df"
+  "raw/bart/Ridership_202512.xlsx": "0f011ee9bbc11e938e3f4ef7fad89604fb497cee6091ea4b22b2345509a15841"
+  "raw/weather/weather_all_stations_2019-01-01_2023-12-31.parquet": "3ae3ce7280077bc6b05ef6f2d9b65310d2c44574f6f9a957d6f8474a9f83a4a9"
+  "raw/weather/weather_all_stations_2024-01-01_2025-12-31.parquet": "c60b28184932a21d734b7f03536c5f0cb7afd957ac5d177c77d0c157f80ce72e"
+  "raw/events/events_2019-01-01_2023-12-31.parquet": "23748ca287ec18900a44b0cc6b1ad5dcc392a15afe140f5bd7b1bb3637c8ca27"
+  "raw/events/events_2024-01-01_2025-12-31.parquet": "4c8203738470dc1dcf417a368726530f06338241a336f08619c6c057c0e87c08"
+
+# The publish gate (machine_learning_files/ingest_gate.py run_gate).
+gate:
+  expected_stations: 50
+  # The committed store, the gate's reference (relative to the repo root).
+  tracked_store: "data/processed/feature_store.parquet"
+  # Covariates only; ridership must match exactly.
+  covariate_rtol: 1.0e-9
+  # SARIMA fitted on the candidate through as_of must reproduce the published
+  # figure on the tracked store's next six months.
+  sarima_backtest:
+    as_of: "2025-06-30"
+    wape_pct: 3.21
+
+# The one object that is overwritten: the API reads it to find the current store.
+serving_pointer: "processed/serving.json"

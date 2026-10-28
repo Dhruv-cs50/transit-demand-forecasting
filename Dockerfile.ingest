@@ -54,6 +54,8 @@ COPY machine_learning_files/fetch_weather_openmeteo.py ./machine_learning_files/
 COPY machine_learning_files/fetch_events.py          ./machine_learning_files/fetch_events.py
 COPY models/baselines/arima.py                       ./models/baselines/arima.py
 COPY evaluation/validators.py                        ./evaluation/validators.py
+# ingest_gate's SARIMA backtest scores with evaluation.metrics.wape.
+COPY evaluation/metrics.py                           ./evaluation/metrics.py
 
 # Config: ingest.yaml (job settings), sources.yaml (weather locations, event
 # teams, merge_pipeline's CONFIG_PATH), model.yaml (merge_pipeline and arima).

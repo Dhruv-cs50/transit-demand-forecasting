@@ -709,14 +709,12 @@ Where the calibrator comes from:
 Refusals. Nothing is served under a label it has not earned:
 - **API:** if `configs/model.yaml` names a method for SARIMA and no matching
   calibrator is in the image, `/forecast` answers `503`.
-- **Export** (`scripts/export_website_data.py`) does not write `forecasts.json`
-  in the cases below. Any previous `forecasts.json` is left in place, and is
-  then stale. The other four files (`stations_ridership.json`,
-  `stations_meta.json`, `ridership_actuals.json`, `model_comparison.json`) are
-  still written. The script then exits 1, so `scripts/run_pipeline.sh`
-  (`set -e`) stops with an error instead of printing its deploy command.
-  Deploying is a separate, manual step, and deploying anyway would publish the
-  stale `forecasts.json` beside the fresh files. The cases:
+- **Export** (`scripts/export_website_data.py`) refuses `forecasts.json` in
+  the cases below, and then publishes nothing: every file is staged first and
+  moved into `website/data/` only if all of them succeed (Sprint 8, S8-08), so
+  the previous set stays in place, consistent with itself. The script exits 1,
+  so `scripts/run_pipeline.sh` (`set -e`) stops with an error instead of
+  printing its deploy command. The cases:
   - the calibrator is missing, unreadable or stale;
   - the leaderboard's `Interval_method` is absent or is not the served label,
     or the calibrator was fitted for another leaderboard model;
