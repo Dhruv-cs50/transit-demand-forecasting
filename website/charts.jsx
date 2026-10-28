@@ -198,7 +198,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
   if (siteFailed(cmpRes)) return message('The model comparison could not be loaded.', 'model_comparison.json · reload the page to try again');
   if (!data.length) return message('model_comparison.json lists no models.');
 
-  const DISPLAY_CAP = 30; // cap x-axis at 30% — Prophet 176% shown as overflow
+  const DISPLAY_CAP = 30; // cap x-axis at 30%; a bar past the cap is drawn to it with an overflow mark (▶)
   const pad = { l: 170, r: 70, t: 20, b: 38 };
   const W = width - pad.l - pad.r;
   const H = height - pad.t - pad.b;

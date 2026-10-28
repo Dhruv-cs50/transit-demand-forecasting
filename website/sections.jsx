@@ -82,7 +82,7 @@ const Hero = () => {
   <section id="overview">
     <div className="wrap hero-grid">
       <Reveal>
-        <div className="eyebrow"><span className="pip" /> CS 163 · Senior Project · Spring 2026</div>
+        <div className="eyebrow"><span className="pip" /> CS 163 · Senior Project · Fall 2026</div>
         <div style={{ height: 22 }} />
         <h1 className="hero-title">
           Forecasting <em>public transit ridership</em>, station by station, month by month.
@@ -136,8 +136,8 @@ const AtAGlance = () => {
     { ic: <I.target />, num: hs ? hs.best.WAPE_pct.toFixed(1) : '—', unit:'% WAPE',
       lbl: hs ? `${shortModel(hs.best.model)} best model${hs.prophet && hs.prophet !== hs.best ? ` — vs ${fmtPct(hs.prophet.WAPE_pct)} Prophet` : ''}` : 'Best model',
       delta: hs ? `${holdoutLabel(hs)}${hs.n != null ? ` · ${fmtInt(hs.n)} station-months` : ''}` : 'loading…' },
-    { ic: <I.chart />, num: '50', unit:' stations', lbl:'Full BART network covered', delta:'All OD pairs · Bay Area' },
-    { ic: <I.database />, num: '3,000', unit:' mo', lbl:'Station-month ridership records', delta:'2019 + 2022–2025 BART OD' },
+    { ic: <I.chart />, num: '50', unit:' stations', lbl:'Full BART network covered', delta:'Entry-station boardings · Bay Area' },
+    { ic: <I.database />, num: '3,000', unit:' records', lbl:'Station-month ridership records', delta:'2019 + 2022–2025 BART OD' },
     { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'Intervals not calibrated yet', dn:true },
   ];
   return (
@@ -163,7 +163,7 @@ const Method = () => {
   const steps = [
     { ic: <I.database />, n:'01', t:'Data ingestion', d:"Pulled monthly OD ridership from BART's public ridership reports (bart.gov workbooks, 2019 + 2022–2025; BART published none for 2020–21), joined with Open-Meteo weather aggregated to months and a San Jose Sharks home-game schedule. Weather covers every month in the store; the schedule starts in September 2019, so the January–May 2019 games are missing. Stored as Parquet in a local feature store.", tools:['BART reports','Open-Meteo','Parquet'] },
     { ic: <I.flask />, n:'02', t:'Feature engineering', d:'Built lag and rolling-mean features, calendar flags, monthly weather summaries and Sharks game-day indicators. The weather and game data reach December 2025, the test window included; that weather is observed, so for the test window it is hindsight, not a forecast. No ranked model reads these features: SARIMA and the seasonal-naive baseline are univariate, Prophet uses only a US federal holiday calendar, and the Chronos-1 checkpoint cannot accept covariates. A separate experiment that adds them to SARIMA does not improve it.', tools:['pandas'] },
-    { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline. AutoGluon fine-tuning is scaffolded but has never been run — autogluon.timeseries will not install on this Python.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
+    { ic: <I.brain />, n:'03', t:'Modeling', d:'Applied Chronos-1 (amazon/chronos-t5-small) zero-shot alongside SARIMA, Prophet and a seasonal-naive baseline.', tools:['Chronos-1','Prophet','SARIMA','Seasonal naive'] },
     { ic: <I.shield />, n:'04', t:'Validation', d:'Temporal train/val/test splits — no random shuffling. Evaluated with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations. Intervals are not yet calibrated.', tools:['WAPE','MAE'] },
     { ic: <I.chart />, n:'05', t:'Deployment', d:'Forecasts served via FastAPI (P10/P50/P90 per station). The website reads JSON exported from the pipeline: forecasts, actuals, station levels and the model comparison.', tools:['FastAPI','React','JSON'] },
   ];
@@ -225,7 +225,7 @@ const Dataset = () => {
                 <div key={s.nm} className="bar-row">
                   <span className="nm">{s.nm}</span>
                   <span className="bar"><i style={{ '--w': s.w }} /></span>
-                  <span className="v">{s.v} mo</span>
+                  <span className="v">{s.v.toLocaleString('en-US')} station-months</span>
                 </div>
               ))}
             </div>
@@ -329,7 +329,7 @@ const Results = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Results</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>Accurate point forecasts across all 50 stations.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>{hs ? `${shortModel(hs.best.model)} reaches ${fmtPct(hs.best.WAPE_pct)} WAPE on a ${holdoutLabel(hs)} never used for model selection${ahead.length ? `, ahead of ${ahead.join(' and ')}` : ''}.` : 'Loading the model comparison…'} Prediction intervals are not yet calibrated — see the note below.</p>
+            <p className="lede" style={{ maxWidth:'46ch' }}>{hs ? `${shortModel(hs.best.model)} reaches ${fmtPct(hs.best.WAPE_pct)} WAPE on a ${holdoutLabel(hs)} never used to tune the point forecasts${ahead.length ? `, ahead of ${ahead.join(' and ')}` : ''}.` : 'Loading the model comparison…'} Interval methods were revised after three looks at that window, and the intervals are not yet calibrated — see the note below.</p>
           </div></Reveal>
         </div>
         <div className="results-grid">
@@ -356,7 +356,7 @@ const Results = () => {
           <Reveal delay="1" className="card chart-card">
             <div className="chart-head">
               <div>
-                <h3>Forecast error bands</h3>
+                <h3>Test-window accuracy</h3>
                 <p>Station-months · test period{hs && hs.window ? ` ${hs.window}` : ''} · 50 BART stations</p>
               </div>
             </div>
@@ -436,6 +436,15 @@ const Demo = () => {
   );
 };
 
+/* SARIMA's WAPE on three half-year holdouts, from the project review of
+   2026-10-28 (docs/review-2026-10-28.md). Not in model_comparison.json, which
+   scores the latest window only; update here if the review is re-run. */
+const REVIEW_HALF_YEARS = [
+  { window:'Jul–Dec 2024', wape:'6.36' },
+  { window:'Jan–Jun 2025', wape:'4.27' },
+  { window:'Jul–Dec 2025', wape:'3.21' },
+];
+
 /* ── Benchmarks + Recommendations ──────────────────────────────── */
 const Benchmarks = () => {
   const cmpRes = useSiteData('model_comparison.json');
@@ -443,7 +452,7 @@ const Benchmarks = () => {
   const cmpData = cmpRes ? siteRows(cmpRes).filter(Boolean) : null;
   const hs = headlineStats(cmpRes, useSiteData('forecasts.json'));
   const benchScope = hs ? [hs.window, hs.n != null && `${fmtInt(hs.n)} station-months`].filter(Boolean).join(', ') : '';
-  const benchLede = `All models evaluated on the same temporal split${benchScope ? ` (${benchScope})` : ''} — a holdout not used for model selection. Lower WAPE and MAE is better.`
+  const benchLede = `All models evaluated on the same temporal split${benchScope ? ` (${benchScope})` : ''} — point forecasts were never tuned on this holdout; interval methods were revised after three looks at it. Lower WAPE and MAE is better.`
     + (hs ? ` ${shortModel(hs.best.model)} reaches ${fmtPct(hs.best.WAPE_pct)} WAPE${hs.prophet && hs.prophet !== hs.best ? `, ahead of Prophet at ${fmtPct(hs.prophet.WAPE_pct)}` : ''}.` : '');
   // Chronos recommendation: figures from the comparison; the ranking claims are
   // kept only while the numbers still say so.
@@ -476,7 +485,6 @@ const Benchmarks = () => {
       relW: r.WAPE_pct,
       best: r.WAPE_pct != null && r.WAPE_pct === bestWAPE,
     })),
-    { m:'AutoETS (AutoGluon)', wape:'—', mape:'—', mae:'—', relW:null, note:'Not benchmarked — autogluon.timeseries unavailable on this Python' },
   ] : [];
 
   const recs = [
@@ -519,6 +527,10 @@ const Benchmarks = () => {
                 ))}
               </tbody>
             </table>
+            <p className="text-muted" style={{ fontSize: 13, marginTop: 14 }}>
+              The same SARIMA, refit on earlier half-year holdouts, scored {REVIEW_HALF_YEARS.map(h => `${h.wape}% WAPE (${h.window})`).join(', ')}.
+              The headline figure is the best of the three. These two earlier figures come from the project review of 2026-10-28 (docs/review-2026-10-28.md), not from the exported data above.
+            </p>
           </Reveal>
         </div>
       </section>
@@ -621,7 +633,7 @@ const About = () => (
           <h2>Dhruv Punit Shah.</h2>
           <div style={{ height: 14 }} />
           <p className="lede">
-            Senior in Computer Science at San José State University, graduating Spring 2026.
+            Senior in Computer Science at San José State University.
             Interested in applied ML for transportation and infrastructure, time-series forecasting,
             and the gap between a "good" validation MAPE and a model that anyone actually trusts on
             a Wednesday morning service planning meeting.
@@ -646,7 +658,7 @@ const About = () => (
       </div>
       <div className="res">
         {[
-          { lbl:'Repo · GitHub', t:'Source code', d:'Pipeline scripts, the benchmark runner (SARIMA, Prophet, seasonal naive, Chronos-1 zero-shot) and this website. AutoGluon fine-tuning code is included but has never been run.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting' },
+          { lbl:'Repo · GitHub', t:'Source code', d:'Pipeline scripts, the benchmark runner (SARIMA, Prophet, seasonal naive, Chronos-1 zero-shot) and this website.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting' },
           { lbl:'Notebook', t:'Exploratory analysis', d:'Summary statistics, seasonality, missing-data and correlation plots. Its saved plots come from an earlier version of the feature store and are due to be regenerated.', href:'https://github.com/Dhruv-cs50/transit-demand-forecasting/blob/main/transit_eda/notebooks/eda_complete.ipynb' },
           { lbl:'BART OD ridership', t:'Dataset · BART OD', d:'Public BART origin-destination monthly ridership data from BART.gov.', href:'https://www.bart.gov/about/reports/ridership' },
           { lbl:'Open-Meteo weather', t:'Dataset · Open-Meteo', d:'Free historical weather API. The feature store holds its monthly aggregates for 2019 and 2022–2025; no ranked model uses it yet.', href:'https://open-meteo.com' },
