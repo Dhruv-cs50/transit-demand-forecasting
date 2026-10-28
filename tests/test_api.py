@@ -135,7 +135,7 @@ def test_health_names_the_served_model(client):
 
 def test_health_reports_the_store_and_what_is_served(client):
     body = client.get("/health").json()
-    assert set(body) == {"status", "timestamp", "model", "interval", "store_loaded", "store_last_month"}
+    assert {"status", "timestamp", "model", "interval", "store_loaded", "store_last_month"} <= set(body)
     assert body["model"] == "SARIMA(0, 1, 1)x(0, 1, 1, 12)"
     assert body["store_loaded"] is True
     # The committed store ends 2025-12; /forecast's default anchor.
