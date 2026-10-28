@@ -34,24 +34,44 @@ the cloud.
 | S8-01 | Deploy `abb0fe7` API to Cloud Run (Cloud Build → Artifact Registry → `gcloud run deploy`) | orchestrator | 30m | user: auth + yes | `/forecast` 200 with SARIMA model name for `EM`; `/health` names SARIMA | blocked (user: `gcloud auth login`, deploy yes) |
 | S8-02 | Deploy `website/` to App Engine and Firebase from a clean export of the gated SHA | orchestrator | 30m | S8-01; user: yes, `firebase login` | Both hosts serve `sections.jsx?v=18`+; live `model_comparison.json` = committed bytes | blocked (S8-01) |
 | S8-03 | Maps key: find its owning project; key in the billed project with Maps JavaScript API, referrer-restricted to both hosts + localhost | orchestrator + user | 20m | user: auth | No `BillingNotEnabledMapError`; tiles render, no watermark | blocked (user) |
-| S8-04 | `transit-demo.html` falls back to Leaflet + OpenStreetMap tiles when Google Maps fails to load or errors | frontend engineer | 45m | — | With a broken key the map still renders with markers; with a working key Google renders; no console errors besides Google's own | todo |
-| S8-05 | CI: GitHub Actions running pytest (excl. `test_api`), `py_compile`, JSX parse, `bart_stations.py --check` on `requirements-lock.txt` | engineer | 45m | — | Workflow file valid; same commands pass locally in `tdf-py314` | todo |
-| S8-06 | API: `/health` reports the served model and store; infinite-quantile gaps handled; `tests/test_api.py` docstring pins | engineer | 45m | — | `test_api` passes in `tdf-api-py311`; no behaviour change to forecasts | todo |
-| S8-07 | Remove AutoGluon/AutoETS scaffolding (`finetune.py`, `run_pipeline.sh` step + `.venv311` comment, requirements); README lines move to S8-11 | engineer | 45m | — | No import of autogluon anywhere; full pytest passes; leaderboard untouched | todo |
-| S8-08 | Export all-or-nothing; site headline numbers derived from `model_comparison.json`, not literals | engineer | 1h | — | Export failure leaves `website/data` unchanged; no WAPE/coverage literal left in `sections.jsx`; cache-busters bumped | todo |
-| S8-09 | Covariate zero-fill guard: months no archive covers give NaN | engineer | 45m | — | Tests; full gate before/after; any leaderboard change reported to the user, not republished | todo |
-| S8-10 | Design: cloud ingestion pipeline on GCP and how the API reads it, honest about BART's 403 | systems architect | 1h | — | Written design: services, schedule, storage, IAM, cost, what stays manual, serving store vs scored store, stories ≤ 1h | todo |
-| S8-11 | Whole-project review: correctness of model outputs, live API vs offline run, site claims, docs, demo | principal engineer | 1h | — | Findings ranked by severity with file:line; each becomes a Sprint 9/10 story or a ruling | todo |
+| S8-04 | `transit-demo.html` falls back to Leaflet + OpenStreetMap tiles when Google Maps fails to load or errors | frontend engineer | 45m | — | With a broken key the map still renders with markers; with a working key Google renders; no console errors besides Google's own | in progress (session s8-lane-c-frontend, branch sprint8-lane-c-frontend) |
+| S8-05 | CI: GitHub Actions running pytest (excl. `test_api`), `py_compile`, JSX parse, `bart_stations.py --check` on `requirements-lock.txt` | engineer | 45m | — | Workflow file valid; same commands pass locally in `tdf-py314` | in progress (session s8-lane-b-data-ci, after S8-09) |
+| S8-06 | API: `/health` reports the served model and store; infinite-quantile gaps handled; `tests/test_api.py` docstring pins | engineer | 45m | — | `test_api` passes in `tdf-api-py311`; no behaviour change to forecasts | in progress (session s8-lane-a-api, branch sprint8-lane-a-api) |
+| S8-07 | Remove AutoGluon/AutoETS scaffolding (`finetune.py`, `run_pipeline.sh` step + `.venv311` comment, requirements); README lines move to S8-11 | engineer | 45m | — | No import of autogluon anywhere; full pytest passes; leaderboard untouched | in progress (session s8-lane-a-api, after S8-06) |
+| S8-08 | Export all-or-nothing; site headline numbers derived from `model_comparison.json`, not literals | engineer | 1h | — | Export failure leaves `website/data` unchanged; no WAPE/coverage literal left in `sections.jsx`; cache-busters bumped | in progress (session s8-lane-c-frontend, after S8-04) |
+| S8-09 | Covariate zero-fill guard: months no archive covers give NaN | engineer | 45m | — | Tests; full gate before/after; any leaderboard change reported to the user, not republished | in progress (session s8-lane-b-data-ci, branch sprint8-lane-b-data-ci) |
+| S8-10 | Design: cloud ingestion pipeline on GCP and how the API reads it, honest about BART's 403 | systems architect | 1h | — | Written design: services, schedule, storage, IAM, cost, what stays manual, serving store vs scored store, stories ≤ 1h | done — [docs/cloud-ingestion-design.md](cloud-ingestion-design.md): GCS bucket + Cloud Run Job + Cloud Scheduler; API mounts the bucket read-only and serves the latest gated store, falling back to the baked one; BART upload stays manual (403); no BigQuery; leaderboard keeps the tracked store |
+| S8-11 | Whole-project review: correctness of model outputs, live API vs offline run, site claims, docs, demo | principal engineer | 1h | — | Findings ranked by severity with file:line; each becomes a Sprint 9/10 story or a ruling | in progress (principal-engineer subagent) |
 | S8-12 | Gate `sprint8/base` after lane merges (S7-13 gate set) and open one PR to `main` | QA + orchestrator | 1h | S8-04..09 | WAPE 3.21/5.75/9.70/10.75, coverage 96.67/74.00/84.67/83.67, n = 300; two runs byte-identical; full pytest + `test_api`; export byte-identical | todo |
 
 Deferred from the planned Sprint 8 (after Nov 3 unless time allows): favicon and contrast,
 `interval_study` cache key, Chronos `generated_at`, `fetch_pems_roads.py`, raw archive off
 `~/Desktop` (user's files), `Dockerfile.api` calibrator path.
 
-### Sprint 9 — Cloud ingestion and live inference in the demo (planned 2026-10-29 – 30)
+### Sprint 9 — Cloud ingestion and live inference in the demo (2026-10-28 – 30)
 
-Stories cut from S8-10's design (each ≤ 1h); the map demo calls Cloud Run `/forecast` for the
-selected station; S8-11 findings. Then deploy, each step confirmed by the user.
+Design: [docs/cloud-ingestion-design.md](cloud-ingestion-design.md) (§8 holds file sets and
+acceptance checks). Critical path S9-01 → S9-02 → (S9-06, S9-07) → S9-10 → S9-11. Plus the map
+demo calling Cloud Run `/forecast` and S8-11's findings.
+
+| ID | Goal | Owner | Depends on | State |
+|---|---|---|---|---|
+| S9-01 | Auth, billing check, enable APIs, bucket, SAs, bindings | user + orchestrator | — | blocked (user: `gcloud auth login`) |
+| S9-02 | Seed bucket with 5 BART zips + 4 covariate archives, sha256 vs MANIFEST | user | S9-01 | blocked (S9-01) |
+| S9-03 | `cloud_store.py` storage abstraction + tests | engineer | — | in progress (subagent, branch sprint9-ingest-core) |
+| S9-04 | `ingest_fetch.py` closed-month fetchers + tests | engineer | S8-09 | todo (to lane B after S8-09) |
+| S9-05 | `ingest_gate.py` publish gate + tests | engineer | — | in progress (subagent, branch sprint9-gate-smoke) |
+| S9-06 | `cloud_ingest.py` orchestrator + `configs/ingest.yaml` + E2E tests | engineer | S9-03..05 | todo |
+| S9-07 | `Dockerfile.ingest` + `cloudbuild.ingest.yaml` | engineer | S9-06 entrypoint name | in progress (subagent, after S9-03) |
+| S9-08 | API reads cloud store, TTL + fallback, `/health` store fields | engineer | S8-06 | todo (to lane A after S8-06) |
+| S9-09 | `scripts/smoke_cloud.sh` | QA | — | in progress (subagent, after S9-05) |
+| S9-10 | Deploy job; first execution | orchestrator + user | S9-01, S9-02, S9-07 | blocked (user) |
+| S9-11 | Scheduler; redeploy API with volume; smoke | orchestrator + user | S9-08..10, S8-01 | blocked (user) |
+| S9-12 | Docs: README cloud sections, ARCHITECTURE, DATA_PIPELINE, MANIFEST, site-claims-audit | tech writer | S9-11 | todo |
+| S9-13 | Live BART refresh if 2026 workbooks exist | user + orchestrator | S9-11 | todo |
+| S9-15 | Site copy `sections.jsx:158` + cache-buster | frontend engineer | S9-11, S8-08 | todo |
+| S9-17 | Map demo calls Cloud Run `/forecast` for the selected station (visible cloud inference) | frontend engineer | S8-04, S8-01 | todo |
+| S9-14, S9-16 | Stretch: upload trigger; failure alert | — | S9-11 | deferred |
 
 ### Sprint 10 — Review fixes, final gate, final deploy (planned 2026-10-31); buffer 2026-11-01 – 02
 
