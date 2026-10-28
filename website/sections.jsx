@@ -284,6 +284,7 @@ const bandKind = records => {
 /* ── Results ───────────────────────────────────────────────────── */
 const Results = () => {
   const [chart, setChart] = useState('roc');
+  const [fcModel, setFcModel] = useState('sarima');
   // Best-model tile is derived from the same file the WAPE chart and the
   // Benchmarks table read, so its model name, WAPE and model count cannot drift.
   const cmpRes = useSiteData('model_comparison.json');
@@ -310,7 +311,9 @@ const Results = () => {
   // unlabelled (older) export or mixed labels keep the plain subtitle.
   // forecasts.json comes from the shared loader (fcRes above), so the page
   // still makes one request for it.
-  const fcRecords = siteRows(fcRes);
+  const FC = FC_MODELS[fcModel];
+  const sarRes = useSiteData('forecasts_sarima.json');
+  const fcRecords = siteRows(fcModel === 'sarima' ? sarRes : fcRes);
   const chartBand = bandKind(fcRecords);
   const chartBandNote = chartBand.conformal
     ? ` · P10–P90 range set from the model's errors on ${BAND_FIT_WINDOW}, not a validated 80% interval`
@@ -334,14 +337,21 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>{chart === 'roc' ? 'WAPE by model — test set' : 'Forecast intervals — Embarcadero'}</h3>
-                <p>{chart === 'roc' ? wapeSub : `P10 / P50 / P90 Chronos-1 zero-shot forecast with actual riders${chartBandNote} · Embarcadero (highest-volume BART station)`}</p>
+                <p>{chart === 'roc' ? wapeSub : `P10 / P50 / P90 ${FC.label} forecast with actual riders${chartBandNote} · Embarcadero (highest-volume BART station)`}</p>
               </div>
               <div className="chip-grp">
                 <button className={chart==='roc'?'on':''} onClick={()=>setChart('roc')}>WAPE</button>
                 <button className={chart==='cal'?'on':''} onClick={()=>setChart('cal')}>Intervals</button>
               </div>
             </div>
-            <div>{chart === 'roc' ? <ROCCurve /> : <Calibration />}</div>
+            {chart === 'cal' && (
+              <div className="chip-grp" role="group" aria-label="Forecast model" style={{ marginBottom: 10 }}>
+                {Object.values(FC_MODELS).map(m => (
+                  <button key={m.key} className={fcModel===m.key?'on':''} onClick={()=>setFcModel(m.key)}>{m.short}</button>
+                ))}
+              </div>
+            )}
+            <div>{chart === 'roc' ? <ROCCurve /> : <Calibration model={fcModel} />}</div>
           </Reveal>
           <Reveal delay="1" className="card chart-card">
             <div className="chart-head">
@@ -672,7 +682,12 @@ const API_BASE = 'https://transit-api-308878596074.us-west2.run.app';
 const BARTForecasts = () => {
   // Each file's load result is kept, so a failed fetch is told apart from a
   // file that loaded and is empty.
-  const fcRes   = useSiteData('forecasts.json');
+  // SARIMA (the best model) is the default; the toggle switches to Chronos-1.
+  const [fcModel, setFcModel] = React.useState('sarima');
+  const FC = FC_MODELS[fcModel];
+  const sarRes  = useSiteData('forecasts_sarima.json');
+  const chrRes  = useSiteData('forecasts.json');
+  const fcRes   = fcModel === 'sarima' ? sarRes : chrRes;
   const acRes   = useSiteData('ridership_actuals.json');
   const cmpRes  = useSiteData('model_comparison.json');
   const metaRes = useSiteData('stations_meta.json');
@@ -687,6 +702,7 @@ const BARTForecasts = () => {
   const [liveData, setLiveData]   = React.useState(null);
   const [liveFetching, setLiveFetching] = React.useState(false);
   const [liveError, setLiveError] = React.useState(null);
+  const [liveHealth, setLiveHealth] = React.useState(null);
 
   // `id` is BART's two-letter station code, the feature store's station_id.
   // The same code filters the static data/*.json exports and is sent to the
@@ -706,11 +722,17 @@ const BARTForecasts = () => {
     const reqId = ++liveReq.current;
     setLiveFetching(true);
     setLiveError(null);
+    setLiveHealth(null);
+    // /health says how far the store reaches, i.e. what the forecast is "from".
+    // Its failure only drops the caption; the forecast itself does not wait on it.
+    fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(45000) })
+      .then(r => r.ok ? r.json() : null).catch(() => null)
+      .then(h => { if (reqId === liveReq.current) setLiveHealth(h || { unavailable: true }); });
     fetch(`${API_BASE}/forecast`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ station_id: station, horizon_hours: 6 }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(45000),  // a cold Cloud Run start can take 30 s
     })
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail || 'API error')))
       .then(data => { if (reqId !== liveReq.current) return; setLiveData(data); setLiveFetching(false); })
@@ -719,8 +741,14 @@ const BARTForecasts = () => {
 
   React.useEffect(() => {
     liveReq.current++;
-    setLiveData(null); setLiveError(null); setLiveFetching(false);
+    setLiveData(null); setLiveError(null); setLiveFetching(false); setLiveHealth(null);
   }, [station]);
+
+  // "Forecast from data through {month}" — the store's last month, from /health.
+  const lastMonth = liveHealth && typeof liveHealth.store_last_month === 'string' ? monthSpan([{ month: liveHealth.store_last_month }]) : null;
+  const liveOrigin = lastMonth ? `Forecast from data through ${lastMonth.range}`
+    : liveHealth ? 'Forecast origin unavailable (/health did not report the store\'s last month)'
+    : 'Reading the forecast origin from /health…';
 
   const metaById = {};
   meta.forEach(m => { metaById[m.bart_id] = m; });
@@ -771,15 +799,15 @@ const BARTForecasts = () => {
   const acYears = yearSpan(actuals.filter(r => r.ridership != null));
   // "Scored in the model comparison below" only when that comparison has the
   // Chronos row these forecasts were scored as (see scoredForecasts).
-  const fcScored = scoredForecasts(fcRes, cmpRes);
+  const fcScored = scoredForecasts(fcRes, cmpRes, FC.rowPrefix);
   const split = comparisonSplit(fcRes, cmpRes);
   const reloadHint = fcFailed || acFailed ? ' Reload the page to try again.' : '';
 
   const forecastSentence = fcFailed
-    ? `The forecast export (forecasts.json) could not be loaded${acFailed ? '.' : ', so the table shows actual ridership only.'}`
+    ? `The forecast export (${FC.file}) could not be loaded${acFailed ? '.' : ', so the table shows actual ridership only.'}`
     : fcRange
-      ? `Static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}${fcScored ? ': the predictions scored in the model comparison below.' : '.'}`
-      : `No forecasts are published in the static export (forecasts.json)${acFailed ? '.' : ', so the table shows actual ridership only.'}`;
+      ? `Static export (${FC.file}) of ${FC.full || FC.short} P10/P50/P90 monthly ridership for ${fcRange}, forecast from data through ${fcThrough}${fcScored ? ': the predictions scored in the model comparison below.' : '.'}`
+      : `No forecasts are published in the static export (${FC.file})${acFailed ? '.' : ', so the table shows actual ridership only.'}`;
   const actualsSentence = acFailed
     ? 'The actual ridership (ridership_actuals.json) could not be loaded, so no actuals are shown.'
     : acYears
@@ -790,7 +818,7 @@ const BARTForecasts = () => {
       ? `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue with P10/P50/P90. Bars sized by P50 (coral).`
       : `▶ Forecast months (${fcRange}, forecast from data through ${fcThrough}) shown in blue, each with its actual riders beside P10/P50/P90. Bars sized by ridership volume: blue = actual, coral = P50.`
     : fcFailed
-      ? `Forecasts could not be loaded (forecasts.json), so ${acFailed ? 'there is nothing to show' : 'the table shows the last 12 actual months. Bars sized by ridership volume'}.`
+      ? `Forecasts could not be loaded (${FC.file}), so ${acFailed ? 'there is nothing to show' : 'the table shows the last 12 actual months. Bars sized by ridership volume'}.`
       : `No forecasts are published, so the table shows the last 12 actual months. Bars sized by ridership volume.`;
   const actualsNote = acFailed
     ? 'Actuals could not be loaded (ridership_actuals.json).'
@@ -806,7 +834,7 @@ const BARTForecasts = () => {
   // band still gets the "not validated" caveat.
   const band = bandKind(forecasts);
   const bandRow = fcScored && band.label && comparison.find(r =>
-    r && /^Chronos/.test(r.model || '') && r.Interval_method === band.label
+    r && String(r.model || '').startsWith(FC.rowPrefix) && r.Interval_method === band.label
     && typeof r.Coverage_pct === 'number' && isFinite(r.Coverage_pct));
   const bandCov = bandRow ? Math.round(bandRow.Coverage_pct * 10) / 10 : null;
   const bandCoverage = bandRow
@@ -838,7 +866,7 @@ const BARTForecasts = () => {
               : 'Model outputs — 50 stations, no forecasts published.'}</h2>
             <p className="lede" style={{ maxWidth:'52ch' }}>
               {loading
-                ? 'Loading the static export (forecasts.json) of Chronos-1 zero-shot (chronos-t5-small) forecasts…'
+                ? `Loading the static export (${FC.file}) of ${FC.full || FC.short} forecasts…`
                 : `${forecastSentence}${!fcFailed && fcRange ? ` ${bandNote}` : ''} ${actualsSentence}${reloadHint}`}
               {' '}The button below requests a forecast from the Cloud Run API.
             </p>
@@ -846,6 +874,21 @@ const BARTForecasts = () => {
         </div>
 
         <Reveal className="card" style={{ padding:'24px', marginBottom:24 }}>
+          <div role="group" aria-label="Forecast model" style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:14, alignItems:'center', fontSize:13 }}>
+            <span style={{ color:'var(--ink-muted)' }}>Forecasts from:</span>
+            {Object.values(FC_MODELS).map(m => (
+              <button key={m.key}
+                onClick={() => setFcModel(m.key)}
+                style={{
+                  padding:'5px 12px', borderRadius:6, border:'1.5px solid var(--line)',
+                  background: fcModel===m.key ? 'var(--primary)' : 'transparent',
+                  color: fcModel===m.key ? 'var(--bg)' : 'var(--ink)',
+                  cursor:'pointer', fontSize:13, fontWeight:500,
+                }}>
+                {m.short}{m.key==='sarima' ? ' (best model)' : ''}
+              </button>
+            ))}
+          </div>
           <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:20, alignItems:'center' }}>
             {KEY_STATIONS.map(s => (
               <button key={s.id}
@@ -882,7 +925,7 @@ const BARTForecasts = () => {
                 color: liveFetching ? 'var(--ink-muted)' : 'var(--bg)', cursor: liveFetching ? 'default' : 'pointer', fontSize:13, fontWeight:600,
                 opacity: liveFetching ? 0.7 : 1,
               }}>
-              {liveFetching ? 'Calling API…' : '⚡ Fetch Live from API'}
+              {liveFetching ? 'Calling API… (cold start: up to 45 s)' : '⚡ Fetch Live from API'}
             </button>
           </div>
 
@@ -894,7 +937,10 @@ const BARTForecasts = () => {
           {liveData && (
             <div style={{ marginBottom:20, padding:'14px 16px', borderRadius:8, background:'color-mix(in oklab, var(--primary) 7%, transparent)', border:'1px solid color-mix(in oklab, var(--primary) 20%, transparent)' }}>
               <div style={{ fontSize:12, color:'var(--primary)', fontWeight:700, marginBottom:8, letterSpacing:'.04em', textTransform:'uppercase' }}>
-                ⚡ Live Cloud Run Response — {nameFor(station)}
+                ⚡ Live Cloud Run Response — {nameFor(station)} · {typeof liveData.model === 'string' && liveData.model ? liveData.model : 'model not reported'}
+              </div>
+              <div style={{ fontSize:12, color:'var(--ink-muted)', marginBottom:8 }}>
+                {liveOrigin}
               </div>
               <div style={{ display:'flex', gap:24, flexWrap:'wrap' }}>
                 {(liveData.forecasts || []).map(f => (
@@ -910,6 +956,7 @@ const BARTForecasts = () => {
                 {typeof liveData.interval?.description === 'string' && liveData.interval.description.trim()
                   ? liveData.interval.description.trim()
                   : 'P10/P90: band not labelled by this API version; not a validated 80% interval.'}
+                {typeof liveData.interval?.label === 'string' && liveData.interval.label ? ` (band: ${liveData.interval.label})` : ''}
               </div>
             </div>
           )}
@@ -923,9 +970,9 @@ const BARTForecasts = () => {
                   <tr style={{ borderBottom:'1px solid var(--line)' }}>
                     <th style={{ textAlign:'left', padding:'6px 10px', color:'var(--ink-muted)' }}>Month</th>
                     <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--ink-muted)' }}>Actual Riders</th>
-                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--accent)' }}>Chronos P10</th>
-                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--primary)' }}>Chronos P50</th>
-                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--accent)' }}>Chronos P90</th>
+                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--accent)' }}>{FC.short} P10</th>
+                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--primary)' }}>{FC.short} P50</th>
+                    <th style={{ textAlign:'right', padding:'6px 10px', color:'var(--accent)' }}>{FC.short} P90</th>
                     <th style={{ padding:'6px 10px' }}></th>
                   </tr>
                 </thead>
