@@ -73,7 +73,7 @@ demo calling Cloud Run `/forecast` and S8-11's findings.
 | S9-12 | Docs: README cloud sections, ARCHITECTURE, DATA_PIPELINE, MANIFEST, site-claims-audit | tech writer | S9-11 | todo |
 | S9-13 | Live BART refresh if 2026 workbooks exist | user + orchestrator | S9-11 | todo |
 | S9-15 | Site copy `sections.jsx:158` + cache-buster | frontend engineer | S9-11, S8-08 | todo |
-| S9-17 | Map demo calls Cloud Run `/forecast` for the selected station (visible cloud inference) | frontend engineer | S8-04, S8-01 | todo |
+| S9-17 | Map demo calls Cloud Run `/forecast` for the selected station (visible cloud inference) | frontend engineer | S8-04, S8-01 | done (52e6637; merged 4096e3e) — "Forecast on Cloud Run" in each BART popup + sidebar panel; shows model, band, origin month, warnings, "ran live on Cloud Run"; 45 s timeout + waking note; `?api=` override. Orchestrator check: Google renderer, EM Jan–Jun 2026 P50 from live Cloud Run (Jan 415k) |
 | S9-14, S9-16 | Stretch: upload trigger; failure alert | — | S9-11 | deferred |
 
 ### Sprint 10 — Review fixes, final gate, final deploy (2026-10-28 – 31); buffer 2026-11-01 – 02
