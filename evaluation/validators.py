@@ -359,14 +359,26 @@ def check_event_coverage(df: pd.DataFrame) -> List[ValidationResult]:
         return results
 
     if "is_game_day" in df.columns and "event_proximity_score" in df.columns:
-        game_rows = df[df["is_game_day"]]
+        # `== True` keeps an unknown (<NA>/NaN) is_game_day out of the game rows
+        # instead of raising on a masked index.
+        game_rows = df[df["is_game_day"] == True]  # noqa: E712
         if not game_rows.empty:
-            zero_score = (game_rows["event_proximity_score"] == 0).mean() * 100
-            if zero_score > 50:
+            # A score that is missing is as unusable as a score of zero: NaN
+            # compares unequal to 0, so an all-NaN column (no events archive
+            # when the enriched store was built) used to read as 0% zero and
+            # pass as "healthy".
+            scores = game_rows["event_proximity_score"]
+            zero_score = (scores == 0).mean() * 100
+            missing_score = scores.isna().mean() * 100
+            if zero_score + missing_score > 50:
                 results.append(ValidationResult(
                     check="event_proximity_score",
                     severity=Severity.WARNING,
-                    message=f"{zero_score:.1f}% of game-day rows have zero proximity score — check event join",
+                    message=(
+                        f"{zero_score + missing_score:.1f}% of game-day rows have a zero or "
+                        f"missing proximity score ({zero_score:.1f}% zero, {missing_score:.1f}% "
+                        f"missing) — check event join"
+                    ),
                 ))
             else:
                 results.append(ValidationResult(

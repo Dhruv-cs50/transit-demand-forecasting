@@ -17,7 +17,7 @@ without it neither the image nor the API can be built from a clean clone.
 
 | File | Rows | Months | SHA-256 |
 |---|---|---|---|
-| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `aa02436d44b5de83d77fab87036c046d0ca02983b9d8cbe807c37f9ad714f241` |
+| `feature_store.parquet` | 3,000 (50 stations × 60 months) | 2019-01 → 2025-12, no 2020–21 | `6cde32d4b0d475e565d66bc141e9d534d1415a20c4bd1dbf125cdcaf1e9ee05a` |
 
 Built from the 60 workbooks plus the weather and events archives listed under
 [Covariate archives](#covariate-archives), with the code at the commit that last
@@ -31,15 +31,26 @@ published leaderboard; SARIMA trained on it through `val_end` scores the
 published 3.21% WAPE (`tests/test_api.py` checks this). Rebuilding with the steps
 below overwrites it — commit the result only when the change is intended.
 
+Rebuilt on 2026-10-28 (S8-15) with the covariate zero-fill guard (`c7fbad1`), from
+the same raw files; before it the store hashed to `aa02436d…`. `ridership`, the
+keys and every other column are exactly equal to that store. Only the event
+columns change: 400 cells each in `is_game_day`, `is_sharks_game`, `is_playoff` and
+`hours_to_event` (below), and the three flags are now pandas nullable `boolean`.
+
 Weather covers every store month, 2019 and 2022–2025, with no gaps. It is
 observed weather, so for the Jul–Dec 2025 test window it is hindsight, not a
 forecast.
 
 The events archive starts on 2019-09-17, so it misses the Sharks' 2018–19
 home games: the regular season through April 2019 and the playoff games that
-ran into May 2019. Those five months read as months without a game
-(`is_game_day` false, `hours_to_event` 0.0), the same as an off-season month.
-That is a gap in the data, not an observation. From Sep 2019 on, game days mark
+ran into May 2019. The archive vouches for months from Sep 2019 on, so the
+store's eight 2019 months before it, Jan–Aug, are unknown, not months without a
+game: `is_game_day`, `is_sharks_game` and `is_playoff` are `<NA>` and
+`hours_to_event` is NaN (400 station-months). Jun–Aug are off-season, but the
+archive cannot say so. A month an archive covers with no game stays false / 0.0.
+A month counts as covered when it lies inside the span from the month of a
+file's first event to the end date in its name (`events_{start}_{end}.parquet`).
+From Sep 2019 on, game days mark
 Jan–Apr and Sep–Dec, 8 store months a year: 1,800 of the 3,000 station-months
 have `is_game_day` true. (The archive flags no playoff games; the Sharks made no
 playoffs in 2022–2025.)
@@ -120,8 +131,8 @@ The store's weather and event columns come from four raw files, also not in
 git. Put them under `data/raw/weather/` and `data/raw/events/` before
 rebuilding. `merge_pipeline.py` reads every `weather_all_stations_*.parquet`
 and `events_*.parquet` there. With any of them missing, the rebuild still runs,
-but the weather columns come out NaN and the event columns false for the
-missing years, and the bytes differ from the committed store. It also reads
+but the weather columns and the event columns come out NaN (`<NA>` for the flags)
+for the missing years, and the bytes differ from the committed store. It also reads
 the newest `weather_forecast_*.parquet` (a 7-day-ahead forecast). There is none
 in the folder the committed store was built from, and holding one changes the
 store. Both sources are free and need no key. The 2024–2025 files were fetched
