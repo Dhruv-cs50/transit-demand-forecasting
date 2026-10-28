@@ -121,6 +121,22 @@ input[type=range] { width: 100%; accent-color: var(--primary); cursor: pointer; 
 .speed-row button { padding: 6px 9px; border-radius: 7px; border: 1.5px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; font-size: 11px; font-weight: 700; font-family: var(--mono); }
 .speed-row button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
 
+.cf-target { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.cf-target small { font-weight: 400; color: var(--faint); font-size: 11px; }
+.cf-btn { width: 100%; padding: 9px 14px; border-radius: 9px; border: none; background: var(--accent); color: #fff; cursor: pointer; font-size: 13px; font-weight: 600; font-family: var(--sans); }
+.cf-btn:disabled { background: var(--muted); color: var(--faint); cursor: default; border: 1.5px solid var(--line); }
+.cf-out { margin-top: 10px; font-size: 12px; line-height: 1.45; }
+.cf-live { display: inline-block; padding: 2px 8px; border-radius: 20px; background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.cf-meta { color: var(--sub); margin-top: 5px; }
+.cf-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-family: var(--mono); font-size: 11px; }
+.cf-table th { text-align: right; font-weight: 600; color: var(--faint); padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.cf-table th:first-child, .cf-table td:first-child { text-align: left; }
+.cf-table td { text-align: right; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.cf-table td.p50 { color: var(--primary); font-weight: 700; }
+.cf-warn { margin-top: 6px; color: #92400e; background: #fef3c7; border-radius: 6px; padding: 5px 8px; }
+html.dark .cf-warn { color: #fcd34d; background: #451a03; }
+.cf-err { margin-top: 6px; color: #991b1b; background: #fee2e2; border-radius: 6px; padding: 6px 8px; }
+html.dark .cf-err { color: #fca5a5; background: #450a0a; }
 .hot-item { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); }
 .hot-item:last-child { border-bottom: none; }
 .hot-rank { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 14px; text-align: center; flex-shrink: 0; }
@@ -219,6 +235,16 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
         <button data-s="8">8×</button>
       </div>
     </div>
+  </div>
+
+  <hr class="sep"/>
+
+  <div id="cloudBox">
+    <div class="lbl">Cloud forecast · monthly · live</div>
+    <div class="cf-target" id="cfTarget">—</div>
+    <button class="cf-btn" id="cfBtn" type="button">Forecast on Cloud Run</button>
+    <div class="cf-out" id="cfOut" aria-live="polite"></div>
+    <div class="hint">Calls the SARIMA model deployed on Google Cloud Run. The forecast is monthly: the hour, day, weather and event controls above are illustrative and do not change it.</div>
   </div>
 
   <hr class="sep"/>
@@ -356,7 +382,8 @@ const VTA_LINES = [
 ];
 
 /* ── State ───────────────────────────────────────────────────── */
-const S = { sys:'bart', hour:8, dow:2, weather:'clear', event:'none', playing:false, speed:2 };
+const S = { sys:'bart', hour:8, dow:2, weather:'clear', event:'none', playing:false, speed:2, sel:null };
+let topNode = null;  /* hottest station at the current controls; the forecast target until one is picked */
 let R = null, timer;  /* R: the active map renderer (Google or Leaflet), null until one is up */
 
 /* ── Real BART station levels ────────────────────────────────── */
@@ -442,7 +469,7 @@ function calcHeat(stations) {
    small interface so redraw() and the controls do not care which one is live:
      clear()                      remove all lines and markers
      line(pts, color)             pts = [[lat,lng],…]
-     dot(s, v, col, hot, html)    station marker + click popup
+     dot(s, v, col, hot, html, onPick)  station marker + click popup; onPick runs on click
      view(sys)                    recentre for BART / VTA
      setDark(bool)                restyle for dark mode                      */
 const CENTER = { bart: [37.76, -122.27, 10], vta: [37.35, -121.92, 11] };
@@ -458,7 +485,15 @@ function popupHtml(s, v, col) {
           <div style="color:#666;font-size:12px;margin-bottom:4px">Type: ${s.type}</div>
           <div style="font-size:13px">Load index: <b style="color:${col}">${v.toFixed(2)}</b> <span style="color:#666;font-size:11px">(relative, illustrative)</span></div>
           ${s.real && s.real.avg_monthly_ridership != null ? `<div style="color:#666;font-size:12px;margin-top:4px">Avg monthly boardings (${monthName(s.real.first_month)}–${monthName(s.real.last_month)}): <b>${Math.round(s.real.avg_monthly_ridership).toLocaleString('en-US')}</b></div>` : ''}
+         ${cloudPopupLine(s)}
          </div>`;
+}
+
+/* Popup footer: BART stations with a code get a live Cloud Run forecast button. */
+function cloudPopupLine(s) {
+  if (!isBart(s)) return '<div style="color:#666;font-size:11px;margin-top:6px">No cloud forecast: the model covers BART stations only.</div>';
+  if (!(s.real && s.real.code)) return '';
+  return `<button type="button" onclick="cloudForecast('${s.id}')" style="margin-top:8px;padding:5px 10px;border:0;border-radius:6px;background:#ee6c4d;color:#fff;font-weight:600;font-size:12px;cursor:pointer">Forecast on Cloud Run ▸</button>`;
 }
 
 function googleRenderer() {
@@ -487,7 +522,7 @@ function googleRenderer() {
         strokeColor: color, strokeOpacity: 0.8, strokeWeight: 4,
       }));
     },
-    dot(s, v, col, hot, html) {
+    dot(s, v, col, hot, html, onPick) {
       const marker = new google.maps.Marker({
         position: { lat: s.lat, lng: s.lng }, map, title: s.nm,
         zIndex: hot ? 999 : Math.round(v * 100),
@@ -497,7 +532,7 @@ function googleRenderer() {
           strokeColor: '#ffffff', strokeWeight: hot ? 2.5 : 1.5,
         },
       });
-      marker.addListener('click', () => { info.setContent(html); info.open(map, marker); });
+      marker.addListener('click', () => { info.setContent(html); info.open(map, marker); if (onPick) onPick(); });
       markers.push(marker);
     },
     view(sys) { const c = CENTER[sys]; map.panTo({ lat: c[0], lng: c[1] }); map.setZoom(c[2]); },
@@ -526,15 +561,16 @@ function leafletRenderer() {
     name: 'leaflet', map,
     clear() { lines.clearLayers(); dots.clearLayers(); },
     line(pts, color) { L.polyline(pts, { color, weight: 4, opacity: 0.8 }).addTo(lines); },
-    dot(s, v, col, hot, html) {
+    dot(s, v, col, hot, html, onPick) {
       const sz = Math.round((8 + v * 10) * 2);
       const icon = L.divIcon({
         className: '',
         html: `<div class="stn-dot" title="${s.nm}" style="width:${sz}px;height:${sz}px;background:${col};opacity:${hot ? 0.95 : 0.82};border:${hot ? 2.5 : 1.5}px solid #fff"></div>`,
         iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2], popupAnchor: [0, -sz / 2],
       });
-      L.marker([s.lat, s.lng], { icon, title: s.nm, zIndexOffset: hot ? 1000 : Math.round(v * 100) })
+      const m = L.marker([s.lat, s.lng], { icon, title: s.nm, zIndexOffset: hot ? 1000 : Math.round(v * 100) })
         .bindPopup(html, { maxWidth: 260 }).addTo(dots);
+      if (onPick) m.on('click', onPick);
     },
     view(sys) { const c = CENTER[sys]; map.flyTo([c[0], c[1]], c[2], { duration: 0.6 }); },
     setDark(d) {
@@ -684,11 +720,12 @@ function redraw() {
     const v    = heat[i];
     const col  = heatColor(v);
     const hot  = top3.has(s.id);
-    R.dot(s, v, col, hot, popupHtml(s, v, col));
+    R.dot(s, v, col, hot, popupHtml(s, v, col), () => { S.sel = s.id; renderCloud(); });
   });
 
   /* sidebar stats */
   const top   = ranked[0];
+  topNode = top.s;
   const mean  = heat.reduce((a,v)=>a+v,0)/heat.length;
   const tier  = mean<0.45?'low':mean<0.95?'med':'high';
   const tLbl  = tier==='low'?'Off-peak':tier==='med'?'Building':'High';
@@ -712,6 +749,126 @@ function redraw() {
   document.querySelectorAll('#hourTicks span').forEach(sp=>
     sp.classList.toggle('on', Math.abs(+sp.dataset.h - S.hour) <= 1));
   document.querySelectorAll('#dowRow button').forEach((b,i)=>b.classList.toggle('on',i===S.dow));
+  renderCloud();
+}
+
+/* ── Cloud Run forecast ──────────────────────────────────────────
+   Live monthly SARIMA forecast for one BART station from the Cloud Run API.
+   The station's BART two-letter code is node.real.code from
+   data/stations_ridership.json (the feature store's station_id, which is what
+   the API's /stations lists). The panel is monthly and says so: the hour, day,
+   weather and event controls are illustrative and do not feed it.
+   Cold start: Cloud Run can take ~30 s to wake, so requests get 45 s, a
+   "waking" note appears after 1.5 s, and /health (the data-through caption) is
+   retried once. A failure shows an error in the panel; the map keeps working. */
+const DEFAULT_API = 'https://transit-api-308878596074.us-west2.run.app';
+const API_BASE = (() => {
+  /* ?api=http://localhost:8080 points the page at a local API for testing */
+  const q = new URLSearchParams(location.search).get('api');
+  try { if (q && /^https?:$/.test(new URL(q).protocol)) return q.replace(/\/+$/, ''); } catch (e) { /* use the default */ }
+  return DEFAULT_API;
+})();
+const CF_TIMEOUT_MS = 45000, CF_WAKING_MS = 1500;
+const C = { id: null, status: 'idle', data: null, health: null, err: null, waking: false, req: 0 };
+
+const isBart = s => BART.indexOf(s) !== -1;
+const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const kfmt = v => typeof v === 'number' && isFinite(v) ? (v / 1000).toFixed(v < 100000 ? 1 : 0) + 'k' : '—';
+
+function cloudTarget() {
+  const list = S.sys === 'bart' ? BART : VTA;
+  const picked = S.sel && list.find(n => n.id === S.sel);
+  return { node: picked || topNode, picked: !!picked };
+}
+
+function getHealth() {
+  const once = () => fetch(API_BASE + '/health', { signal: AbortSignal.timeout(CF_TIMEOUT_MS) })
+    .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)));
+  return once().catch(() => once()).catch(() => null);
+}
+
+function cloudForecast(id) {
+  const node = BART.find(n => n.id === id);
+  if (!node) return;
+  S.sel = id;
+  const code = node.real && node.real.code;
+  const req = ++C.req;
+  C.id = id; C.data = null; C.health = null; C.err = null; C.waking = false;
+  if (!code) {
+    C.status = 'error';
+    C.err = "This station's BART code is unavailable because data/stations_ridership.json did not load.";
+    renderCloud(); return;
+  }
+  C.status = 'loading';
+  setTimeout(() => { if (req === C.req && C.status === 'loading') { C.waking = true; renderCloud(); } }, CF_WAKING_MS);
+  renderCloud();
+  document.getElementById('cloudBox').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+  getHealth().then(h => { if (req === C.req) { C.health = h || { unavailable: true }; renderCloud(); } });
+  fetch(API_BASE + '/forecast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ station_id: code, horizon_hours: 6 }),
+    signal: AbortSignal.timeout(CF_TIMEOUT_MS),
+  })
+    .then(r => r.ok ? r.json() : r.json().catch(() => ({})).then(e => Promise.reject(new Error(
+      typeof e.detail === 'string' ? e.detail : 'The API answered HTTP ' + r.status))))
+    .then(data => { if (req !== C.req) return; C.data = data; C.status = 'ok'; renderCloud(); revealCloud(); })
+    .catch(err => {
+      if (req !== C.req) return;
+      const timedOut = err && err.name === 'TimeoutError';
+      const offline = err instanceof TypeError;  /* fetch could not reach the host */
+      C.err = timedOut ? 'The Cloud Run service did not answer within 45 s.'
+        : offline ? 'Could not reach the Cloud Run service (' + API_BASE + '). Check your connection and try again.'
+        : String(err.message || err);
+      C.status = 'error'; renderCloud(); revealCloud();
+    });
+}
+
+/* Scroll the sidebar so the result is on screen (not on every redraw: that would fight the user). */
+function revealCloud() { document.getElementById('cfOut').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+
+function monthLabel(f) { return String(f.timestamp || f.date || '').slice(0, 7) || '—'; }
+
+function throughLabel(h) {
+  const m = h && typeof h.store_last_month === 'string' && /^(\d{4})-(\d{2})/.exec(h.store_last_month);
+  if (!m) return null;
+  return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m[2] - 1] + ' ' + m[1];
+}
+
+function renderCloud() {
+  const { node, picked } = cloudTarget();
+  const tgt = document.getElementById('cfTarget'), btn = document.getElementById('cfBtn'), out = document.getElementById('cfOut');
+  if (!node) { tgt.textContent = '—'; btn.disabled = true; out.innerHTML = ''; return; }
+  const bart = isBart(node);
+  tgt.innerHTML = esc(node.nm) + ' <small>' + (picked ? '(selected)' : '(hottest now · click a station to choose)') + '</small>';
+  btn.disabled = !bart || C.status === 'loading';
+  btn.textContent = !bart ? 'No forecast for VTA' : C.status === 'loading' ? 'Calling Cloud Run…' : 'Forecast ' + node.nm + ' on Cloud Run';
+  btn.onclick = bart ? () => cloudForecast(node.id) : null;
+  if (!bart) { out.innerHTML = '<div class="cf-meta">VTA stations have no forecast: the deployed model covers BART\'s 50 stations only.</div>'; return; }
+  if (C.id !== node.id || C.status === 'idle') { out.innerHTML = ''; return; }
+  if (C.status === 'loading') {
+    out.innerHTML = '<div class="cf-meta">' + (C.waking ? 'Waking the cloud service… the first request after idle can take up to 30 s.' : 'Requesting a forecast…') + '</div>';
+    return;
+  }
+  if (C.status === 'error') { out.innerHTML = '<div class="cf-err"><b>Forecast failed.</b> ' + esc(C.err) + ' The map still works; try again.</div>'; return; }
+  const d = C.data, rows = Array.isArray(d.forecasts) ? d.forecasts : [];
+  const through = C.health ? throughLabel(C.health) : null;
+  const origin = through ? 'Forecast from data through ' + esc(through)
+    : C.health ? 'Forecast origin not reported by this API revision'
+    : 'Reading the forecast origin from /health…';
+  const label = d.interval && typeof d.interval.label === 'string' ? d.interval.label : null;
+  const warns = Array.isArray(d.warnings) ? d.warnings : [];
+  out.innerHTML =
+    '<span class="cf-live">Ran live on Cloud Run</span>' +
+    '<div class="cf-meta"><b>Model:</b> ' + esc(d.model || 'not reported') + '</div>' +
+    '<div class="cf-meta"><b>Band:</b> ' + esc(label || 'not labelled by this API version') + '</div>' +
+    '<div class="cf-meta">' + origin + '</div>' +
+    '<table class="cf-table"><tr><th>Month</th><th>P10</th><th>P50</th><th>P90</th></tr>' +
+    rows.map(f => '<tr><td>' + esc(monthLabel(f)) + '</td><td>' + kfmt(f.p10) + '</td><td class="p50">' + kfmt(f.p50) + '</td><td>' + kfmt(f.p90) + '</td></tr>').join('') +
+    '</table>' +
+    '<div class="cf-meta">Monthly boardings per station, not hourly.</div>' +
+    warns.map(w => '<div class="cf-warn">' + esc(w) + '</div>').join('');
 }
 
 /* ── Controls ────────────────────────────────────────────────── */
@@ -740,6 +897,7 @@ function segListen(id, attr, stateKey) {
     document.querySelectorAll('#'+id+' button').forEach(btn=>btn.classList.toggle('on',btn===b));
     if(stateKey==='sys'){
       if (R) R.view(S.sys);
+      S.sel = null;  /* a BART pick means nothing on the VTA map, and vice versa */
       document.getElementById('eventHint').textContent = S.sys==='bart'
         ? 'Boosts Coliseum & 12th St / Oakland.'
         : "Boosts Diridon (SAP), Great America, Old Ironsides (VTA).";
