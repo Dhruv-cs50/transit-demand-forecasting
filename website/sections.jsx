@@ -161,7 +161,9 @@ const AtAGlance = () => {
 /* ── Methodology: five rows, each a rail (step, title, tools) + a short body ── */
 const Method = () => {
   const hs = headlineStats(useSiteData('model_comparison.json'), useSiteData('forecasts.json'));
-  const halfYears = REVIEW_HALF_YEARS.map(h => h.wape).join(' / ');
+  const hy = halfYearFigures(backtestStats(useSiteJson('backtest_windows.json')));
+  const halfYears = hy.rows.map(h => h.wape).join(' / ');
+  const hyWord = ['', 'one', 'two', 'three', 'four', 'five'][hy.rows.length] || String(hy.rows.length);
   const flow = ['Cloud Scheduler (daily)', 'Cloud Run job', 'Cloud Storage', '10-check publish gate', 'Published feature store'];
   const steps = [
     { ic: <I.database />, n:'01', t:'Data ingestion', tools:['BART reports','Open-Meteo','Cloud Run job','Cloud Storage','Parquet'],
@@ -191,9 +193,9 @@ const Method = () => {
       bullets:[
         'Scored with WAPE, MAE and P10/P90 interval coverage across all 50 BART stations.',
         'Point forecasts were never tuned on the test window. Interval methods were revised after three looks at it, and the intervals are not yet calibrated.',
-        `The same SARIMA scored ${halfYears}% WAPE on three half-year holdouts (${REVIEW_HALF_YEARS.map(h => h.window).join(', ')}); the headline figure is the best of the three.`,
+        `The same SARIMA scored ${halfYears}% WAPE on ${hyWord} half-year holdouts (${hy.rows.map(h => h.window).join(', ')}); the headline figure is ${hy.latestBest ? 'the best' : 'not the best'} of the ${hyWord}.`,
       ],
-      details:'The two earlier half-year figures come from the project review of 2026-10-28 (docs/review-2026-10-28.md), not from the exported site data.' },
+      details: hy.fromReview ? 'The two earlier half-year figures come from the project review of 2026-10-28 (docs/review-2026-10-28.md), not from the exported site data.' : 'The half-year figures come from backtest_windows.json, which runs every model on each of the holdout windows.' },
     { ic: <I.chart />, n:'05', t:'Deployment', tools:['FastAPI','Cloud Run','React','JSON'],
       head:'A Cloud Run API for live forecasts; a static site for everything else.',
       bullets:[
@@ -316,6 +318,7 @@ const Dataset = () => {
    BAND_POOL_WINDOW names those origins, shown only under its label. */
 const BAND_FIT_WINDOW = 'Jan–Jun 2025';
 const BAND_POOL_WINDOW = 'Dec 2023 – May 2025';
+const BAND_FIT_END = 'Jun 2025';  // val_end: calibrators are fit on data through this month
 const bandKind = records => {
   const labels = [...new Set((Array.isArray(records) ? records : []).map(r =>
     r && typeof r.interval_method === 'string' && r.interval_method ? r.interval_method : null))];
@@ -325,6 +328,8 @@ const bandKind = records => {
     label,
     conformal: !!label && /^split-conformal \S+, fit on validation$/.test(label),
     shifted: !!label && /^bias-shifted rolling-origin conformal \S+, .+, fit on data to val_end$/.test(label),
+    // A rolling-origin conformal band (Prophet, seasonal naive): set from the model's own recent errors on data to val_end.
+    rolling: !!label && /^rolling-origin conformal \S+, .+, fit on data to val_end$/.test(label),
     rawReason: raw ? raw[1] : null,
     labelled: labels.some(l => l !== null),
   };
@@ -361,13 +366,15 @@ const Results = () => {
   // forecasts.json comes from the shared loader (fcRes above), so the page
   // still makes one request for it.
   const FC = FC_MODELS[fcModel];
-  const sarRes = useSiteData('forecasts_sarima.json');
-  const fcRecords = siteRows(fcModel === 'sarima' ? sarRes : fcRes);
+  const fcFiles = useFcFiles();
+  const fcRecords = siteRows(fcFiles[fcModel]);
   const chartBand = bandKind(fcRecords);
   const chartBandNote = chartBand.conformal
     ? ` · P10–P90 range set from the model's errors on ${BAND_FIT_WINDOW}, not a validated 80% interval`
     : chartBand.shifted
       ? ` · P10–P90 range re-centred on the model's recent errors (forecasts made ${BAND_POOL_WINDOW})`
+    : chartBand.rolling
+      ? ` · P10–P90 range set from the model's recent errors on data through ${BAND_FIT_END}, not a validated 80% interval`
     : chartBand.rawReason
       ? " · P10–P90 is the model's own band, not a validated 80% interval"
       : '';
@@ -395,8 +402,8 @@ const Results = () => {
             </div>
             {chart === 'cal' && (
               <div className="chip-grp" role="group" aria-label="Forecast model" style={{ marginBottom: 10 }}>
-                {Object.values(FC_MODELS).map(m => (
-                  <button key={m.key} className={fcModel===m.key?'on':''} onClick={()=>setFcModel(m.key)}>{m.short}</button>
+                {FC_ORDER.map(k => (
+                  <button key={k} className={fcModel===k?'on':''} onClick={()=>setFcModel(k)}>{FC_MODELS[k].short}</button>
                 ))}
               </div>
             )}
@@ -494,8 +501,21 @@ const REVIEW_HALF_YEARS = [
   { window:'Jul–Dec 2025', wape:'3.21' },
 ];
 
+/* SARIMA's WAPE on each half-year holdout, oldest first, for the Method and
+   Benchmarks copy: from backtest_windows.json when it is usable (bt from
+   backtestStats), else the review's three figures (fromReview). `latestBest`
+   is whether the latest window's figure is the lowest of them. */
+const halfYearFigures = bt => {
+  const w = sarimaAcrossWindows(bt);
+  const rows = w && w.length > 1 ? w.map(x => ({ window: x.label, wape: x.wape.toFixed(2) })) : REVIEW_HALF_YEARS;
+  const v = rows.map(r => +r.wape);
+  return { rows, fromReview: !(w && w.length > 1), latestBest: v[v.length - 1] === Math.min(...v) };
+};
+
 /* ── Benchmarks + Recommendations ──────────────────────────────── */
 const Benchmarks = () => {
+  const hy = halfYearFigures(backtestStats(useSiteJson('backtest_windows.json')));
+  const hyWord = ['', 'one', 'two', 'three', 'four', 'five'][hy.rows.length] || String(hy.rows.length);
   const cmpRes = useSiteData('model_comparison.json');
   const cmpFailed = siteFailed(cmpRes);
   const cmpData = cmpRes ? siteRows(cmpRes).filter(Boolean) : null;
@@ -577,8 +597,9 @@ const Benchmarks = () => {
               </tbody>
             </table>
             <p className="text-muted" style={{ fontSize: 13, margin:0, padding:'14px 18px 16px', borderTop:'1px solid var(--line)' }}>
-              The same SARIMA, refit on earlier half-year holdouts, scored {REVIEW_HALF_YEARS.map(h => `${h.wape}% WAPE (${h.window})`).join(', ')}.
-              The headline figure is the best of the three. These two earlier figures come from the project review of 2026-10-28 (docs/review-2026-10-28.md), not from the exported data above.
+              The same SARIMA, refit on earlier half-year holdouts, scored {hy.rows.map(h => `${h.wape}% WAPE (${h.window})`).join(', ')}.
+              {` The headline figure is ${hy.latestBest ? 'the best' : 'not the best'} of the ${hyWord}. `}
+              {hy.fromReview ? 'The earlier figures come from the project review of 2026-10-28 (docs/review-2026-10-28.md), not from the exported data above.' : 'All of them come from backtest_windows.json, which runs every model on each window.'}
             </p>
           </Reveal>
         </div>
@@ -612,6 +633,159 @@ const Benchmarks = () => {
         </div>
       </section>
     </>
+  );
+};
+
+/* ── Why SARIMA: every model, three windows ────────────────────────
+   Everything on this panel is read from the data: the per-model figures from
+   model_comparison.json (the latest window), "stations SARIMA beats" and the
+   three-window table from backtest_windows.json, the chart from the four
+   forecast exports. The lede says which windows SARIMA won and names any it
+   lost; nothing here assumes SARIMA is first. */
+const WhySarima = () => {
+  const cmpRes = useSiteData('model_comparison.json');
+  const btRes = useSiteJson('backtest_windows.json');
+  const files = useFcFiles();
+  const bt = backtestStats(btRes);
+  const cmp = siteRows(cmpRes).filter(r => r && modelKey(r.model) && typeof r.WAPE_pct === 'number');
+  const cmpBy = {}; cmp.forEach(r => { cmpBy[modelKey(r.model)] = r; });
+  const stationCount = new Set(siteRows(files.sarima).map(r => r && r.station_id).filter(Boolean)).size;
+  const fcSpan = monthSpan(siteRows(files.sarima));
+  const name = k => FC_MODELS[k].short;
+  const f2 = v => (typeof v === 'number' && isFinite(v) ? v.toFixed(2) + '%' : '—');
+
+  const ok = bt && !bt.failed;
+  const last = ok ? bt.windows[bt.windows.length - 1] : null;
+  const lastRows = ok ? bt.byWin[last.id] : {};
+
+  // Lede: which windows SARIMA won, and which it lost.
+  let lede;
+  if (!btRes) lede = 'Loading the backtest…';
+  else if (!ok) lede = `The backtest (backtest_windows.json) could not be used${bt.reason ? ` (${bt.reason})` : ''}, so only the latest window is compared here. Reload the page to try again.`;
+  else {
+    const N = bt.windows.length;
+    const lost = bt.windows.filter(w => bt.bestByWindow[w.id] !== 'sarima');
+    const word = ['zero', 'one', 'two', 'three', 'four', 'five'][N] || String(N);
+    const gaps = bt.windows.filter(w => bt.bestByWindow[w.id] === 'sarima').map(w => {
+      const others = Object.entries(bt.byWin[w.id]).filter(([k]) => k !== 'sarima').map(([, v]) => v.wape);
+      return others.length ? Math.min(...others) - bt.byWin[w.id].sarima.wape : null;
+    }).filter(v => v != null);
+    if (!lost.length) {
+      lede = `SARIMA has the lowest WAPE in all ${word} half-year windows (${bt.windows.map(w => `${w.label}: ${f2(bt.byWin[w.id].sarima.wape)}`).join('; ')}).`
+        + (gaps.length ? ` Its lead over the next-best model is ${Math.min(...gaps).toFixed(2)}–${Math.max(...gaps).toFixed(2)} percentage points.` : '');
+    } else {
+      lede = `SARIMA has the lowest WAPE in ${N - lost.length} of ${N} half-year windows. `
+        + lost.map(w => { const bk = bt.bestByWindow[w.id]; return `In ${w.label}, ${name(bk)} was lower (${f2(bt.byWin[w.id][bk].wape)} against SARIMA's ${f2(bt.byWin[w.id].sarima.wape)}).`; }).join(' ');
+    }
+  }
+
+  // Consistency: the backtest's latest window must agree with the leaderboard.
+  const mismatches = ok ? Object.keys(lastRows).filter(k => cmpBy[k] && Math.abs(lastRows[k].wape - cmpBy[k].WAPE_pct) > 0.06) : [];
+
+  const models = ok ? bt.models : FC_ORDER.filter(k => cmpBy[k]);
+  const beatsCell = k => {
+    if (k === 'sarima') return '—';
+    const b = ok && lastRows[k] ? lastRows[k].beats : null;
+    return b != null ? `${b}${stationCount ? ` of ${stationCount}` : ''} stations` : '—';
+  };
+  const bestLatest = cmp.length ? cmp.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a)) : null;
+
+  return (
+    <section id="why-sarima">
+      <div className="wrap">
+        <div className="section-h">
+          <Reveal><div className="eyebrow"><span className="pip" /> Why SARIMA</div></Reveal>
+          <Reveal delay="1"><div className="row">
+            <h2>{`Four models${ok ? `, ${['', 'one', 'two', 'three', 'four', 'five'][bt.windows.length] || bt.windows.length} half-year windows` : ''}: how they compare.`}</h2>
+            <p className="lede" style={{ maxWidth:'60ch' }}>{lede}</p>
+          </div></Reveal>
+        </div>
+
+        <div className="results-grid">
+          <Reveal className="card chart-card">
+            <div className="chart-head">
+              <div>
+                <h3>Each model, latest window</h3>
+                <p>{ok ? `${last.label} · ` : ''}{cmp.length && cmp[0].n_predictions ? `${fmtInt(cmp[0].n_predictions)} station-months · ` : ''}scored by model_comparison.json</p>
+              </div>
+            </div>
+            <div style={{ overflowX:'auto' }}>
+              <table className="why-table">
+                <thead><tr><th>Model</th><th>WAPE</th><th>MAE</th><th title="Share of station-months inside the model's own P10–P90 band; the nominal level is 80%">Coverage</th><th>SARIMA beats it at</th></tr></thead>
+                <tbody>
+                  {(cmp.length ? FC_ORDER.filter(k => cmpBy[k]) : []).map(k => {
+                    const r = cmpBy[k];
+                    return (
+                      <tr key={k} className={bestLatest && r === bestLatest ? 'best' : ''}>
+                        <td className="model">{name(k)}</td>
+                        <td className="num">{fmtPct(r.WAPE_pct)}</td>
+                        <td className="num">{fmtK(r.MAE)}</td>
+                        <td className="num">{typeof r.Coverage_pct === 'number' ? `${Math.round(r.Coverage_pct)}%` : '—'}</td>
+                        <td className="num">{beatsCell(k)}</td>
+                      </tr>
+                    );
+                  })}
+                  {!cmpRes && <tr><td colSpan={5} style={{ textAlign:'center', color:'var(--ink-muted)' }}>Loading…</td></tr>}
+                  {siteFailed(cmpRes) && <tr><td colSpan={5} style={{ textAlign:'center', color:'var(--ink-muted)' }}>model_comparison.json could not be loaded.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-muted" style={{ fontSize:12 }}>
+              Coverage is the share of station-months inside each model's own P10–P90 band (nominal level 80%).
+              {ok ? '' : ' “SARIMA beats it at” needs the backtest, which is not loaded.'}
+              {mismatches.length ? ` Check: backtest_windows.json's ${last.label} figure differs from the leaderboard for ${mismatches.map(name).join(', ')}.` : ''}
+            </p>
+          </Reveal>
+          <Reveal delay="1" className="card chart-card">
+            <div className="chart-head">
+              <div>
+                <h3>Embarcadero — all four forecasts</h3>
+                <p>P50 of each model against actual riders{fcSpan ? ` · ${fcSpan.range}` : ''} · the highest-volume BART station</p>
+              </div>
+            </div>
+            <div><ModelCompare width={460} height={300} /></div>
+          </Reveal>
+        </div>
+
+        {ok && (
+          <Reveal className="card bench" style={{ marginTop:24 }}>
+            <div style={{ overflowX:'auto' }}>
+              <table className="why-windows">
+                <thead>
+                  <tr>
+                    <th>Model · WAPE</th>
+                    {bt.windows.map(w => <th key={w.id} className="r">{w.label}<span className="wid">{w.id}{typeof bt.byWin[w.id].sarima.n === 'number' ? ` · n = ${fmtInt(bt.byWin[w.id].sarima.n)}` : ''}</span></th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {bt.models.map(k => (
+                    <tr key={k}>
+                      <td className="model">{name(k)}</td>
+                      {bt.windows.map(w => {
+                        const v = bt.byWin[w.id][k];
+                        const win = bt.bestByWindow[w.id] === k;
+                        return (
+                          <td key={w.id} className={`num${win ? ' win' : ''}`}>
+                            {v ? <>
+                              <b>{f2(v.wape)}</b>
+                              <span className="sub">{[v.mae != null && `MAE ${fmtK(v.mae)}`, v.cov != null && `cov ${Math.round(v.cov)}%`].filter(Boolean).join(' · ') || ' '}</span>
+                            </> : '—'}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-muted" style={{ fontSize:13, margin:0, padding:'14px 18px 16px', borderTop:'1px solid var(--line)' }}>
+              Lowest WAPE in each window is shaded. Each model was run on the same three half-year holdouts; coverage (“cov”) is each model's own P10–P90 band in that window (nominal 80%), and calibrators fit on data through {BAND_FIT_END} are not applied to earlier windows, which would leak.
+              {typeof bt.source === 'string' && bt.source ? ` Source: ${bt.source}` : ''}{typeof bt.generatedBy === 'string' && bt.generatedBy ? ` (${bt.generatedBy})` : ''}.
+            </p>
+          </Reveal>
+        )}
+      </div>
+    </section>
   );
 };
 
@@ -743,12 +917,10 @@ const API_BASE = 'https://transit-api-308878596074.us-west2.run.app';
 const BARTForecasts = () => {
   // Each file's load result is kept, so a failed fetch is told apart from a
   // file that loaded and is empty.
-  // SARIMA (the best model) is the default; the toggle switches to Chronos-1.
+  // SARIMA is the default; the toggle switches between the four models.
   const [fcModel, setFcModel] = React.useState('sarima');
   const FC = FC_MODELS[fcModel];
-  const sarRes  = useSiteData('forecasts_sarima.json');
-  const chrRes  = useSiteData('forecasts.json');
-  const fcRes   = fcModel === 'sarima' ? sarRes : chrRes;
+  const fcRes   = useFcFiles()[fcModel];
   const acRes   = useSiteData('ridership_actuals.json');
   const cmpRes  = useSiteData('model_comparison.json');
   const metaRes = useSiteData('stations_meta.json');
@@ -756,6 +928,9 @@ const BARTForecasts = () => {
   const forecasts  = siteRows(fcRes).filter(r => r && typeof r.month === 'string');
   const actuals    = siteRows(acRes).filter(r => r && typeof r.month === 'string');
   const comparison = siteRows(cmpRes).filter(Boolean);
+  // The model the leaderboard ranks first; labelled on its toggle button.
+  const bestRow = comparison.filter(r => typeof r.WAPE_pct === 'number').reduce((a, b) => (!a || b.WAPE_pct < a.WAPE_pct ? b : a), null);
+  const bestModelKey = bestRow ? modelKey(bestRow.model) : null;
   const meta       = siteRows(metaRes).filter(m => m && m.bart_id);
   const fcFailed = siteFailed(fcRes);
   const acFailed = siteFailed(acRes);
@@ -911,6 +1086,9 @@ const BARTForecasts = () => {
       ? `The P10–P90 range is re-centred on the model's recent errors (forecasts made ${BAND_POOL_WINDOW}, `
         + `scored on actuals through Jun 2025)`
         + (bandCoverage ? `.${bandCoverage}` : ', but it is not a validated 80% interval.')
+    : band.rolling
+      ? `The P10–P90 range is set from the model's recent errors on data through ${BAND_FIT_END}`
+        + (bandCoverage ? `.${bandCoverage}` : ', but it is not a validated 80% interval.')
     : band.rawReason
       ? `P10/P90 is the model's own band (${band.rawReason}), not a validated 80% interval.${bandCoverage}`
       : band.labelled
@@ -939,7 +1117,7 @@ const BARTForecasts = () => {
         <Reveal className="card" style={{ padding:'24px', marginBottom:24 }}>
           <div role="group" aria-label="Forecast model" style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:14, alignItems:'center', fontSize:13 }}>
             <span style={{ color:'var(--ink-muted)' }}>Forecasts from:</span>
-            {Object.values(FC_MODELS).map(m => (
+            {FC_ORDER.map(k => FC_MODELS[k]).map(m => (
               <button key={m.key}
                 onClick={() => setFcModel(m.key)}
                 style={{
@@ -948,7 +1126,7 @@ const BARTForecasts = () => {
                   color: fcModel===m.key ? 'var(--bg)' : 'var(--ink)',
                   cursor:'pointer', fontSize:13, fontWeight:500,
                 }}>
-                {m.short}{m.key==='sarima' ? ' (best model)' : ''}
+                {m.short}{m.key===bestModelKey ? ' (best model)' : ''}
               </button>
             ))}
           </div>
@@ -1114,4 +1292,4 @@ const BARTForecasts = () => {
   );
 };
 
-Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, EDAViz, About, Footer, BARTForecasts });
+Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, WhySarima, EDAViz, About, Footer, BARTForecasts });
