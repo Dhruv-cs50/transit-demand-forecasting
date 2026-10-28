@@ -454,7 +454,7 @@ def test_gcs_maps_412_to_precondition_failed(gcs, tmp_path):
         s.delete("k", if_generation_match=999)
 
 
-def test_gcs_download_pins_generation_and_sets_mtime(gcs, tmp_path):
+def test_gcs_download_sets_mtime_and_adds_no_precondition(gcs, tmp_path):
     s, fake = gcs
     info = s.write_bytes("raw/weather/w", b"abc", if_generation_match=0)
     dest = tmp_path / "x" / "w"
@@ -462,8 +462,10 @@ def test_gcs_download_pins_generation_and_sets_mtime(gcs, tmp_path):
     assert dest.read_bytes() == b"abc"
     assert got.generation == info.generation
     assert dest.stat().st_mtime == pytest.approx(info.updated.timestamp(), abs=1e-3)
-    # The bytes fetched are the generation that was described.
-    assert ("download_to_filename", "raw/weather/w", info.generation) in fake.calls
+    # The client pins the generation itself (blob.generation is a query
+    # parameter); a precondition here would turn a concurrent overwrite into
+    # PreconditionFailed, which callers read as "lost the publish race".
+    assert ("download_to_filename", "raw/weather/w", None) in fake.calls
 
 
 def test_gcs_download_missing(gcs, tmp_path):

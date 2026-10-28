@@ -321,8 +321,11 @@ class GcsStorage:
             if blob is None:
                 raise FileNotFoundError(f"no such object: {name}")
             part = dest.with_name(dest.name + ".part")
-            # Pin the generation so the bytes are the ones just described.
-            blob.download_to_filename(str(part), if_generation_match=blob.generation)
+            # get_blob() returns a blob carrying its generation, and the client
+            # sends it as the `generation` query parameter, so the bytes are the
+            # generation just described. No precondition: a concurrent overwrite
+            # must not surface as PreconditionFailed (that means a lost race).
+            blob.download_to_filename(str(part))
         os.replace(part, dest)
         ts = blob.updated.timestamp()
         os.utime(dest, (ts, ts))
@@ -342,7 +345,7 @@ class GcsStorage:
                 blob = bucket.get_blob(name)
                 if blob is None:
                     return None
-                data = blob.download_as_bytes(if_generation_match=blob.generation)
+                data = blob.download_as_bytes()  # pinned to blob.generation, see download()
         except FileNotFoundError:  # deleted between get_blob and download
             return None
         return data, int(blob.generation)
