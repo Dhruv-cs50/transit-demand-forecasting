@@ -76,7 +76,9 @@ const Nav = ({ dark, onToggleDark }) => {
 };
 
 /* ── Hero ──────────────────────────────────────────────────────── */
-const Hero = () => (
+const Hero = () => {
+  const hs = headlineStats(useSiteData('model_comparison.json'), useSiteData('forecasts.json'));
+  return (
   <section id="overview">
     <div className="wrap hero-grid">
       <Reveal>
@@ -110,26 +112,30 @@ const Hero = () => (
           <div className="float-card" style={{ top: '6%', left: '-4%' }}>
             <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>ALL 50 STATIONS</div>
             <div style={{ display:'flex', alignItems:'baseline', gap:8 }}>
-              <div className="mono" style={{ fontSize: 22, fontWeight:600, color:'var(--accent)' }}>3.2%</div>
+              <div className="mono" style={{ fontSize: 22, fontWeight:600, color:'var(--accent)' }}>{hs ? fmtPct(hs.best.WAPE_pct) : '—'}</div>
               <div style={{ fontSize: 12, color:'var(--ink-muted)' }}>WAPE · best model</div>
             </div>
-            <div style={{ fontSize: 11, color:'var(--ink-soft)' }}>SARIMA · Jul–Dec 2025 holdout</div>
+            <div style={{ fontSize: 11, color:'var(--ink-soft)' }}>{hs ? `${shortModel(hs.best.model)} · ${holdoutLabel(hs)}` : '—'}</div>
           </div>
           <div className="float-card b" style={{ bottom:'4%', right:'-4%' }}>
-            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>MODEL · SARIMA</div>
-            <div className="mono" style={{ fontSize: 13, fontWeight:600 }}>MAE 3,086</div>
+            <div className="mono" style={{ fontSize: 11, color:'var(--ink-muted)' }}>MODEL · {hs ? shortModel(hs.best.model).toUpperCase() : '—'}</div>
+            <div className="mono" style={{ fontSize: 13, fontWeight:600 }}>MAE {hs ? fmtInt(hs.best.MAE) : '—'}</div>
             <div style={{ fontSize: 11, color:'var(--ink-soft)' }}>6-mo horizon · 50 BART stations</div>
           </div>
         </div>
       </Reveal>
     </div>
   </section>
-);
+  );
+};
 
 /* ── At-a-glance metrics ───────────────────────────────────────── */
 const AtAGlance = () => {
+  const hs = headlineStats(useSiteData('model_comparison.json'), useSiteData('forecasts.json'));
   const items = [
-    { ic: <I.target />, num: '3.2', unit:'% WAPE', lbl:'SARIMA best model — vs 5.8% Prophet', delta:'Jul–Dec 2025 holdout · 300 station-months' },
+    { ic: <I.target />, num: hs ? hs.best.WAPE_pct.toFixed(1) : '—', unit:'% WAPE',
+      lbl: hs ? `${shortModel(hs.best.model)} best model${hs.prophet && hs.prophet !== hs.best ? ` — vs ${fmtPct(hs.prophet.WAPE_pct)} Prophet` : ''}` : 'Best model',
+      delta: hs ? `${holdoutLabel(hs)}${hs.n != null ? ` · ${fmtInt(hs.n)} station-months` : ''}` : 'loading…' },
     { ic: <I.chart />, num: '50', unit:' stations', lbl:'Full BART network covered', delta:'All OD pairs · Bay Area' },
     { ic: <I.database />, num: '3,000', unit:' mo', lbl:'Station-month ridership records', delta:'2019 + 2022–2025 BART OD' },
     { ic: <I.bus />, num: '3', unit:' quantiles', lbl:'P10 / P50 / P90 per station', delta:'Intervals not calibrated yet', dn:true },
@@ -283,6 +289,12 @@ const Results = () => {
   const cmpRes = useSiteData('model_comparison.json');
   const fcRes = useSiteData('forecasts.json');
   const split = comparisonSplit(fcRes, cmpRes);
+  const hs = headlineStats(cmpRes, fcRes);
+  const sar = hs && hs.sarima;
+  const ahead = hs ? [
+    hs.prophet && hs.prophet !== hs.best && `Prophet at ${fmtPct(hs.prophet.WAPE_pct)}`,
+    hs.naive && hs.naive !== hs.best && `a seasonal-naïve baseline at ${fmtPct(hs.naive.WAPE_pct)}`,
+  ].filter(Boolean) : [];
   const cmpRows = siteRows(cmpRes).filter(r => r && r.WAPE_pct != null);
   const bestRow = cmpRows.length ? cmpRows.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a)) : null;
   const bestNote = bestRow ? `best of ${cmpRows.length} models`
@@ -314,7 +326,7 @@ const Results = () => {
           <Reveal><div className="eyebrow"><span className="pip" /> Results</div></Reveal>
           <Reveal delay="1"><div className="row">
             <h2>Accurate point forecasts across all 50 stations.</h2>
-            <p className="lede" style={{ maxWidth:'46ch' }}>SARIMA reaches 3.2% WAPE on a Jul–Dec 2025 holdout never used for model selection, ahead of Prophet at 5.8% and a seasonal-naïve baseline at 10.8%. Prediction intervals are not yet calibrated — see the note below.</p>
+            <p className="lede" style={{ maxWidth:'46ch' }}>{hs ? `${shortModel(hs.best.model)} reaches ${fmtPct(hs.best.WAPE_pct)} WAPE on a ${holdoutLabel(hs)} never used for model selection${ahead.length ? `, ahead of ${ahead.join(' and ')}` : ''}.` : 'Loading the model comparison…'} Prediction intervals are not yet calibrated — see the note below.</p>
           </div></Reveal>
         </div>
         <div className="results-grid">
@@ -335,17 +347,17 @@ const Results = () => {
             <div className="chart-head">
               <div>
                 <h3>Forecast error bands</h3>
-                <p>Station-months · test period Jul–Dec 2025 · 50 BART stations</p>
+                <p>Station-months · test period{hs && hs.window ? ` ${hs.window}` : ''} · 50 BART stations</p>
               </div>
             </div>
             <div className="cm">
               <div className="cm-cell tp"><div className="v">{bestRow ? bestRow.WAPE_pct.toFixed(1) + '%' : '—'}</div><div className="l">WAPE · {bestRow ? bestRow.model : 'best model'}</div><div className="text-muted" style={{ fontSize:11 }}>{bestNote}</div></div>
-              <div className="cm-cell tn"><div className="v">3.1k</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>vs 5.5k Prophet</div></div>
-              <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>74–97% vs nominal 80%</div></div>
+              <div className="cm-cell tn"><div className="v">{hs ? fmtK(hs.best.MAE) : '—'}</div><div className="l">MAE (riders/mo)</div><div className="text-muted" style={{ fontSize:11 }}>{hs && hs.prophet && hs.prophet !== hs.best ? `vs ${fmtK(hs.prophet.MAE)} Prophet` : ''}</div></div>
+              <div className="cm-cell fp"><div className="v">P10/P90</div><div className="l">not calibrated</div><div className="text-muted" style={{ fontSize:11 }}>{hs && hs.covLo != null ? `${Math.round(hs.covLo)}–${Math.round(hs.covHi)}% ` : ''}vs nominal 80%</div></div>
               <div className="cm-cell fn"><div className="v">50 sta.</div><div className="l">all BART stations</div><div className="text-muted" style={{ fontSize:11 }}>no station excluded</div></div>
             </div>
             <div className="text-muted" style={{ fontSize: 13 }}>
-              SARIMA airline (0,1,1)(0,1,1,12): WAPE 3.21% · MAE 3,086 riders/month · Jul–Dec 2025 holdout · 300 station-months
+              {`SARIMA airline (0,1,1)(0,1,1,12): WAPE ${fmtPct(sar && sar.WAPE_pct)} · MAE ${fmtInt(sar && sar.MAE)} riders/month · ${holdoutLabel(hs)}${hs && hs.n != null ? ` · ${fmtInt(hs.n)} station-months` : ''}`}
             </div>
           </Reveal>
         </div>
@@ -419,6 +431,20 @@ const Benchmarks = () => {
   const cmpRes = useSiteData('model_comparison.json');
   const cmpFailed = siteFailed(cmpRes);
   const cmpData = cmpRes ? siteRows(cmpRes).filter(Boolean) : null;
+  const hs = headlineStats(cmpRes, useSiteData('forecasts.json'));
+  const benchScope = hs ? [hs.window, hs.n != null && `${fmtInt(hs.n)} station-months`].filter(Boolean).join(', ') : '';
+  const benchLede = `All models evaluated on the same temporal split${benchScope ? ` (${benchScope})` : ''} — a holdout not used for model selection. Lower WAPE and MAE is better.`
+    + (hs ? ` ${shortModel(hs.best.model)} reaches ${fmtPct(hs.best.WAPE_pct)} WAPE${hs.prophet && hs.prophet !== hs.best ? `, ahead of Prophet at ${fmtPct(hs.prophet.WAPE_pct)}` : ''}.` : '');
+  // Chronos recommendation: figures from the comparison; the ranking claims are
+  // kept only while the numbers still say so.
+  const chr = hs && hs.chronos;
+  const chrRank = chr ? [
+    hs.naive && chr.WAPE_pct < hs.naive.WAPE_pct && `ahead of seasonal-naïve at ${fmtPct(hs.naive.WAPE_pct)}`,
+    hs.sarima && hs.prophet && chr.WAPE_pct > hs.sarima.WAPE_pct && chr.WAPE_pct > hs.prophet.WAPE_pct && 'behind both classical baselines',
+  ].filter(Boolean) : [];
+  const chronosRec = chr
+    ? `Zero-shot Chronos-1 (chronos-t5-small) scores ${fmtPct(chr.WAPE_pct)} WAPE here${chrRank.length ? ` — ${chrRank.join(', ')}` : ''}. It also runs univariate, since the pipeline cannot pass covariates to this checkpoint. Fixing that, then fine-tuning per station cluster, is the path worth testing.`
+    : 'Zero-shot Chronos-1 (chronos-t5-small) runs univariate, since the pipeline cannot pass covariates to this checkpoint. Fixing that, then fine-tuning per station cluster, is the path worth testing.';
 
   const fmtN = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(Math.round(n));
 
@@ -445,7 +471,7 @@ const Benchmarks = () => {
 
   const recs = [
     { n:'01', t:'Keep weather and Sharks games out of the monthly forecast.', d:"The only event data ingested is a Sharks home-game schedule (the pipeline has no Ticketmaster key). It and the weather now run through December 2025, the end of the test window. A pre-registered experiment added them to the leaderboard SARIMA: observed weather made the test forecast worse (3.79% against 3.21% WAPE) and Sharks games made no measurable difference, so at monthly station totals they do not help. Not tested: a daily or hourly grain, a model that pools one effect across stations, and events other than Sharks games.", who:'Operations Control' },
-    { n:'02', t:'Fine-tune Chronos per station cluster.', d:'Zero-shot Chronos-1 (chronos-t5-small) scores 9.7% WAPE here — ahead of seasonal-naïve at 10.8%, behind both classical baselines. It also runs univariate, since the pipeline cannot pass covariates to this checkpoint. Fixing that, then fine-tuning per station cluster, is the path worth testing.', who:'Data / ML' },
+    { n:'02', t:'Fine-tune Chronos per station cluster.', d:chronosRec, who:'Data / ML' },
     { n:'03', t:'Test fresher data sources.', d:"The model trains on BART's monthly ridership reports. The 511 SF Bay API offers real-time stop monitoring and historical stop observations (arrival times, not ridership counts); the repo has a fetcher for them, but nothing joins them into the feature store yet. Whether they would cut data staleness, and how much of the residual error staleness accounts for, has not been measured.", who:'Data / IT' },
   ];
   return (
@@ -456,7 +482,7 @@ const Benchmarks = () => {
             <Reveal><div className="eyebrow"><span className="pip" /> Benchmarks</div></Reveal>
             <Reveal delay="1"><div className="row">
               <h2>How we stack up.</h2>
-              <p className="lede" style={{ maxWidth:'46ch' }}>All models evaluated on the same temporal split (Jul–Dec 2025, 300 station-months) — a holdout not used for model selection. Lower WAPE and MAE is better. SARIMA reaches 3.2% WAPE, ahead of Prophet at 5.8%.</p>
+              <p className="lede" style={{ maxWidth:'46ch' }}>{benchLede}</p>
             </div></Reveal>
           </div>
           <Reveal className="card bench">
