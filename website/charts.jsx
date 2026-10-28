@@ -86,9 +86,10 @@ const yearSpan = records => {
    scoredForecasts(): true when forecasts.json is the run that
    model_comparison.json's Chronos row scored — the comparison has exactly one
    Chronos row (the exporter's rule) and its n_predictions equals the number of
-   published forecasts. Presence of the row alone is not enough: when the
-   exporter refuses forecasts.json it rewrites model_comparison.json but leaves
-   the old forecasts.json in place.
+   published forecasts. Presence of the row alone is not enough: the exporter
+   publishes all five files or none, but a site deployed from mixed copies of
+   website/data/ (or a stale cached forecasts.json) can still pair a new
+   comparison with old forecasts.
 
    comparisonSplit(): label parts for the comparison, all from the data —
    `name` ('test split' / 'validation split' / 'held-out split', from
@@ -121,6 +122,49 @@ const comparisonSplit = (fcRes, cmpRes) => {
     label: span ? `${span.range} ${name}` : name,
   };
 };
+
+/* ── Headline numbers, all from model_comparison.json ──────────────
+   headlineStats(cmpRes, fcRes): the figures the page quotes in prose — best
+   model and its WAPE/MAE, each baseline's row, station-months scored, the
+   coverage range — read from the leaderboard rows so no copy keeps its own
+   literal. null until model_comparison.json has loaded with a scored row.
+     rows      rows with a WAPE_pct, in file order
+     best      the lowest-WAPE row (first one on a tie)
+     sarima, prophet, naive, chronos
+               the row whose model name starts SARIMA / Prophet / SeasonalNaive
+               / Chronos, or undefined
+     n         station-months per model when every row agrees, else null
+     window    the scored forecast months ('Jul–Dec 2025'), only when
+               forecasts.json is the run that was scored (comparisonSplit),
+               else null — callers then say just "holdout"
+     covLo, covHi  smallest and largest Coverage_pct, or null
+   The formatters match how each figure is printed today (1 decimal, '3.1k',
+   '3,086'); a missing value prints as '—'. */
+const headlineStats = (cmpRes, fcRes) => {
+  const rows = siteRows(cmpRes).filter(r => r && typeof r.WAPE_pct === 'number' && isFinite(r.WAPE_pct));
+  if (!rows.length) return null;
+  const best = rows.reduce((a, b) => (b.WAPE_pct < a.WAPE_pct ? b : a));
+  const named = prefix => rows.find(r => String(r.model).startsWith(prefix));
+  const ns = new Set(rows.map(r => r.n_predictions));
+  const n0 = ns.size === 1 ? [...ns][0] : null;
+  const split = comparisonSplit(fcRes, cmpRes);
+  const covs = rows.map(r => r.Coverage_pct).filter(v => typeof v === 'number' && isFinite(v));
+  return {
+    rows, best,
+    sarima: named('SARIMA'), prophet: named('Prophet'), naive: named('SeasonalNaive'), chronos: named('Chronos'),
+    n: Number.isFinite(n0) ? n0 : null,
+    window: split && split.window,
+    covLo: covs.length ? Math.min(...covs) : null,
+    covHi: covs.length ? Math.max(...covs) : null,
+  };
+};
+const fmtPct = v => (typeof v === 'number' && isFinite(v) ? v.toFixed(1) + '%' : '—');
+const fmtInt = v => (typeof v === 'number' && isFinite(v) ? Math.round(v).toLocaleString('en-US') : '—');
+const fmtK = v => (typeof v === 'number' && isFinite(v) ? (v / 1000).toFixed(1) + 'k' : '—');
+// 'Chronos1_ZeroShot (chronos-t5-small)' → 'Chronos1_ZeroShot'; 'SARIMA' unchanged.
+const shortModel = m => String(m).replace(/\s*\(.*\)\s*$/, '');
+// 'Jul–Dec 2025 holdout' when the window is known, else just 'holdout'.
+const holdoutLabel = hs => `${hs && hs.window ? hs.window + ' ' : ''}holdout`;
 
 // Centred status text in place of a chart; SVG text does not wrap, so each
 // line is its own tspan.
@@ -346,6 +390,7 @@ const Calibration = ({ width = 460, height = 260 }) => {
 };
 
 const HeroOrbit = () => {
+  const hs = headlineStats(useSiteData('model_comparison.json'), null);
   return (
     <svg viewBox="0 0 520 520" width="100%" style={{ display:'block', overflow:'visible' }}>
       <defs>
@@ -400,7 +445,7 @@ const HeroOrbit = () => {
         <circle r="56" fill="var(--bg-elev)" stroke="var(--line-strong)" />
         <circle r="56" fill="url(#core)" opacity=".6" />
         <text textAnchor="middle" y="-6" fontFamily="var(--mono)" fontSize="11" fill="var(--ink-muted)">WAPE · test</text>
-        <text textAnchor="middle" y="22" fontFamily="var(--display)" fontWeight="600" fontSize="30" fill="var(--ink)" letterSpacing="-1">3.2%</text>
+        <text textAnchor="middle" y="22" fontFamily="var(--display)" fontWeight="600" fontSize="30" fill="var(--ink)" letterSpacing="-1">{hs ? fmtPct(hs.best.WAPE_pct) : '—'}</text>
       </g>
     </svg>
   );
@@ -446,4 +491,5 @@ const Gauge = ({ value = 0.42 }) => {
 Object.assign(window, {
   ROCCurve, Calibration, HeroOrbit, Gauge,
   loadSiteData, useSiteData, siteRows, siteFailed, monthSpan, yearSpan, scoredForecasts, comparisonSplit,
+  headlineStats, fmtPct, fmtInt, fmtK, shortModel, holdoutLabel,
 });

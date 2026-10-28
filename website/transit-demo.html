@@ -50,6 +50,15 @@ html, body { height: 100%; overflow: hidden; font-family: var(--sans); backgroun
   top: 48px; left: 0; bottom: 0; right: 340px;
 }
 #map { position: absolute; inset: 0; }
+.map-note {
+  position: absolute; top: 8px; right: 8px; z-index: 1100; max-width: calc(100% - 70px);
+  padding: 3px 9px; border-radius: 6px; font-size: 11px; line-height: 1.3; color: var(--sub);
+  background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--line);
+  pointer-events: none;
+}
+.map-note[hidden] { display: none; }
+.map-down { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--sub); font-size: 13px; }
+.stn-dot { border-radius: 50%; box-sizing: border-box; box-shadow: 0 1px 4px rgba(0,0,0,.35); cursor: pointer; }
 
 .sidebar {
   position: fixed;
@@ -137,6 +146,7 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
 
 <div id="mapWrap">
   <div id="map"></div>
+  <div class="map-note" id="mapNote" role="status" hidden></div>
 </div>
 
 <aside class="sidebar">
@@ -330,7 +340,7 @@ const VTA_LINES = [
 
 /* ── State ───────────────────────────────────────────────────── */
 const S = { sys:'bart', hour:8, dow:2, weather:'clear', event:'none', playing:false, speed:2 };
-let gmap, markers = [], polylines = [], infoWindow, timer;
+let R = null, timer;  /* R: the active map renderer (Google or Leaflet), null until one is up */
 
 /* ── Real BART station levels ────────────────────────────────── */
 /* data/stations_ridership.json is keyed by BART's two-letter code; each entry's
@@ -409,47 +419,237 @@ function calcHeat(stations) {
   });
 }
 
-/* ── Google Maps init ────────────────────────────────────────── */
-function initMap() {
-  gmap = new google.maps.Map(document.getElementById('map'), {
-    center: { lat: 37.76, lng: -122.27 },
-    zoom: 10,
+/* ── Map renderers ───────────────────────────────────────────────
+   Google Maps is primary. If it cannot render (script blocked, bad key, billing
+   off, timeout) we swap in Leaflet + OpenStreetMap tiles. Both expose the same
+   small interface so redraw() and the controls do not care which one is live:
+     clear()                      remove all lines and markers
+     line(pts, color)             pts = [[lat,lng],…]
+     dot(s, v, col, hot, html)    station marker + click popup
+     view(sys)                    recentre for BART / VTA
+     setDark(bool)                restyle for dark mode                      */
+const CENTER = { bart: [37.76, -122.27, 10], vta: [37.35, -121.92, 11] };
+const DARK_GMAP = [{elementType:'geometry',stylers:[{color:'#242f3e'}]},
+                   {elementType:'labels.text.stroke',stylers:[{color:'#242f3e'}]},
+                   {elementType:'labels.text.fill',stylers:[{color:'#746855'}]},
+                   {featureType:'road',elementType:'geometry',stylers:[{color:'#38414e'}]},
+                   {featureType:'water',elementType:'geometry',stylers:[{color:'#17263c'}]}];
+
+function popupHtml(s, v, col) {
+  return `<div style="font-family:system-ui;padding:4px 2px">
+          <div style="font-weight:700;font-size:14px;margin-bottom:3px">${s.nm}</div>
+          <div style="color:#666;font-size:12px;margin-bottom:4px">Type: ${s.type}</div>
+          <div style="font-size:13px">Load index: <b style="color:${col}">${v.toFixed(2)}</b> <span style="color:#666;font-size:11px">(relative, illustrative)</span></div>
+          ${s.real && s.real.avg_monthly_ridership != null ? `<div style="color:#666;font-size:12px;margin-top:4px">Avg monthly boardings (${monthName(s.real.first_month)}–${monthName(s.real.last_month)}): <b>${Math.round(s.real.avg_monthly_ridership).toLocaleString('en-US')}</b></div>` : ''}
+         </div>`;
+}
+
+function googleRenderer() {
+  const c = CENTER[S.sys];
+  const map = new google.maps.Map(document.getElementById('map'), {
+    center: { lat: c[0], lng: c[1] },
+    zoom: c[2],
     mapTypeId: 'roadmap',
     gestureHandling: 'greedy',
     streetViewControl: false,
     mapTypeControl: false,
     fullscreenControl: false,
   });
-  infoWindow = new google.maps.InfoWindow();
+  const info = new google.maps.InfoWindow();
+  let markers = [], polylines = [];
+  return {
+    name: 'google', map,
+    clear() {
+      markers.forEach(m => m.setMap(null));
+      polylines.forEach(p => p.setMap(null));
+      markers = []; polylines = [];
+    },
+    line(pts, color) {
+      polylines.push(new google.maps.Polyline({
+        path: pts.map(p => ({ lat: p[0], lng: p[1] })), map,
+        strokeColor: color, strokeOpacity: 0.8, strokeWeight: 4,
+      }));
+    },
+    dot(s, v, col, hot, html) {
+      const marker = new google.maps.Marker({
+        position: { lat: s.lat, lng: s.lng }, map, title: s.nm,
+        zIndex: hot ? 999 : Math.round(v * 100),
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE, scale: 8 + v * 10,
+          fillColor: col, fillOpacity: hot ? 0.95 : 0.82,
+          strokeColor: '#ffffff', strokeWeight: hot ? 2.5 : 1.5,
+        },
+      });
+      marker.addListener('click', () => { info.setContent(html); info.open(map, marker); });
+      markers.push(marker);
+    },
+    view(sys) { const c = CENTER[sys]; map.panTo({ lat: c[0], lng: c[1] }); map.setZoom(c[2]); },
+    setDark(d) { map.setOptions({ styles: d ? DARK_GMAP : [] }); },
+  };
+}
+
+/* Leaflet 1.9.4 from unpkg, pinned, with SRI. Stations are DivIcons, not
+   circleMarkers: the SVG renderer drew nothing inside this page's fixed-position
+   layout (commit 36e9c4a). */
+const LEAFLET = {
+  css: ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H'],
+  js:  ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',  'sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH'],
+};
+const OSM_TILES  = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const DARK_TILES = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const OSM_ATTR  = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const DARK_ATTR = OSM_ATTR + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
+
+function leafletRenderer() {
+  const c = CENTER[S.sys];
+  const map = L.map('map', { zoomControl: true, scrollWheelZoom: true }).setView([c[0], c[1]], c[2]);
+  let tiles = null;
+  const lines = L.layerGroup().addTo(map), dots = L.layerGroup().addTo(map);
+  const r = {
+    name: 'leaflet', map,
+    clear() { lines.clearLayers(); dots.clearLayers(); },
+    line(pts, color) { L.polyline(pts, { color, weight: 4, opacity: 0.8 }).addTo(lines); },
+    dot(s, v, col, hot, html) {
+      const sz = Math.round((8 + v * 10) * 2);
+      const icon = L.divIcon({
+        className: '',
+        html: `<div class="stn-dot" title="${s.nm}" style="width:${sz}px;height:${sz}px;background:${col};opacity:${hot ? 0.95 : 0.82};border:${hot ? 2.5 : 1.5}px solid #fff"></div>`,
+        iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2], popupAnchor: [0, -sz / 2],
+      });
+      L.marker([s.lat, s.lng], { icon, title: s.nm, zIndexOffset: hot ? 1000 : Math.round(v * 100) })
+        .bindPopup(html, { maxWidth: 260 }).addTo(dots);
+    },
+    view(sys) { const c = CENTER[sys]; map.flyTo([c[0], c[1]], c[2], { duration: 0.6 }); },
+    setDark(d) {
+      if (tiles) map.removeLayer(tiles);
+      tiles = L.tileLayer(d ? DARK_TILES : OSM_TILES, { attribution: d ? DARK_ATTR : OSM_ATTR, maxZoom: 18 }).addTo(map);
+    },
+  };
+  r.setDark(document.documentElement.classList.contains('dark'));
+  /* #mapWrap is fixed-position; recompute size once layout settles and on resize */
+  setTimeout(() => map.invalidateSize(), 250);
+  window.addEventListener('resize', () => map.invalidateSize());
+  return r;
+}
+
+/* ── Google health + fallback ──────────────────────────────────────
+   Google can fail without the script failing, and not every failure raises the
+   same signal. Observed with this project's key (billing disabled): Google loads,
+   draws a dimmed "For development purposes only" map, shows NO error dialog and
+   never calls gm_authFailure; its only report is console.error
+   "Google Maps JavaScript API error: BillingNotEnabledMapError". So every
+   signal is watched, and any one swaps to Leaflet:
+   1. console.error "Google Maps JavaScript API error: …MapError" — the one signal
+      seen for billing errors, and Google emits it for every *MapError (key,
+      referrer, API not activated…), so it is the primary trigger.
+   2. window.gm_authFailure — Google's documented hook for key/auth errors.
+   3. A .gm-err-* element inside #map — the "can't load Google Maps correctly"
+      dialog, caught by a MutationObserver, for builds that show it.
+   4. <script> onerror — blocked, offline or DNS failure.
+   5. No 'tilesloaded' within GMAPS_TIMEOUT_MS — a hung or silently blocked load.
+   Once swapped, late Google events are ignored. */
+const GMAPS_TIMEOUT_MS = 10000;
+let fellBack = false, gOk = false, gWatch = null, gTimer = null;
+
+function showMapNote(txt) {
+  const n = document.getElementById('mapNote');
+  n.textContent = txt; n.hidden = !txt;
+}
+
+function loadScript(src, sri) {
+  return new Promise((ok, no) => {
+    const el = document.createElement('script');
+    el.src = src; el.integrity = sri; el.crossOrigin = 'anonymous';
+    el.onload = ok; el.onerror = () => no(new Error('load failed: ' + src));
+    document.head.appendChild(el);
+  });
+}
+function loadCss(href, sri) {
+  return new Promise((ok, no) => {
+    const el = document.createElement('link');
+    el.rel = 'stylesheet'; el.href = href; el.integrity = sri; el.crossOrigin = 'anonymous';
+    el.onload = ok; el.onerror = () => no(new Error('load failed: ' + href));
+    document.head.appendChild(el);
+  });
+}
+
+function useFallback(reason) {
+  if (fellBack) return;
+  fellBack = true;
+  console.warn('Google Maps unavailable (' + reason + '); using Leaflet + OpenStreetMap.');
+  clearTimeout(gTimer);
+  if (gWatch) gWatch.disconnect();
+  /* drop Google's DOM (error dialog, watermark) by swapping in a fresh #map */
+  const old = document.getElementById('map'), fresh = document.createElement('div');
+  fresh.id = 'map';
+  old.replaceWith(fresh);
+  R = null;
+  Promise.all([loadCss(...LEAFLET.css), loadScript(...LEAFLET.js)]).then(() => {
+    R = leafletRenderer();
+    showMapNote('Showing OpenStreetMap: Google Maps unavailable');
+    document.documentElement.dataset.map = 'leaflet';
+    redraw();
+  }).catch(err => {
+    console.error(err);
+    fresh.innerHTML = '<div class="map-down">The map could not be loaded. Station levels and controls in the sidebar still work.</div>';
+    document.documentElement.dataset.map = 'none';
+  });
+}
+
+window.gm_authFailure = () => useFallback('gm_authFailure');
+(function () {
+  const orig = console.error;
+  console.error = function () {
+    try {
+      const m = /Google Maps JavaScript API error: (\w*MapError)/.exec(String(arguments[0]));
+      if (m) useFallback(m[1]);
+    } catch (e) { /* never let the probe break logging */ }
+    return orig.apply(this, arguments);
+  };
+})();
+gTimer = setTimeout(() => useFallback('timeout'), GMAPS_TIMEOUT_MS);
+
+/* ── Google Maps init (script callback) ──────────────────────────── */
+function initMap() {
+  if (fellBack) return;
+  try {
+    R = googleRenderer();
+  } catch (e) { useFallback('init threw: ' + e.message); return; }
+  const mapEl = document.getElementById('map');
+  gWatch = new MutationObserver(() => {
+    if (mapEl.querySelector('[class*="gm-err-"]')) useFallback('gm-err dialog');
+  });
+  gWatch.observe(mapEl, { childList: true, subtree: true });
+  google.maps.event.addListenerOnce(R.map, 'tilesloaded', () => {
+    /* tiles can paint before the billing/auth dialog; give the callback a beat */
+    setTimeout(() => {
+      if (fellBack || mapEl.querySelector('[class*="gm-err-"]')) return;
+      gOk = true; clearTimeout(gTimer); gWatch.disconnect();
+      document.documentElement.dataset.map = 'google';
+    }, 1500);
+  });
+  if (document.documentElement.classList.contains('dark')) R.setDark(true);
   redraw();
 }
 
 /* ── Draw ────────────────────────────────────────────────────── */
 function redraw() {
-  if (!gmap) return;
   const stations = S.sys==='bart' ? BART : VTA;
   const lines    = S.sys==='bart' ? BART_LINES : VTA_LINES;
   const heat     = calcHeat(stations);
 
-  /* clear */
-  markers.forEach(m => m.setMap(null));
-  polylines.forEach(p => p.setMap(null));
-  markers=[]; polylines=[];
+  if (R) R.clear();
 
   /* lines */
   const byId={};
   stations.forEach(s => { byId[s.id]=s; });
-  lines.forEach(ln => {
-    const path = ln.ids.map(id=>byId[id]).filter(Boolean)
-                       .map(s=>({lat:s.lat,lng:s.lng}));
+  if (R) lines.forEach(ln => {
+    const path = ln.ids.map(id=>byId[id]).filter(Boolean).map(s=>[s.lat,s.lng]);
     if (path.length < 2) return;
-    polylines.push(new google.maps.Polyline({
-      path, map: gmap,
-      strokeColor: ln.c, strokeOpacity: 0.8, strokeWeight: 4,
-    }));
+    R.line(path, ln.c);
   });
 
-  /* markers — google.maps.Marker with SVG circle symbol */
+  /* markers */
   /* Ties in heat (several stations clamp at the 2.4 ceiling) are broken by the
      node's measured avg_monthly_ridership, descending; nodes without one rank
      after those with one, then keep array order (Array.prototype.sort is stable). */
@@ -463,40 +663,11 @@ function redraw() {
   });
   const top3 = new Set(ranked.slice(0,3).map(r=>r.s.id));
 
-  stations.forEach((s,i) => {
+  if (R) stations.forEach((s,i) => {
     const v    = heat[i];
     const col  = heatColor(v);
     const hot  = top3.has(s.id);
-    const scale= 8 + v * 10;
-
-    const marker = new google.maps.Marker({
-      position: { lat: s.lat, lng: s.lng },
-      map: gmap,
-      title: s.nm,
-      zIndex: hot ? 999 : Math.round(v * 100),
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: scale,
-        fillColor: col,
-        fillOpacity: hot ? 0.95 : 0.82,
-        strokeColor: '#ffffff',
-        strokeWeight: hot ? 2.5 : 1.5,
-      },
-    });
-
-    marker.addListener('click', () => {
-      infoWindow.setContent(
-        `<div style="font-family:system-ui;padding:4px 2px">
-          <div style="font-weight:700;font-size:14px;margin-bottom:3px">${s.nm}</div>
-          <div style="color:#666;font-size:12px;margin-bottom:4px">Type: ${s.type}</div>
-          <div style="font-size:13px">Load index: <b style="color:${col}">${v.toFixed(2)}</b> <span style="color:#666;font-size:11px">(relative, illustrative)</span></div>
-          ${s.real && s.real.avg_monthly_ridership != null ? `<div style="color:#666;font-size:12px;margin-top:4px">Avg monthly boardings (${monthName(s.real.first_month)}–${monthName(s.real.last_month)}): <b>${Math.round(s.real.avg_monthly_ridership).toLocaleString('en-US')}</b></div>` : ''}
-         </div>`
-      );
-      infoWindow.open(gmap, marker);
-    });
-
-    markers.push(marker);
+    R.dot(s, v, col, hot, popupHtml(s, v, col));
   });
 
   /* sidebar stats */
@@ -551,8 +722,7 @@ function segListen(id, attr, stateKey) {
     S[stateKey]=b.dataset[attr];
     document.querySelectorAll('#'+id+' button').forEach(btn=>btn.classList.toggle('on',btn===b));
     if(stateKey==='sys'){
-      gmap && gmap.panTo(S.sys==='bart'?{lat:37.76,lng:-122.27}:{lat:37.35,lng:-121.92});
-      gmap && gmap.setZoom(S.sys==='bart'?10:11);
+      if (R) R.view(S.sys);
       document.getElementById('eventHint').textContent = S.sys==='bart'
         ? 'Boosts Coliseum & 12th St / Oakland.'
         : "Boosts Diridon (SAP), Great America, Old Ironsides (VTA).";
@@ -594,16 +764,9 @@ document.getElementById('speedRow').addEventListener('click',e=>{
 document.getElementById('darkBtn').addEventListener('click',()=>{
   const dark=document.documentElement.classList.toggle('dark');
   document.getElementById('darkBtn').textContent=dark?'Light':'Dark';
-  if(gmap) gmap.setOptions({
-    styles: dark ? [{elementType:'geometry',stylers:[{color:'#242f3e'}]},
-                    {elementType:'labels.text.stroke',stylers:[{color:'#242f3e'}]},
-                    {elementType:'labels.text.fill',stylers:[{color:'#746855'}]},
-                    {featureType:'road',elementType:'geometry',stylers:[{color:'#38414e'}]},
-                    {featureType:'water',elementType:'geometry',stylers:[{color:'#17263c'}]}]
-                 : [],
-  });
+  if (R) R.setDark(dark);
 });
 </script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCz98JSskfF4HNnltmwgmCLYLb8HziY3zI&callback=initMap" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCz98JSskfF4HNnltmwgmCLYLb8HziY3zI&callback=initMap" async defer onerror="useFallback('script error')"></script>
 </body>
 </html>
