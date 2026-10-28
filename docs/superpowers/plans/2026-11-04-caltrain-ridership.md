@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.14 (`~/.venvs/tdf-py314`, `requirements-lock.txt`), pandas, statsmodels SARIMAX, Prophet, Chronos-1; `pypdf` for extraction (add an exact pin to the lock); React site.
 
+**Execution:** subagent-driven (user, 2026-10-28): a fresh implementer per task, a fresh reviewer before the next task, a whole-branch review at the end. Starts 2026-11-04; the route-assistant and Caltrain plans run as two parallel lanes.
+
 **Spec:** `docs/superpowers/specs/2026-10-28-route-assistant-and-caltrain-design.md` (section 5, plus 6–8, 11).
 
 ## Global Constraints

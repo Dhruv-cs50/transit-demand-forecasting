@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.11, FastAPI, httpx (async), `google-genai` (Vertex AI mode), `gtfs-realtime-bindings`, pytest + respx; vanilla JS; Cloud Run, Secret Manager, Cloud Build.
 
+**Execution:** subagent-driven (user, 2026-10-28): a fresh implementer per task, a fresh reviewer before the next task, a whole-branch review at the end. Starts 2026-11-04; the route-assistant and Caltrain plans run as two parallel lanes.
+
 **Spec:** `docs/superpowers/specs/2026-10-28-route-assistant-and-caltrain-design.md` (sections 1–4, 6–11).
 
 ## Global Constraints
