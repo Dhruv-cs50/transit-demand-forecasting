@@ -96,7 +96,8 @@ half-years (6.36 / 4.27 / 3.21 %); Coliseum's miss wants an intervention dummy, 
 | S10-08 | `merge_pipeline.py` exits 1 when it builds nothing | R11 | lane B | S8-09 | todo |
 | S10-09 | `horizon_hours` default/cap 6 or echo rows; `as_of` counts months ending ≤ it | R16, R20 | lane A | S9-08 | done (4726f3e; merged a72ffe8) — `horizon_hours` clamps to 6 with a warning (no 422, existing clients keep working); `as_of` uses months ended on or before it; `as_of=2025-06-30` unchanged |
 | S10-10 | `cloudbuild.yaml` tags with commit SHA; deploy by digest | R19 | orchestrator | S8-01 | done (a7bf609; merged a72ffe8) — `_TAG` substitution, pushes `:$_TAG` and `:tag1`; deploy-by-digest documented in the file |
-| S10-11 | Demo-day ops: `--min-instances=1 --cpu-boost` (user's yes: small idle cost) + warm-up curl before presenting | R6 (deploy) | orchestrator + user | S9-11 | todo |
+| S10-11 | Demo-day ops: `--min-instances=1 --cpu-boost` (user's yes: small idle cost) + warm-up curl before presenting | R6 (deploy) | orchestrator + user | S9-11 | done (user, 2026-10-28: "keep min-instances on for demo day") — revision `transit-api-00004-z5n`: minScale 1, startup CPU boost, same image and cloud store. Stays on through 2026-11-03; turn off after the demo with `gcloud run services update transit-api --region us-west2 --min-instances=0` (S10-12) |
+| S10-12 | After the 2026-11-03 demo: `--min-instances=0` on `transit-api` | orchestrator | 5m | demo | `minScale` absent or 0 | todo (2026-11-04) |
 | — | Deferred: benchmark slice names (R14, unpublished); Coliseum intervention dummy | R14 | — | — | deferred |
 
 
