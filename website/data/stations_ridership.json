@@ -17,7 +17,7 @@
   },
   "EP": {
     "station_name": "El Cerrito Plaza",
-    "website_id": null,
+    "website_id": "elp",
     "avg_monthly_ridership": 55653.0,
     "normalized": 0.442,
     "first_month": "2025-01",
@@ -41,7 +41,7 @@
   },
   "AS": {
     "station_name": "Ashby",
-    "website_id": null,
+    "website_id": "ash",
     "avg_monthly_ridership": 57055.0,
     "normalized": 0.453,
     "first_month": "2025-01",
@@ -121,7 +121,7 @@
   },
   "SH": {
     "station_name": "South Hayward",
-    "website_id": null,
+    "website_id": "shy",
     "avg_monthly_ridership": 38339.0,
     "normalized": 0.305,
     "first_month": "2025-01",
@@ -161,7 +161,7 @@
   },
   "WC": {
     "station_name": "Walnut Creek",
-    "website_id": null,
+    "website_id": "wlc",
     "avg_monthly_ridership": 77137.0,
     "normalized": 0.613,
     "first_month": "2025-01",
@@ -297,7 +297,7 @@
   },
   "NC": {
     "station_name": "North Concord/Martinez",
-    "website_id": null,
+    "website_id": "ncn",
     "avg_monthly_ridership": 16879.0,
     "normalized": 0.134,
     "first_month": "2025-01",
@@ -353,7 +353,7 @@
   },
   "OA": {
     "station_name": "Oakland International Airport",
-    "website_id": null,
+    "website_id": "oak",
     "avg_monthly_ridership": 16954.0,
     "normalized": 0.135,
     "first_month": "2025-01",
@@ -361,7 +361,7 @@
   },
   "WS": {
     "station_name": "Warm Springs/South Fremont",
-    "website_id": null,
+    "website_id": "wsp",
     "avg_monthly_ridership": 32698.0,
     "normalized": 0.26,
     "first_month": "2025-01",
@@ -369,7 +369,7 @@
   },
   "ML": {
     "station_name": "Milpitas",
-    "website_id": null,
+    "website_id": "mlp",
     "avg_monthly_ridership": 35602.0,
     "normalized": 0.283,
     "first_month": "2025-01",
@@ -385,7 +385,7 @@
   },
   "PC": {
     "station_name": "Pittsburg Center",
-    "website_id": null,
+    "website_id": "pcr",
     "avg_monthly_ridership": 14293.0,
     "normalized": 0.114,
     "first_month": "2025-01",

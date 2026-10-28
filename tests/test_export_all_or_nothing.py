@@ -1,7 +1,7 @@
 """
 tests/test_export_all_or_nothing.py
 ───────────────────────────────────
-scripts/export_website_data.py publishes its five website/data/*.json files all
+scripts/export_website_data.py publishes its six website/data/*.json files all
 or none: they are staged first and moved into the output directory only when
 every one was produced. A failure anywhere (a refused forecasts.json, an
 exception in any exporter, a move that fails midway) leaves the output
@@ -34,7 +34,7 @@ ewd = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ewd)
 logging.getLogger("export_website_data").setLevel(logging.CRITICAL)
 
-FILES = ["forecasts.json", "model_comparison.json", "ridership_actuals.json",
+FILES = ["forecasts.json", "forecasts_sarima.json", "model_comparison.json", "ridership_actuals.json",
          "stations_meta.json", "stations_ridership.json"]
 
 
@@ -78,6 +78,8 @@ class AllOrNothing(unittest.TestCase):
             build_meta_json=lambda agg: [{"a": 1}],
             export_ridership_actuals=write("ridership_actuals.json"),
             export_forecasts=fake_forecasts,
+            export_sarima_forecasts=lambda out_dir, df: (
+                out_dir.joinpath("forecasts_sarima.json").write_text('"new forecasts_sarima.json"') and None),
             export_model_comparison=comparison or write("model_comparison.json"),
         )
         patches.start()
@@ -92,7 +94,7 @@ class AllOrNothing(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.site.iterdir()), ["data"],
                          "a staging directory was left behind")
 
-    def test_success_replaces_all_five_files(self):
+    def test_success_replaces_all_six_files(self):
         self._stub_exporters()
         self._main()
         self.assertEqual(sorted(self._snapshot()), FILES)
