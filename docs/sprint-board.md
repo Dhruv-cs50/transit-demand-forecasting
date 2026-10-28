@@ -58,13 +58,13 @@ demo calling Cloud Run `/forecast` and S8-11's findings.
 |---|---|---|---|---|
 | S9-01 | Auth, billing check, enable APIs, bucket, SAs, bindings | user + orchestrator | — | blocked (user: `gcloud auth login`) |
 | S9-02 | Seed bucket with 5 BART zips + 4 covariate archives, sha256 vs MANIFEST | user | S9-01 | blocked (S9-01) |
-| S9-03 | `cloud_store.py` storage abstraction + tests | engineer | — | in progress (session s9-ingest-core) |
+| S9-03 | `cloud_store.py` storage abstraction + tests | engineer | — | in progress (subagent, branch sprint9-ingest-core) |
 | S9-04 | `ingest_fetch.py` closed-month fetchers + tests | engineer | S8-09 | todo (to lane B after S8-09) |
-| S9-05 | `ingest_gate.py` publish gate + tests | engineer | — | in progress (session s9-gate-smoke) |
+| S9-05 | `ingest_gate.py` publish gate + tests | engineer | — | in progress (subagent, branch sprint9-gate-smoke) |
 | S9-06 | `cloud_ingest.py` orchestrator + `configs/ingest.yaml` + E2E tests | engineer | S9-03..05 | todo |
-| S9-07 | `Dockerfile.ingest` + `cloudbuild.ingest.yaml` | engineer | S9-06 entrypoint name | in progress (session s9-ingest-core, after S9-03) |
+| S9-07 | `Dockerfile.ingest` + `cloudbuild.ingest.yaml` | engineer | S9-06 entrypoint name | in progress (subagent, after S9-03) |
 | S9-08 | API reads cloud store, TTL + fallback, `/health` store fields | engineer | S8-06 | todo (to lane A after S8-06) |
-| S9-09 | `scripts/smoke_cloud.sh` | QA | — | in progress (session s9-gate-smoke, after S9-05) |
+| S9-09 | `scripts/smoke_cloud.sh` | QA | — | in progress (subagent, after S9-05) |
 | S9-10 | Deploy job; first execution | orchestrator + user | S9-01, S9-02, S9-07 | blocked (user) |
 | S9-11 | Scheduler; redeploy API with volume; smoke | orchestrator + user | S9-08..10, S8-01 | blocked (user) |
 | S9-12 | Docs: README cloud sections, ARCHITECTURE, DATA_PIPELINE, MANIFEST, site-claims-audit | tech writer | S9-11 | todo |
