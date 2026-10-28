@@ -28,8 +28,8 @@ handlers:
   static_files: \1
   upload: .+
 
-error_handlers:
-- error_code: not_found
-  file: 404.html
+# No error_handlers: App Engine accepts only default, over_quota,
+# dos_api_denial and timeout there, so a missing file gets Google's plain 404.
+# Firebase Hosting serves website/404.html for the same case.
 
 default_expiration: "1d"
