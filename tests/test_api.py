@@ -86,17 +86,76 @@ def test_as_of_backtest_reproduces_the_published_sarima_wape(client):
     assert round(abs_err / total * 100, 2) == 3.21
 
 
-@pytest.mark.parametrize("horizon, expected_rows", [(1, 1), (3, 3), (168, 6)])
+@pytest.mark.parametrize("horizon, expected_rows", [(1, 1), (3, 3), (6, 6), (7, 6), (24, 6), (168, 6)])
 def test_horizon_truncates_and_caps_at_six_months(client, horizon, expected_rows):
     r = _forecast(client, station_id="EM", horizon_hours=horizon)
     assert r.status_code == 200, r.text
-    assert len(r.json()["forecasts"]) == expected_rows
+    body = r.json()
+    assert len(body["forecasts"]) == expected_rows
+    # The response says how many months it returned, not how many were asked for.
+    assert body["horizon_hours"] == expected_rows
+
+
+def test_horizon_above_six_is_clamped_with_a_warning(client):
+    body = _forecast(client, station_id="EM", horizon_hours=24).json()
+    assert body["horizon_hours"] == 6
+    assert body["warnings"] == ["horizon_hours=24 exceeds the 6 months this model forecasts; returned 6."]
+
+
+def test_horizon_within_six_has_no_horizon_warning(client):
+    body = _forecast(client, station_id="EM", horizon_hours=3).json()
+    assert body["horizon_hours"] == 3
+    assert body["warnings"] == []
+
+
+def test_horizon_defaults_to_six(client):
+    r = client.post("/forecast", json={"station_id": "EM"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["horizon_hours"] == 6
+    assert len(body["forecasts"]) == 6
+    assert body["warnings"] == []
+
+
+@pytest.mark.parametrize("horizon", [0, -1, 169])
+def test_horizon_outside_1_to_168_is_422(client, horizon):
+    assert _forecast(client, station_id="EM", horizon_hours=horizon).status_code == 422
 
 
 def test_unknown_station_is_404(client):
     r = _forecast(client, station_id="EMBR", horizon_hours=6)
     assert r.status_code == 404
     assert "EMBR" in r.json()["detail"]
+
+
+# ── as_of uses only months that have ended ─────────────────────────────────────
+# A month's ridership is a month total, known only once the month is over. as_of
+# keeps a month when that month's last day is on or before as_of's date, so a
+# date in the middle of June cannot see June's total (a leak when someone passes
+# today's date), while the month-end date 2025-06-30 keeps June.
+
+def _p50s(client, **body):
+    r = _forecast(client, station_id="EM", horizon_hours=6, **body)
+    assert r.status_code == 200, r.text
+    return [(row["timestamp"], row["p50"]) for row in r.json()["forecasts"]]
+
+
+@pytest.mark.parametrize("as_of", ["2025-06-15", "2025-06-01", "2025-05-31"])
+def test_mid_month_as_of_excludes_the_unfinished_month(client, as_of):
+    rows = _p50s(client, as_of=as_of)
+    assert rows[0][0] == "2025-06-01 00:00:00"
+    assert rows == _p50s(client, as_of="2025-05-31")
+
+
+def test_mid_month_as_of_differs_from_the_month_end_anchor(client):
+    assert _p50s(client, as_of="2025-06-15") != _p50s(client, as_of="2025-06-30")
+
+
+@pytest.mark.parametrize("as_of", ["2025-06-30", "2025-06-30T23:59:59", "2025-07-01", "2025-07-15"])
+def test_month_end_date_keeps_its_own_month(client, as_of):
+    rows = _p50s(client, as_of=as_of)
+    assert rows[0][0] == "2025-07-01 00:00:00"
+    assert rows == _p50s(client, as_of="2025-06-30")
 
 
 @pytest.mark.parametrize("as_of", ["not-a-date", ""])
