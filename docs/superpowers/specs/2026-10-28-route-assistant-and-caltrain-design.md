@@ -44,8 +44,11 @@ forecasting work beyond BART.
 
 ## 3. Constraints
 
-- Language model: **Grok via the xAI API**, the low-cost fast model. (user) It is
-  pay-per-use, not free; the user sets a monthly spending limit in the xAI console.
+- Language model: **Gemini via Vertex AI** in the existing project, Flash tier (low cost,
+  low latency). (user, 2026-10-28; replaces an earlier Grok choice) The assistant
+  authenticates with its own service account (`roles/aiplatform.user`); no extra API key.
+- **Low latency, real answers, low cost** are hard requirements, not nice-to-haves. (user)
+  Section 4.6 sets the targets and how they are met.
 - Routing: **Google Routes API, transit mode**, with alternatives. (user, option A)
   Billed to the existing project `cs-163-final-project-tra-f1136`; Google attribution
   shown with results, as its terms require.
@@ -62,9 +65,9 @@ forecasting work beyond BART.
 | Component | What it is | Depends on |
 | --- | --- | --- |
 | Chat panel | A widget on the main page and the map demo; shows ranked options and draws the chosen route on the map | `POST /chat` |
-| `transit-assistant` | New Cloud Run service, separate from `transit-api`, one endpoint `POST /chat` (design) | Grok, the five tools |
-| Tools | Five functions Grok may call (4.2) | Google Routes, 511, Open-Meteo, NHL/Ticketmaster, project data |
-| Secrets | xAI key, Google Routes key, 511 token, optional Ticketmaster key | Secret Manager |
+| `transit-assistant` | New Cloud Run service, separate from `transit-api`, one endpoint `POST /chat` (streams its answer) (design) | Gemini on Vertex AI, the five tools |
+| Tools | Five functions the service runs (4.2) | Google Routes, 511, Open-Meteo, NHL/Ticketmaster, project data |
+| Secrets | Google Routes key, 511 token, optional Ticketmaster key (Gemini needs none: service-account auth) | Secret Manager |
 
 A separate service keeps a chatbot bug or traffic spike away from the forecast API the
 demo relies on. (design, approved)
@@ -90,15 +93,24 @@ demo relies on. (design, approved)
 
 ### 4.3 Flow
 
+The service, not the model, orchestrates the tools: exactly two model calls per question,
+no open-ended agent loop (design, for latency and cost).
+
 1. Visitor asks; the panel posts `{message, client_time}` to `/chat`.
-2. Grok extracts origin, destination and departure time, asking one follow-up question
-   if either end is missing.
-3. Grok calls `plan_trips` once, then up to three of the other tools for the options it
-   will present.
-4. The service validates the draft answer: every time and duration in it must match the
-   `plan_trips` output (see 4.5); otherwise it falls back to the template answer.
-5. Response: ranked options (fastest first), a one-line reason each, caveats (alerts,
-   weather, events), Google attribution, and route geometry for the map.
+2. **Model call 1 (extract):** Gemini returns structured JSON — origin, destination,
+   departure time, or a single follow-up question if either end is missing.
+3. **Routing:** the service calls `plan_trips` once.
+4. **Context, in parallel:** `service_alerts`, `weather`, `events_near` and
+   `station_context` run concurrently, each with a 1.5 s timeout; a late or failed tool is
+   dropped and named in the caveats.
+5. **First paint:** the ranked options from Google Routes (times, legs, agencies, map
+   geometry) are streamed to the panel immediately, before any summary text.
+6. **Model call 2 (explain):** Gemini writes a one-line reason per option and the caveats
+   from a compact JSON digest of the tool results (no raw API payloads), streamed token by
+   token.
+7. The service validates the explanation: every time and duration it mentions must match
+   the `plan_trips` output; otherwise the explanation is replaced by the template text.
+   Google attribution is always shown.
 
 ### 4.4 Errors and degraded answers (approved)
 
@@ -107,7 +119,7 @@ demo relies on. (design, approved)
 | Google Routes fails or times out | Say the trip could not be planned; link to Google Maps transit directions for the same origin and destination. Never guess times. |
 | Alerts, weather or events fail | Answer anyway, with a note naming the missing context. |
 | Out of area or not a trip question | State the scope (Bay Area trips on BART, VTA, Caltrain). |
-| Grok down | Show the ranked options straight from Google Routes, labelled "summary unavailable". |
+| Gemini down or slow (> 4 s for call 2) | The options from step 5 stay; the explanation is replaced by template text, labelled "summary unavailable". If call 1 fails, a simple origin/destination form is shown instead. |
 
 ### 4.5 Guardrails (approved)
 
@@ -115,13 +127,38 @@ demo relies on. (design, approved)
 - Per visitor: about 10 questions per hour per IP.
 - Cache: identical routing requests 10 minutes; weather and alerts 5 minutes (also keeps
   511 under 60 requests/hour).
-- Hard caps: xAI monthly limit (user sets), Google Cloud budget alert, `transit-assistant`
+- Hard caps: Google Cloud budget alert covering Vertex AI and Routes, `transit-assistant`
   max 2 instances.
 - Logging: anonymous counts only (questions, tool failures, latency). No message text
   stored.
 - Honesty rules in the system prompt and enforced in code: times only from Google;
   crowding only from monthly project data, labelled monthly; weather and events phrased as
   possibilities ("may be busier").
+
+### 4.6 Latency and cost (hard requirements)
+
+**Targets, warm service, measured at the panel:** first options on screen p50 ≤ 2 s,
+p95 ≤ 3.5 s; full answer p50 ≤ 4 s, p95 ≤ 7 s. A cold start may exceed this; for the demo
+`min-instances=1` removes it.
+
+How they are met:
+- Two model calls only, both on the Flash tier, with small prompts: call 1 sees the user's
+  message and a short instruction; call 2 sees a compact digest (target < 2k input tokens,
+  < 250 output tokens).
+- Tools run in parallel with 1.5 s timeouts; routing is the only blocking external call.
+- Streaming: options first (from Google), explanation second (from Gemini).
+- Same region for everything: `transit-assistant` and Vertex AI in us-west, near Routes.
+- Caches (4.5) answer repeated questions without new external calls.
+- The latency of each stage is logged per request (anonymous), and the scripted evaluation
+  (section 6) fails if the p95 targets are missed.
+
+**Cost:** two Flash calls of this size cost a small fraction of a cent per question; Routes
+transit requests and Vertex AI usage at demo volume fit within Google's monthly free credit
+and the free tiers. The budget alert (4.5) bounds the worst case. Exact prices are read from
+the Google Cloud console at build time.
+
+**Real:** times only ever come from Google Routes (step 7 enforces it); crowding only from
+the project's monthly data, labelled monthly; weather and events phrased as possibilities.
 
 ## 5. Part 2 — Caltrain ridership (scope (a))
 
@@ -187,7 +224,7 @@ demo relies on. (design, approved)
 
 | Part | Work | Estimate (agent time) |
 | --- | --- | --- |
-| Assistant | Service, five tools, Grok orchestration | 1.5 days |
+| Assistant | Service, five tools, two-call Gemini orchestration, streaming | 1.5 days |
 | | Chat panel, route drawn on the map | 1 day |
 | | Guardrails, scripted evaluation, preview deploy | 1–1.5 days |
 | Caltrain | Report extraction and hand-checked table | 1 day |
@@ -200,16 +237,16 @@ Start 2026-11-04 (after the demo). Preview around 2026-11-12; user review; finis
 
 ## 9. Needed from the user
 
-- xAI API key, with a monthly spending limit set in the xAI console.
 - 511.org token (free; emailed after registration).
 - Optional: Ticketmaster API key.
-- (Designer does: enable the Routes API, create a referrer-free server key in Secret
-  Manager, set the budget alert.)
+- (Designer does, under the user's standing permission: enable the Routes API and Vertex
+  AI API, create a server-side Routes key in Secret Manager, create the assistant's service
+  account with `roles/aiplatform.user`, set the budget alert.)
 
 ## 10. Left to the builder (design calls, changeable)
 
-- The exact Grok model ID: the low-cost fast tier available on the xAI account at build
-  time.
+- The exact Gemini model ID: the Flash (or Flash-Lite, if it meets the quality bar in the
+  scripted evaluation) model available in Vertex AI at build time.
 - Chat panel styling, within the site's existing design system.
 - Cache store: in-memory per instance is enough at two instances; no Redis.
 - Language for the system prompt and the template fallback answer.
@@ -221,4 +258,6 @@ Start 2026-11-04 (after the demo). Preview around 2026-11-12; user review; finis
 - Caltrain's monthly reports exist and are parseable back to 2019; if not, the series
   starts where they do, and the spec's "45–55 months" changes accordingly.
 - The exact electrification launch month, from Caltrain's own documents.
-- xAI pricing and any sign-up credit, read from the user's xAI console.
+- Gemini Flash availability in a us-west Vertex AI region (else the nearest region, and
+  the latency targets re-measured).
+- Google Routes transit p95 latency for Bay Area queries fits the 2 s first-paint budget.
