@@ -58,6 +58,40 @@ playoffs in 2022–2025.)
 No ranked model reads these columns: SARIMA, Prophet and SeasonalNaive are
 univariate, and the Chronos-1 zero-shot path falls back to univariate.
 
+## Cloud serving store
+
+The live API serves a second feature store, built in Google Cloud by the `transit-ingest` job from the
+inputs in `gs://cs-163-final-project-tra-f1136-transit-data/raw/` (see
+[`docs/DATA_PIPELINE.md`](../docs/DATA_PIPELINE.md#cloud-ingest-job) and
+[`docs/cloud-ingestion-design.md`](../docs/cloud-ingestion-design.md)). It is **not** the committed store
+above and does not hash to it.
+
+| | Committed store | Cloud store (first run) |
+|---|---|---|
+| Location | `data/processed/feature_store.parquet` (git) | `processed/runs/20261028T084556Z-5e1329/feature_store.parquet` (bucket) |
+| SHA-256 | `6cde32d4b0d475e565d66bc141e9d534d1415a20c4bd1dbf125cdcaf1e9ee05a` | `f19f60511715f58c0205701f6ab3229498a9de7715092909794ee79a079f052d` |
+| Built with | Python 3.14.0, pandas 3.0.6 | Python 3.11, pandas 2.2.0 (the `transit-ingest` image) |
+| Read by | leaderboard, `benchmarks.py`, website export; baked into the API image as its fallback | the API, when `SERVING_STORE_DIR` is set |
+
+What the publish gate guarantees about the cloud store (all must pass; the run's `gate.json` records each, and
+the first run's passed all 10, including a 3.21% SARIMA backtest at `as_of=2025-06-30`):
+every key of the committed store is present with `ridership` **exactly** equal, covariates agree within
+relative tolerance `1e-9`, the 50 stations are in every month, no month already served has gone, and no month is
+later than the last closed month. The bytes differ; the values the API's forecasts read (`ridership`) do not.
+On 2026-10-28 `/health` reported `store_last_month` 2025-12-01, the same last month as the committed store.
+
+Inputs. `raw/` held 22 objects on 2026-10-28: the 20 inputs the committed store was built from — the 2019, 2022, 2023
+and 2024 BART zips, the twelve 2025 workbooks as loose `Ridership_2025MM.xlsx` files (the 2025 zip above holds the
+same months but was not available to upload), and the four weather/events archives listed under
+[Covariate archives](#covariate-archives) — each pinned to a sha256 in `configs/ingest.yaml`, plus two files the job
+fetched, `weather_all_stations_2026-01-01_2026-09-30.parquet` and `events_2026-01-01_2026-09-30.parquet`. The
+fetched files are not pinned, and no forecast reads them: a 2026 month enters the store only through a BART
+workbook, and none has been uploaded (bart.gov blocks automated downloads; uploads are by hand to `raw/bart/`).
+
+Each run directory also holds a `manifest.json` with the git SHA of the image, every input's generation and sha256,
+the store's sha256 and months, and the gate results; `processed/serving.json` names the run the API serves.
+Run directories are written once; the bucket keeps noncurrent versions of overwritten objects for 30 days.
+
 ## Source archives
 
 Retrieved by hand from bart.gov on **2026-10-21** (browser session; a human

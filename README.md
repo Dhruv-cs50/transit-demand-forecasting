@@ -23,7 +23,8 @@ The current production path models BART origin-destination ridership at a month-
 - Baselines and model comparison across seasonal naive, SARIMA, Prophet and Chronos-1 zero-shot.
 - Data validation for required columns, missing windows, station coverage, and ridership anomalies.
 - Static website export that turns feature stores and model outputs into JSON consumed by the frontend.
-- FastAPI service that fits the leaderboard's best model (SARIMA) per request for station forecasts.
+- FastAPI service that fits the leaderboard's best model (SARIMA) per request for station forecasts, on Cloud Run.
+- A Cloud Run Job on Cloud Scheduler that fetches Open-Meteo weather and the Sharks schedule into Cloud Storage, rebuilds the feature store from the bucket, validates it, and publishes it only if it passes; the API serves the latest published store. BART workbooks are downloaded and uploaded by hand, and weather and events do not change forecasts. See [Cloud Deployment](#cloud-deployment).
 
 ## Current Results
 
@@ -133,6 +134,7 @@ See `updates/` for the audit trail.
 .
 |-- configs/
 |   |-- model.yaml                 # cadence, split dates, horizon, quantiles, training config
+|   |-- ingest.yaml                # cloud ingest job: bucket, fetch window, pinned inputs, publish gate
 |   `-- sources.yaml               # source endpoints, station coords, API-key placeholders
 |-- data/
 |   |-- raw/                       # source downloads and parsed raw artifacts
@@ -146,7 +148,11 @@ See `updates/` for the audit trail.
 |   |-- fetch_events.py            # NHL and Ticketmaster event ingestion
 |   |-- merge_pipeline.py          # raw sources -> feature_store.parquet + splits
 |   |-- zero_shot.py               # Chronos zero-shot forecasts
-|   |-- api.py                     # FastAPI forecast service
+|   |-- api.py                     # FastAPI forecast service; reads the cloud serving store, falls back to the baked one
+|   |-- cloud_ingest.py            # Cloud Run Job entrypoint: fetch -> rebuild -> gate -> publish
+|   |-- cloud_store.py             # storage abstraction: Cloud Storage (gs://) or a local directory (file://)
+|   |-- ingest_fetch.py            # closed-month Open-Meteo and Sharks fetchers for the job
+|   |-- ingest_gate.py             # the publish gate
 |   `-- requirements.txt           # Python dependencies
 |-- Processing/
 |   |-- feature_engineering.py     # derived weather, event, time, lag, and station features
@@ -159,6 +165,7 @@ See `updates/` for the audit trail.
 |   `-- chronos2/                  # Chronos-1 zero-shot prediction and saved outputs
 |-- scripts/
 |   |-- run_pipeline.sh            # end-to-end local pipeline
+|   |-- smoke_cloud.sh             # read-only live check of the ingest job, the bucket and the API
 |   `-- export_website_data.py     # model artifacts -> website/data/*.json
 |-- transit_eda/                   # EDA notebook (eda_complete.ipynb) and data; legacy/ holds the superseded .py EDA
 |-- website/                       # static React/Babel frontend served by Google App Engine
@@ -295,35 +302,74 @@ python scripts/export_website_data.py --feature-store data/processed/feature_sto
 Firebase Hosting serves the same site at
 https://cs-163-final-project-tra-f1136.web.app.
 
-Redeployed 2026-10-28 from `main` @ `abb0fe7` (Cloud Run revision
-`transit-api-00002-cj7`). Before that the live revision was a May 2026 image
-that answered `/forecast` with `No module named 'chronos'`. Checked after the
-deploy: `/health` names `SARIMA(0, 1, 1)x(0, 1, 1, 12)`, and `/forecast` for EM,
-MT and OW at `as_of=2025-06-30` matches a local run to 4.2e-5 riders (the local
-run matches `benchmarks.py`'s SARIMA predictions exactly). Both hosts serve the
-committed `website/data/model_comparison.json`.
+The API runs Cloud Run revision `transit-api-00003-rfb`: image
+`transit-api:a156811`, deployed by digest `sha256:2d23c42f…` on 2026-10-28.
+It serves the feature store that the cloud ingest job published, not the copy
+baked into the image. Check what is live: `GET /health` returns
+`store_source` (`cloud` or `baked`), `store_run_id` and `store_sha256`; on
+2026-10-28 they read `cloud`, `20261028T084556Z-5e1329` and `f19f6051…`, and
+`store_last_month` was `2025-12-01`. `scripts/smoke_cloud.sh` against this
+service passed 7 of 7 checks, including 50 live `/forecast` calls at
+`as_of=2025-06-30` that score 3.21% WAPE over 300 station-months.
+
+Before 2026-10-28 the live revision was a May 2026 image that answered
+`/forecast` with `No module named 'chronos'`; revision `transit-api-00002-cj7`
+(`main` @ `abb0fe7`) replaced it, and `00003-rfb` replaced that. Both hosts
+serve the committed `website/data/model_comparison.json`.
+
+What the cloud pipeline does **not** do:
+
+- **Forecasts do not refresh nightly.** Cloud Scheduler starts the ingest job
+  at 03:15 every day, but the job only fetches 2026 weather and Sharks data,
+  which no forecast reads (SARIMA reads `ridership` alone), and it publishes a
+  new store only when its inputs change. Two runs triggered through Scheduler
+  so far logged `unchanged` and exited 0. The API's forecast origin moves only
+  when a new BART workbook is uploaded.
+- **BART ingestion is manual.** bart.gov answers automated requests with
+  HTTP 403, so someone downloads each workbook in a browser and uploads it to
+  `raw/bart/`.
+- **The cloud store is not byte-identical to the committed one.** The job
+  builds on Python 3.11 / pandas 2.2; the committed store
+  (`6cde32d4…`) was built on Python 3.14 / pandas 3. The job's gate checks
+  that `ridership` is exactly equal and the covariates agree within `1e-9`,
+  and the leaderboard, charts and website still read the committed store.
 
 ## Cloud Deployment
+
+Design and rationale: [`docs/cloud-ingestion-design.md`](docs/cloud-ingestion-design.md).
+Project `cs-163-final-project-tra-f1136`.
 
 ### Infrastructure Overview
 
 | Component | GCP Service | Details |
 | --- | --- | --- |
 | Website | App Engine Standard (`python312`) | Static file handlers, `website/` directory, `website/app.yaml` |
-| API | Cloud Run | Serverless container, us-west2, auto-scales 0→N |
-| Container image | Artifact Registry | `us-west2-docker.pkg.dev/<PROJECT_ID>/transit-repo/transit-api:tag1` |
-| Build pipeline | Cloud Build | `cloudbuild.yaml` — builds `Dockerfile.api` for `linux/amd64` |
+| API | Cloud Run service `transit-api` (us-west2) | Serverless container, auto-scales 0→N; gen2, `--cpu-boost`; service account `transit-api` (`roles/storage.objectViewer` on the bucket only); the bucket is mounted read-only at `/mnt/store` and `SERVING_STORE_DIR=/mnt/store` |
+| Data bucket | Cloud Storage `gs://cs-163-final-project-tra-f1136-transit-data` (us-west1) | Versioning on, public access prevented, uniform access, noncurrent versions deleted after 30 days. Holds `raw/` (BART, weather and events inputs) and `processed/` (published stores). See [Cloud Data Storage](#cloud-data-storage) |
+| Ingest job | Cloud Run Job `transit-ingest` (us-west2) | Fetches closed-month weather and Sharks data, rebuilds the feature store from the bucket, gates it, publishes it if the gate passes. 1 CPU, 2 GiB, 15 min timeout, no retries; service account `transit-ingest` (`roles/storage.objectUser` on the bucket only) |
+| Scheduler | Cloud Scheduler `transit-ingest-daily` (us-west2) | 03:15 America/Los_Angeles; POSTs to the job's `:run` endpoint as service account `transit-scheduler` (`roles/run.invoker` on the job only) |
+| Container images | Artifact Registry (`us-west2`, repo `transit-repo`) | `transit-api:<commit>` and `transit-api:tag1`; `transit-ingest:<commit>` |
+| Build pipeline | Cloud Build | `cloudbuild.yaml` builds `Dockerfile.api`; `cloudbuild.ingest.yaml` builds `Dockerfile.ingest`; both for `linux/amd64`. Neither deploys |
+| Live smoke check | `scripts/smoke_cloud.sh` | Read-only: lists the job's latest execution, reads the pointer and its `gate.json`, calls the API's `/health`, `/stations` and `/forecast` |
+
+BigQuery, Cloud Functions and Pub/Sub are not used.
 
 ### Docker Containers
 
-Two Dockerfiles are provided:
+Three Dockerfiles are provided:
 
 **`Dockerfile.api`** (inference service — used in production):
 - Base: `python:3.11-slim`
 - Copies `machine_learning_files/api.py`, `models/baselines/arima.py`, `evaluation/calibration.py` (picks and labels the P10/P90 band), `configs/model.yaml` and the committed `data/processed/feature_store.parquet` into the image, and installs `statsmodels` for SARIMA. No forecast cache, no `chronos-forecasting`: each `/forecast` fits SARIMA for the requested station (see [Forecast API](#forecast-api)).
+- The baked store is the fallback: the API uses it when `SERVING_STORE_DIR` is unset, or when the cloud store cannot be read or fails its sha256 check.
 - Builds from a clean clone — every file it copies is in git
 - Exposes FastAPI on port `$PORT` (Cloud Run injects this env var)
 - Build: `docker build -f Dockerfile.api -t transit-api .`
+
+**`Dockerfile.ingest`** (the `transit-ingest` job):
+- Base: `python:3.11-slim`, `Dockerfile.api`'s library pins plus `openpyxl`, `requests` and `google-cloud-storage`
+- Entrypoint `python -m machine_learning_files.cloud_ingest`; `--dry-run` and `--bucket file:///<dir>` run it against a local directory with no GCP
+- Copies the committed store as the gate's reference
 
 **`Dockerfile`** (full pipeline):
 - Runs the complete ingestion → feature engineering → training → export pipeline
@@ -331,27 +377,63 @@ Two Dockerfiles are provided:
 
 ### Cloud Run Deployment
 
-The API image is built and pushed via Cloud Build, then deployed to Cloud Run:
+Tag every build with the commit, then deploy by digest so a revision names
+exactly the image it runs (a tag can move; a digest cannot). These are the
+commands of [`docs/cloud-ingestion-design.md`](docs/cloud-ingestion-design.md)
+§5 with the choices the 2026-10-28 deployment recorded: `_TAG` set to the commit
+(`a156811` there), `--cpu-boost`, and the API deployed by digest. The bucket,
+service accounts and their IAM bindings are created once, as in §5.
 
 ```bash
-# Build and push via Cloud Build
-gcloud builds submit --config=cloudbuild.yaml .
+P=cs-163-final-project-tra-f1136
+R=us-west2
+B=$P-transit-data
+TAG=$(git rev-parse --short HEAD)
+REPO=us-west2-docker.pkg.dev/$P/transit-repo
 
-# Deploy to Cloud Run (manual after build)
-gcloud run deploy transit-api \
-  --image us-west2-docker.pkg.dev/<PROJECT_ID>/transit-repo/transit-api:tag1 \
-  --platform managed \
-  --region us-west2 \
-  --allow-unauthenticated \
-  --port 8080
+# Ingest job: build, deploy, schedule
+gcloud builds submit --config=cloudbuild.ingest.yaml --substitutions=_TAG=$TAG .
+gcloud run jobs deploy transit-ingest --image $REPO/transit-ingest:$TAG --region $R \
+  --service-account transit-ingest@$P.iam.gserviceaccount.com --set-env-vars INGEST_BUCKET=gs://$B \
+  --cpu 1 --memory 2Gi --task-timeout 15m --max-retries 0
+gcloud run jobs add-iam-policy-binding transit-ingest --region $R \
+  --member serviceAccount:transit-scheduler@$P.iam.gserviceaccount.com --role roles/run.invoker
+gcloud scheduler jobs create http transit-ingest-daily --location $R \
+  --schedule "15 3 * * *" --time-zone America/Los_Angeles \
+  --uri https://run.googleapis.com/v2/projects/$P/locations/$R/jobs/transit-ingest:run --http-method POST \
+  --oauth-service-account-email transit-scheduler@$P.iam.gserviceaccount.com
+
+# API: build, then deploy by digest with the bucket mounted read-only
+gcloud builds submit --config=cloudbuild.yaml --substitutions=_TAG=$TAG .
+DIGEST=$(gcloud artifacts docker images describe $REPO/transit-api:$TAG \
+  --format='value(image_summary.digest)')
+gcloud run deploy transit-api --image $REPO/transit-api@$DIGEST --region $R \
+  --service-account transit-api@$P.iam.gserviceaccount.com --execution-environment gen2 --cpu-boost \
+  --add-volume name=store,type=cloud-storage,bucket=$B,readonly=true \
+  --add-volume-mount volume=store,mount-path=/mnt/store --set-env-vars SERVING_STORE_DIR=/mnt/store \
+  --allow-unauthenticated --port 8080
 ```
+
+Run an ingest by hand (for example after uploading a BART workbook), then check
+the system end to end:
+
+```bash
+gcloud run jobs execute transit-ingest --region $R --wait
+API_URL=https://transit-api-308878596074.us-west2.run.app scripts/smoke_cloud.sh
+```
+
+`scripts/smoke_cloud.sh --local` checks a uvicorn on your machine and skips the
+`gcloud` checks.
 
 ### Cloud Data Storage
 
 | Data | Location | Notes |
 | --- | --- | --- |
-| Feature store parquet | `data/processed/feature_store.parquet` (committed) | `Dockerfile.api` bakes it in; `api.py`'s `get_feature_store()` reads it at serve time. The enriched store is not in the image — only the offline pipeline (benchmarks, training, validation, website export) reads it |
-| Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API |
+| Raw inputs | `gs://…-transit-data/raw/` | 22 objects on 2026-10-28: the 20 inputs the committed store was built from (BART zips and workbooks in `raw/bart/`, the 2019–2025 weather and events archives), plus `weather_all_stations_2026-01-01_2026-09-30.parquet` and `events_2026-01-01_2026-09-30.parquet`, which the job fetched. The job checks the 20 against sha256s pinned in `configs/ingest.yaml`. BART workbooks are uploaded by hand |
+| Published stores | `gs://…-transit-data/processed/runs/<run_id>/` | `feature_store.parquet`, `gate.json` (every gate check) and `manifest.json`. Written once, never overwritten. The one run so far is `20261028T084556Z-5e1329` |
+| Serving pointer | `gs://…-transit-data/processed/serving.json` | The only overwritten object: names the run the API serves (`run_id`, `store_object`, `store_sha256`, `input_fingerprint`, `published_at`). Written last, only after the gate passes |
+| Baked feature store | `data/processed/feature_store.parquet` (committed) | Baked into the API image as the fallback. The leaderboard, `benchmarks.py` and the website export read it, directly or through the enriched store built from it. The enriched store is not in the image — only the offline pipeline (benchmarks, training, validation, website export) reads it |
+| Docker images | Artifact Registry (`us-west2`) | Versioned container images for the API and the job |
 | Website assets | App Engine Standard | HTML/CSS/JSX/JSON, served via static file handlers |
 | Forecasts | Not stored | Computed per request from the feature store; the image holds no forecast cache |
 
@@ -368,17 +450,40 @@ flowchart LR
     end
 
     subgraph GCP["Google Cloud Platform"]
-        AR[Artifact Registry\nDocker image]
+        AR[Artifact Registry\nDocker images]
         CR[Cloud Run\ntransit-api]
         GAE[App Engine\nwebsite]
-        FS -->|feature_store.parquet baked in| AR
+        GCS[(Cloud Storage\nraw/ + processed/)]
+        JOB[Cloud Run Job\ntransit-ingest]
+        SCH[Cloud Scheduler\n03:15 daily]
+        FS -->|feature_store.parquet baked in\nas the fallback| AR
         AR --> CR
+        AR --> JOB
         JSON -->|static files| GAE
+        SCH -->|runs| JOB
+        JOB -->|fetch weather + Sharks\nwrite raw/, publish gated store| GCS
+        GCS -->|read-only mount\n/mnt/store| CR
     end
 
+    BART([BART workbooks\ndownloaded by hand]) -->|gcloud storage cp\nraw/bart/| GCS
     USER([Browser]) -->|HTTPS| GAE
     GAE -->|POST /forecast| CR
 ```
+
+**How the API gets its store:** if `SERVING_STORE_DIR` is set, the API reads
+`processed/serving.json`, loads the parquet it names, and checks the sha256. Any
+failure logs a warning and the API serves the baked store. It re-reads the
+pointer every `STORE_TTL_SECONDS` (default 600) and swaps to a new `run_id`; a
+failed reload keeps the current store. `/health` reports `store_source`,
+`store_run_id` and `store_sha256`.
+
+**What the job checks before it publishes** (all must pass; `gate.json` lists
+each): the store passes `validate_feature_store` in strict mode; keys are
+unique; every month has the same 50 stations; every key of the committed store
+is present with `ridership` exactly equal and covariates within `1e-9`; no
+served month disappears; no month is later than the last closed month; and
+SARIMA fitted on the candidate at `as_of=2025-06-30` still scores 3.21% WAPE.
+A failed gate exits 1 and leaves the pointer untouched.
 
 **Scalability:**
 - **App Engine Standard** — auto-scales instances, zero when idle, no server management
@@ -451,7 +556,8 @@ same functions `benchmarks.py` scores (`fit_station` / `predict_station` in
   the API (missing, unreadable or stale) → `503`, so a raw band is never served
   under a calibrated label.
 
-Code: `machine_learning_files/api.py`. `tests/test_api.py` needs the serving
+Code: `machine_learning_files/api.py`. `tests/test_api.py` and
+`tests/test_api_serving_store.py` need the serving
 stack, which `requirements-lock.txt` leaves out, so it cannot be collected in
 the Setup environment; the other tests in `tests/` run there. Run the API tests
 in a separate Python 3.11 venv, the Python the API image is built on
@@ -464,7 +570,7 @@ environment:
 python3.11 -m venv ~/.venvs/tdf-api-py311
 source ~/.venvs/tdf-api-py311/bin/activate
 pip install fastapi==0.115.0 "uvicorn[standard]==0.30.0" pydantic==2.7.0 pandas==2.2.0 pyarrow==16.0.0 numpy==1.26.4 PyYAML==6.0.1 scipy==1.14.1 patsy==1.0.1 statsmodels==0.14.4 httpx pytest
-python -m pytest tests/test_api.py
+python -m pytest tests/test_api.py tests/test_api_serving_store.py
 ```
 
 Start locally (the feature store is committed, so no pipeline run is needed):
@@ -517,16 +623,18 @@ rounded here only. `model` and
 Additional project documentation:
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - system flow, components, and artifact contracts.
-- [docs/DATA_PIPELINE.md](docs/DATA_PIPELINE.md) - source data, rebuild steps, schema notes, and troubleshooting.
+- [docs/DATA_PIPELINE.md](docs/DATA_PIPELINE.md) - source data, rebuild steps, the cloud ingest job, schema notes, and troubleshooting.
+- [docs/cloud-ingestion-design.md](docs/cloud-ingestion-design.md) - design of the cloud ingest job and how the API reads its store.
 - [machine_learning_files/README.md](machine_learning_files/README.md) - ML-script guide for ingestion, forecasting, and API usage.
 
 ## Known Limitations
 
 - The active modeled target is monthly BART OD ridership. Some files describe future higher-frequency transit support, but the current reliable pipeline is monthly.
-- Weather and event data are aggregated to the monthly modeling cadence. Weather covers every store month, but it is observed weather, so for the Jul–Dec 2025 test window it is hindsight, not a forecast. The Sharks schedule starts on 2019-09-17, so the January–May 2019 games are missing and those months read as months without a game. No ranked model reads these columns.
+- Weather and event data are aggregated to the monthly modeling cadence. Weather covers every store month, but it is observed weather, so for the Jul–Dec 2025 test window it is hindsight, not a forecast. The Sharks schedule starts on 2019-09-17, so the January–May 2019 games are missing; the store's eight 2019 months before September are unknown (`<NA>`/NaN), not months without a game. No ranked model reads these columns.
 - `scripts/run_pipeline.sh` runs `.venv311/bin/python` if that file exists and `python3` from `PATH` otherwise. Activate the Setup venv before running it, and note that a leftover `.venv311/` in the repo takes precedence over the active venv.
 - Chronos (benchmarks only; the API does not run it) defaults to `cpu` in `configs/model.yaml`; change it to `mps` on Apple Silicon or `cuda` on a GPU machine for faster inference.
 - Some source fetchers require external credentials or manual data access.
+- The cloud job does not make forecasts fresher on its own. Only a new BART workbook, uploaded by hand to `raw/bart/`, adds months or moves the API's default forecast origin (the served store ends at 2025-12); the weather and Sharks data it fetches are not read by any forecast.
 
 ## Troubleshooting
 
