@@ -10,7 +10,6 @@ PyYAML>=6.0.1
 
 # ── ML / forecasting ───────────────────────────────────────────────────────────
 chronos-forecasting>=2.1.0     # Chronos (includes torch deps); ChronosPipeline.predict_df, used by zero_shot.py, first ships in 2.1.0
-autogluon.timeseries>=1.1.0    # fine-tuning + covariate regressors
 
 # Baselines
 prophet>=1.1.5

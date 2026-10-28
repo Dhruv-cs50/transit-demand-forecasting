@@ -26,7 +26,6 @@ flowchart TD
 
     subgraph TRAIN["Model Training"]
         M1["zero_shot.py\nChronos (chronos-t5-small) zero-shot"]
-        M2[models/chronos2/finetune.py\nAutoGluon ensemble]
         M3[models/baselines/arima.py\nSARIMA]
         M4[models/baselines/prophet_baseline.py\nProphet]
     end
@@ -62,8 +61,8 @@ flowchart TD
     P1 --> P2
     P2 --> P3
     P1 --> M1
-    P2 --> M2 & M3 & M4
-    M1 & M2 & M3 & M4 --> O1
+    P2 --> M3 & M4
+    M1 & M3 & M4 --> O1
     O1 --> O2
 
     O2 -->|static JSON| WEB
@@ -113,7 +112,7 @@ Events APIs     ──► fetch_events.py            ──► data/raw/events/
                      │ (bypasses          feature_store_enriched.parquet
                      │  enrichment)             │
                      ▼                          ▼
-                zero_shot            finetune.py / arima.py / prophet_baseline.py
+                zero_shot            arima.py / prophet_baseline.py
                      │                          │
                      └────────────┬─────────────┘
                                   │

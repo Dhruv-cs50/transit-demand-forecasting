@@ -12,7 +12,7 @@ source ~/.venvs/tdf-py314/bin/activate
 pip install -r requirements-lock.txt
 ```
 
-`requirements-lock.txt` leaves out AutoGluon (it needs Python below 3.14) and the serving stack; see the README for both.
+`requirements-lock.txt` leaves out the serving stack; see the README.
 
 Review `configs/sources.yaml` before running ingestion. Replace placeholder keys where needed.
 
@@ -61,10 +61,9 @@ Expected output:
 
 - `data/processed/feature_store_enriched.parquet`
 - `data/processed/splits/{train,val,test}.parquet` — regenerated from the
-  enriched store so downstream consumers (`finetune.py`'s `load_train_val()`,
-  `evaluation/metrics.py`'s default `--actuals`, `Processing/ablation.py`'s
-  default `--test`) train/evaluate on the full enriched schema, not the raw
-  one step 2 wrote.
+  enriched store so downstream consumers (`evaluation/metrics.py`'s default
+  `--actuals`) evaluate on the full enriched schema, not the raw one step 2
+  wrote.
 
 ### 4. Validate data quality
 
@@ -80,7 +79,6 @@ Use `--mode strict` when you want validation errors to halt automation.
 python machine_learning_files/zero_shot.py
 python models/baselines/arima.py
 python models/baselines/prophet_baseline.py
-python models/chronos2/finetune.py --time-limit 1800
 python models/baselines/benchmarks.py
 ```
 
@@ -89,7 +87,6 @@ Expected outputs include:
 - `models/chronos2/outputs/zero_shot_forecasts_*.parquet` — written by
   `zero_shot.py`. Not what the website publishes; step 6 does not read it.
 - `models/baselines/outputs/`
-- `models/chronos2/weights/`
 - `evaluation/outputs/benchmark_leaderboard.csv`
 - `evaluation/outputs/chronos2_zeroshot_preds.parquet` — the Chronos
   zero-shot test-window predictions, written by `models/baselines/benchmarks.py`
@@ -155,7 +152,7 @@ After setup, the full scripted path is:
 bash scripts/run_pipeline.sh
 ```
 
-This script runs `.venv311/bin/python` if that file exists and `python3` from `PATH` otherwise, so activate the Prerequisites venv first (a leftover `.venv311/` takes precedence over it). It assumes the required raw data/API credentials are available. Without AutoGluon it stops at its fine-tune step, before the benchmark; the README's "Reproduce The Pipeline" section lists the four steps that produced the published leaderboard.
+This script runs `.venv311/bin/python` if that file exists and `python3` from `PATH` otherwise, so activate the Prerequisites venv first (a leftover `.venv311/` takes precedence over it). It assumes the required raw data/API credentials are available.
 
 ## Feature Store Schema
 
@@ -184,5 +181,4 @@ Common optional columns include:
 | `feature_store_enriched.parquet` missing | Feature engineering has not run. | Run `python Processing/feature_engineering.py`. |
 | Validation flags missing windows | Split cadence or source coverage changed. | Confirm `configs/model.yaml` frequency and inspect source coverage by station. |
 | Chronos fails to load on `mps` | Machine is not Apple Silicon or MPS is unavailable. | Set `chronos2.device` to `cuda` or `cpu` in `configs/model.yaml`. |
-| AutoGluon install or import fails | `autogluon.timeseries` needs Python below 3.14 and is not in `requirements-lock.txt`. | Expected in the Prerequisites environment. The published leaderboard does not use AutoGluon; run the four steps in the README's "Reproduce The Pipeline" section instead of `scripts/run_pipeline.sh`. |
 | Website shows stale values | `website/data/*.json` was not regenerated. | Run `scripts/export_website_data.py` before deploy. |
