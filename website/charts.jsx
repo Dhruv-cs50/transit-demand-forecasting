@@ -86,9 +86,10 @@ const yearSpan = records => {
    scoredForecasts(): true when forecasts.json is the run that
    model_comparison.json's Chronos row scored — the comparison has exactly one
    Chronos row (the exporter's rule) and its n_predictions equals the number of
-   published forecasts. Presence of the row alone is not enough: when the
-   exporter refuses forecasts.json it rewrites model_comparison.json but leaves
-   the old forecasts.json in place.
+   published forecasts. Presence of the row alone is not enough: the exporter
+   publishes all five files or none, but a site deployed from mixed copies of
+   website/data/ (or a stale cached forecasts.json) can still pair a new
+   comparison with old forecasts.
 
    comparisonSplit(): label parts for the comparison, all from the data —
    `name` ('test split' / 'validation split' / 'held-out split', from
