@@ -36,6 +36,12 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 # before machine_learning_files (the station table, merge_pipeline) imports.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from machine_learning_files.bart_stations import API_TO_CODE
+from machine_learning_files.merge_pipeline import (
+    event_coverage,
+    file_event_coverage,
+    merge_coverage,
+    months_covered,
+)
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +128,20 @@ def add_time_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.DataFra
 
 # ── Weather features ───────────────────────────────────────────────────────────
 
+def _known_flag(condition: pd.Series, measured: pd.Series) -> pd.Series:
+    """
+    `condition` as a nullable boolean that is <NA> wherever `measured` is NaN.
+    A bare `NaN > 0.1` is False, so a month with no weather would read as "dry,
+    calm, mild" instead of "unknown".
+    """
+    return condition.astype("boolean").mask(measured.isna())
+
+
+def _flag_as_float(flag: pd.Series) -> pd.Series:
+    """0.0 / 1.0 for a flag, NaN where it is unknown (astype(float) raises on <NA>)."""
+    return pd.Series(flag.to_numpy(dtype="float64", na_value=np.nan), index=flag.index)
+
+
 def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Encode weather in ways that reflect how it actually affects transit ridership.
@@ -141,7 +161,7 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     # ── Precipitation ─────────────────────────────────────────────────────────
-    df["is_raining"] = df["precip_mm"] > 0.1   # recompute from raw mm
+    df["is_raining"] = _known_flag(df["precip_mm"] > 0.1, df["precip_mm"])   # recompute from raw mm
 
     # Nonlinear bucket (0=dry, 1=light, 2=moderate, 3=heavy)
     df["precip_intensity"] = pd.cut(
@@ -171,37 +191,37 @@ def add_weather_features(df: pd.DataFrame) -> pd.DataFrame:
         df["precip_24hr_sum"] = grp.transform(lambda x: x.rolling(24, min_periods=1).sum())
 
     # Is it the FIRST hour of rain after a dry spell? (commuters unprepared)
-    # x.shift(1) on a bool Series introduces a leading NaN, which upcasts the
-    # dtype to object (bool can't hold NaN); .fillna(False) alone leaves it
-    # object dtype holding Python True/False. `~` on an object-dtype Series
-    # of Python bools does integer bitwise-invert (bool subclasses int:
-    # ~True == -2, ~False == -1), not logical negation, so the previous code
-    # produced an always-truthy object array and this whole expression
-    # silently collapsed to just `df["is_raining"]` -- every rainy row was
-    # flagged as an "onset," not only the first one after a dry spell.
-    # astype(bool) restores real bool dtype so `~` means logical NOT again.
+    # is_raining is a nullable boolean, so `~` is a logical NOT that leaves <NA>
+    # as <NA> (an object column of Python bools would bitwise-invert instead:
+    # ~True == -2, ~False == -1, which once made this expression collapse to
+    # just `is_raining`). The shifted value is unknown for a station's first
+    # row and after a month with no weather, so a rainy month there has an
+    # unknown onset (<NA>), not "no onset": it used to be fillna(False). A dry
+    # month is still False whatever came before.
     prev_raining = df.groupby(
         "station_id" if "station_id" in df.columns else [True] * len(df)
-    )["is_raining"].transform(lambda x: x.shift(1).fillna(False).astype(bool))
+    )["is_raining"].transform(lambda x: x.shift(1))
     df["is_rain_onset"] = df["is_raining"] & ~prev_raining
 
     # ── Temperature ───────────────────────────────────────────────────────────
     if "temp_f" in df.columns:
         # Extreme temp → people avoid waiting at stops
-        df["is_very_cold"] = df["temp_f"] < 40
-        df["is_very_hot"]  = df["temp_f"] > 90
+        df["is_very_cold"] = _known_flag(df["temp_f"] < 40, df["temp_f"])
+        df["is_very_hot"]  = _known_flag(df["temp_f"] > 90, df["temp_f"])
         df["temp_deviation"] = df["temp_f"] - 65.0   # deviation from Bay Area "normal"
 
     # ── Wind ──────────────────────────────────────────────────────────────────
     if "windspeed_mph" in df.columns:
-        df["is_windy"] = df["windspeed_mph"] > 20
+        df["is_windy"] = _known_flag(df["windspeed_mph"] > 20, df["windspeed_mph"])
 
     # ── Combined comfort score (lower = worse conditions) ─────────────────────
+    # NaN whenever one of the components is unknown for that row. A component
+    # whose column is absent altogether still counts as 0, as before.
     df["weather_discomfort"] = (
         df.get("precip_intensity", pd.Series(0, index=df.index)) * 2.0
-        + df.get("is_very_cold", pd.Series(False, index=df.index)).astype(float) * 1.5
-        + df.get("is_very_hot",  pd.Series(False, index=df.index)).astype(float) * 1.0
-        + df.get("is_windy",     pd.Series(False, index=df.index)).astype(float) * 0.5
+        + _flag_as_float(df.get("is_very_cold", pd.Series(False, index=df.index))) * 1.5
+        + _flag_as_float(df.get("is_very_hot",  pd.Series(False, index=df.index))) * 1.0
+        + _flag_as_float(df.get("is_windy",     pd.Series(False, index=df.index))) * 0.5
     )
 
     return df
@@ -232,32 +252,41 @@ def _add_monthly_event_features(df: pd.DataFrame, events: pd.DataFrame) -> pd.Da
     df["_year"]  = df["timestamp"].dt.year
     df["_month"] = df["timestamp"].dt.month
     df = df.merge(monthly, on=["_year", "_month"], how="left")
-    df["event_count"] = df["event_count"].fillna(0).astype(int)
-    # The left merge leaves "has_sharks" NaN for any (_year, _month) with no
-    # matching event row -- virtually guaranteed in real data, since most
-    # station-months have no Sharks game. That NaN promotes the column to
-    # object dtype holding Python True/False/NaN; fillna(False) alone keeps
-    # it object dtype. `~` on an object-dtype Series of Python bools does
-    # integer bitwise-invert (bool is an int subclass: ~True == -2, ~False ==
-    # -1), not logical negation, so `nearest_event_attendance_tier`'s
-    # `~is_sharks_game_window` term below was always a truthy nonzero value
-    # regardless of the actual flag, silently collapsing the "minor event,
-    # not a Sharks game" exclusion term to always equal is_any_event_day --
-    # a Sharks-game month scored tier 3 (2 + 1) instead of the documented
-    # major-tier value of 2. astype(bool) restores real bool dtype so `~`
-    # means logical NOT again.
-    df["has_sharks"]  = df["has_sharks"].fillna(False).astype(bool)
 
-    df["is_any_event_day"]      = df["event_count"] > 0
+    # Only a month the archive covers can be "no event". The merge leaves
+    # event_count / has_sharks missing both for those and for covered months
+    # without a game; fillna below is right for the covered ones only, and the
+    # uncovered months go back to unknown.
+    covered = months_covered(df["timestamp"], event_coverage(events))
+    unknown = ~covered
+    count = df["event_count"].fillna(0).astype(float).where(covered)
+    df["event_count"] = count
+    # The left merge leaves "has_sharks" as object dtype holding True/NaN; a
+    # numpy bool keeps `~` below a logical NOT (on an object column of Python
+    # bools it bitwise-inverts: ~True == -2, which once made a Sharks-game month
+    # score tier 3 instead of 2).
+    sharks = df["has_sharks"].fillna(False).astype(bool).to_numpy()
+    df["has_sharks"] = pd.Series(sharks, index=df.index).astype("boolean").mask(unknown)
+
+    any_event = (count.fillna(0) > 0).to_numpy()
+    df["is_any_event_day"]      = pd.Series(any_event, index=df.index).astype("boolean").mask(unknown)
     df["is_sharks_game_window"] = df["has_sharks"]
-    # Approach/departure windows have no monthly-granularity equivalent.
-    df["is_pre_event_window"]  = False
-    df["is_post_event_window"] = False
-    max_count = max(int(df["event_count"].max()), 1)
-    df["event_proximity_score"] = df["event_count"] / max_count
-    df["nearest_event_attendance_tier"] = (
-        df["is_sharks_game_window"].astype(int) * 2  # major
-        + (df["is_any_event_day"] & ~df["is_sharks_game_window"]).astype(int)  # minor
+    # Approach/departure windows have no monthly-granularity equivalent: False
+    # for a covered month, unknown for an uncovered one.
+    never = pd.Series(False, index=df.index, dtype="boolean").mask(unknown)
+    df["is_pre_event_window"]  = never
+    df["is_post_event_window"] = never.copy()
+    peak = count.max()  # NaN when no month is covered
+    max_count = 1.0 if pd.isna(peak) else max(float(peak), 1.0)
+    df["event_proximity_score"] = count / max_count
+    df["nearest_event_attendance_tier"] = pd.Series(
+        np.where(
+            covered,
+            sharks.astype(int) * 2  # major
+            + (any_event & ~sharks).astype(int),  # minor
+            np.nan,
+        ),
+        index=df.index,
     )
     df["hours_to_next_event"]    = np.nan
     df["hours_since_last_event"] = np.nan
@@ -291,14 +320,18 @@ def add_event_features(
         # data available" everywhere else in this module (the main loop
         # below and _add_monthly_event_features()) -- 0.0 here would instead
         # read as "an event is starting/ended this exact hour" for every row.
-        for col in ["hours_to_next_event", "hours_since_last_event"]:
+        # No archive means every row is unknown: <NA> flags, NaN scores. False /
+        # 0 would read as "checked, no event".
+        for col in [
+            "hours_to_next_event", "hours_since_last_event",
+            "event_proximity_score", "nearest_event_attendance_tier",
+        ]:
             df[col] = np.nan
         for col in [
             "is_pre_event_window", "is_post_event_window",
-            "event_proximity_score", "is_sharks_game_window",
-            "is_any_event_day", "nearest_event_attendance_tier",
+            "is_sharks_game_window", "is_any_event_day",
         ]:
-            df[col] = 0.0 if "score" in col or "tier" in col else False
+            df[col] = pd.array([pd.NA] * len(df), dtype="boolean")
         return df
 
     df = df.copy()
@@ -408,7 +441,18 @@ def add_event_features(
     df["nearest_event_attendance_tier"] = (
         df["is_sharks_game_window"].astype(int) * 2  # major
         + (df["is_any_event_day"] & ~df["is_sharks_game_window"]).astype(int)  # minor
-    )
+    ).astype(float)
+
+    # Rows in a month the archive does not cover were scored against an archive
+    # that could not have held their events: unknown, not "no event nearby".
+    unknown = ~months_covered(df["timestamp"], event_coverage(events))
+    if unknown.any():
+        for col in ["is_pre_event_window", "is_post_event_window",
+                    "is_sharks_game_window", "is_any_event_day"]:
+            df[col] = df[col].astype("boolean").mask(unknown)
+        for col in ["hours_to_next_event", "hours_since_last_event",
+                    "event_proximity_score", "nearest_event_attendance_tier"]:
+            df[col] = df[col].mask(unknown)
 
     return df
 
@@ -669,18 +713,26 @@ def main():
     # for the same fix.
     events = pd.DataFrame()
     event_files = sorted(events_path.glob("events_*.parquet"), key=lambda p: p.stat().st_mtime)
-    event_frames = []
+    event_frames, event_spans = [], []
     for f in event_files:
         try:
-            event_frames.append(pd.read_parquet(f))
+            frame = pd.read_parquet(f)
         except Exception as e:
             log.warning(f"  Unreadable events file {f.name} ({e}) — skipping (file left in place)")
+            continue
+        event_frames.append(frame)
+        span = file_event_coverage(frame, f)
+        if span is not None:
+            event_spans.append(span)
     if event_frames:
         events = pd.concat(event_frames, ignore_index=True)
         events["timestamp_start"] = pd.to_datetime(events["timestamp_start"])
         dedup_keys = [c for c in ("timestamp_start", "venue", "event_name") if c in events.columns]
         if dedup_keys:
             events = events.drop_duplicates(subset=dedup_keys, keep="last")
+        # Which months the archive vouches for; a month outside it is unknown,
+        # not a month without a game (see merge_pipeline.event_coverage).
+        events.attrs["coverage"] = merge_coverage(event_spans)
         log.info(f"Loaded {len(events)} events")
 
     df_enriched = build_features(df, events=events)
