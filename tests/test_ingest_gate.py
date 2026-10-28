@@ -31,7 +31,7 @@ from machine_learning_files.ingest_gate import GateReport, run_gate
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TRACKED_PATH = REPO_ROOT / "data" / "processed" / "feature_store.parquet"
-TRACKED_SHA256_PREFIX = "aa02436d"
+TRACKED_SHA256_PREFIX = "6cde32d4"
 
 # statsmodels says this for every fit on ~30-48 monthly points; arima.py
 # silences UserWarning at import, but pytest resets filters per test.

@@ -77,9 +77,9 @@ named parquet, verify its sha256; any failure warns and falls back to the baked
 on a new `run_id`; a failed reload keeps the current store. `/health` adds `store_source`
 (`cloud`/`baked`), `store_run_id`, `store_sha256`. Unset (local, tests) = today's behaviour.
 
-Benchmarks, `export_website_data.py` and the site keep the tracked store (sha256 `aa02436d…`). The
+Benchmarks, `export_website_data.py` and the site keep the tracked store (sha256 `6cde32d4…`). The
 gate guarantees ridership equals the tracked store through 2025-12, so `as_of=2025-06-30` gives
-3.21 % on either store. The cloud store's bytes will not hash to `aa02436d` (built on Python 3.11 /
+3.21 % on either store. The cloud store's bytes will not hash to `6cde32d4` (built on Python 3.11 /
 pandas 2.2); nothing claims byte equality.
 
 May be said once S9-11's smoke check passes: a daily Cloud Run job on Cloud Scheduler fetches
@@ -88,7 +88,7 @@ bucket, validates it and publishes it only if it passes; the forecast API runs S
 from the latest published store, named by `/health`; BART workbooks are downloaded by hand
 (bart.gov blocks automated downloads); the leaderboard and charts come from the store committed in
 the repo. Must not be said: forecasts refresh nightly; BART ingestion is automated; weather or
-events affect forecasts; BigQuery; the cloud store equals `aa02436d`.
+events affect forecasts; BigQuery; the cloud store equals `6cde32d4`.
 
 ## 5. Code changes
 
