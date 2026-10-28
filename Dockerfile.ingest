@@ -17,15 +17,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Python deps -- the numeric pins are Dockerfile.api's exactly (the job rebuilds
-# the store with the same pandas/statsmodels the API forecasts with); the
-# serving layer (fastapi, uvicorn, pydantic) is not needed here. Added:
-# openpyxl for the BART .xlsx workbooks, requests for Open-Meteo and the NHL
-# API, google-cloud-storage for gs:// buckets. Every pin ships a cp311
-# manylinux wheel, so no compiler is installed (Dockerfile.api carries gcc).
+# Python deps -- Dockerfile.api's pins exactly (the job rebuilds the store with
+# the same pandas/statsmodels the API forecasts with, and the gate may import
+# helpers that live beside the serving layer), plus: openpyxl for the BART
+# .xlsx workbooks, requests for Open-Meteo and the NHL API, google-cloud-storage
+# for gs:// buckets. Every pin ships a cp311 manylinux wheel, so no compiler is
+# installed (Dockerfile.api carries gcc; it is not a pin).
 # scipy is held below 1.15 for the same reason as in Dockerfile.api: later
 # releases deprecate the L-BFGS `disp` option statsmodels passes.
 RUN pip install --no-cache-dir \
+    fastapi==0.115.0 \
+    "uvicorn[standard]==0.30.0" \
+    pydantic==2.7.0 \
     pandas==2.2.0 \
     pyarrow==16.0.0 \
     numpy==1.26.4 \
