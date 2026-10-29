@@ -1,0 +1,134 @@
+{
+  "windows": [
+    {
+      "id": "2024-H2",
+      "fit_through": "2024-06-30",
+      "first_month": "2024-07",
+      "last_month": "2024-12"
+    },
+    {
+      "id": "2025-H1",
+      "fit_through": "2024-12-31",
+      "first_month": "2025-01",
+      "last_month": "2025-06"
+    },
+    {
+      "id": "2025-H2",
+      "fit_through": "2025-06-30",
+      "first_month": "2025-07",
+      "last_month": "2025-12"
+    }
+  ],
+  "rows": [
+    {
+      "window": "2024-H2",
+      "model": "SARIMA",
+      "wape": 6.36,
+      "mae": 5495.08,
+      "n": 300,
+      "coverage_own_band": 80.33,
+      "stations_sarima_beats": null
+    },
+    {
+      "window": "2024-H2",
+      "model": "Prophet",
+      "wape": 5.36,
+      "mae": 4631.26,
+      "n": 300,
+      "coverage_own_band": 50.33,
+      "stations_sarima_beats": 12
+    },
+    {
+      "window": "2024-H2",
+      "model": "Chronos1_ZeroShot (chronos-t5-small)",
+      "wape": 8.92,
+      "mae": 7715.46,
+      "n": 300,
+      "coverage_own_band": 53.67,
+      "stations_sarima_beats": 38
+    },
+    {
+      "window": "2024-H2",
+      "model": "SeasonalNaive",
+      "wape": 6.62,
+      "mae": 5721.98,
+      "n": 300,
+      "coverage_own_band": 97.67,
+      "stations_sarima_beats": 27
+    },
+    {
+      "window": "2025-H1",
+      "model": "SARIMA",
+      "wape": 4.27,
+      "mae": 3808.65,
+      "n": 300,
+      "coverage_own_band": 91.0,
+      "stations_sarima_beats": null
+    },
+    {
+      "window": "2025-H1",
+      "model": "Prophet",
+      "wape": 4.58,
+      "mae": 4085.5,
+      "n": 300,
+      "coverage_own_band": 54.33,
+      "stations_sarima_beats": 25
+    },
+    {
+      "window": "2025-H1",
+      "model": "Chronos1_ZeroShot (chronos-t5-small)",
+      "wape": 9.6,
+      "mae": 8565.73,
+      "n": 300,
+      "coverage_own_band": 49.33,
+      "stations_sarima_beats": 41
+    },
+    {
+      "window": "2025-H1",
+      "model": "SeasonalNaive",
+      "wape": 8.17,
+      "mae": 7290.29,
+      "n": 300,
+      "coverage_own_band": 96.0,
+      "stations_sarima_beats": 42
+    },
+    {
+      "window": "2025-H2",
+      "model": "SARIMA",
+      "wape": 3.21,
+      "mae": 3086.41,
+      "n": 300,
+      "coverage_own_band": 96.67,
+      "stations_sarima_beats": null
+    },
+    {
+      "window": "2025-H2",
+      "model": "Prophet",
+      "wape": 5.75,
+      "mae": 5526.41,
+      "n": 300,
+      "coverage_own_band": 46.0,
+      "stations_sarima_beats": 46
+    },
+    {
+      "window": "2025-H2",
+      "model": "Chronos1_ZeroShot (chronos-t5-small)",
+      "wape": 9.7,
+      "mae": 9320.76,
+      "n": 300,
+      "coverage_own_band": 51.0,
+      "stations_sarima_beats": 49
+    },
+    {
+      "window": "2025-H2",
+      "model": "SeasonalNaive",
+      "wape": 10.75,
+      "mae": 10332.88,
+      "n": 300,
+      "coverage_own_band": 94.33,
+      "stations_sarima_beats": 48
+    }
+  ],
+  "source": "evaluation/outputs/backtest_windows.csv",
+  "generated_by": "models/baselines/backtest_windows.py"
+}
