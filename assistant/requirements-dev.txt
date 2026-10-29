@@ -1,0 +1,5 @@
+# Test tools for the route assistant: pip install -r assistant/requirements-dev.txt
+-r requirements.txt
+pytest==9.2.0
+pytest-asyncio==1.4.1
+respx==0.23.1
