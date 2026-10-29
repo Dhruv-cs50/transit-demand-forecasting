@@ -42,7 +42,7 @@
   - `def extract_awr(pdf_text: str, month: str) -> int` — the "Average Weekday Ridership" value for `month` (`"YYYY-MM"`); raises `ExtractionError` when the expected label and month are not found.
   - `def build_series(index_csv: Path, cache_dir: Path) -> pd.DataFrame` — downloads each report once into `cache_dir` (gitignored), records sha256, returns columns `month, awr, report_url, sha256, revised_from`.
   - `data/caltrain/awr_monthly.csv` with those columns, hand-checked: `MANIFEST.md` lists every month with the page where the value appears and a "checked by hand" mark.
-  - `configs/caltrain.yaml`: `electrification_start: "YYYY-MM"` (confirmed from a Caltrain document cited in `MANIFEST.md`), `method_changes: ["2020-04", "2022-06"]`, `exclude: ["2020-01".."2021-12"]`, `train_start`, and the holdout windows (Task 3).
+  - `configs/caltrain.yaml`: `electrification_start: "YYYY-MM"` (confirmed from a Caltrain document cited in `MANIFEST.md`), `method_changes` (the changes Caltrain documents, each cited in `MANIFEST.md`: `["2019-03", "2020-04", "2023-11", "2025-01"]`; amended 2026-10-29, the original `2022-06` had no source), `exclude: ["2020-01".."2021-12"]`, `train_start: "2022-01"`, and the holdout windows (Task 3).
 
 - [ ] **Step 1:** Collect report URLs from caltrain.com into `report_index.csv` (target Jan 2019 onward); download; save the extracted text of two reports with different layouts as fixtures.
 - [ ] **Step 2:** Tests: `test_extract_known_value` (fixture → the value printed in that PDF); `test_unmatched_layout_raises`; `test_revision_kept_and_recorded`. Run, expect FAIL.
@@ -59,9 +59,9 @@
 - Consumes: `awr_monthly.csv`, `configs/caltrain.yaml`.
 - Produces:
   - `station_annual.csv`: `fiscal_year, station, avg_midweek_boardings, report_url` from each annual report FY2019–FY2026, hand-checked (listed in `MANIFEST.md`).
-  - `def build_caltrain_store(cfg: dict) -> pd.DataFrame` — monthly rows, columns `timestamp` (month start), `station_id="CALTRAIN_SYSTEM"`, `ridership` (= AWR, so the BART model functions apply unchanged), `method_period` ∈ {`pre_2020_04`, `2020_04_to_2022_05`, `from_2022_06`}, `electrified` (0/1 from `electrification_start`); 2020–21 rows dropped. Writes the parquet; prints its sha256.
+  - `def build_caltrain_store(cfg: dict) -> pd.DataFrame` — monthly rows, columns `timestamp` (month start), `station_id="CALTRAIN_SYSTEM"`, `ridership` (= AWR, so the BART model functions apply unchanged), `method_period` = the latest `method_changes` entry at or before the row's month (e.g. `2023-11`), plus one 0/1 step column per change inside training (`method_2023_11`, `method_2025_01`) so the model reads the Jan 2025 +21% counting change as a level shift, not demand, `electrified` (0/1 from `electrification_start`); 2020–21 rows dropped. Writes the parquet; prints its sha256.
 
-- [ ] **Step 1:** Tests: `test_excludes_2020_2021`; `test_method_period_boundaries` (2022-05 vs 2022-06); `test_electrified_step` (0 before, 1 from the configured month); `test_columns_match_bart_contract` (`timestamp`, `station_id`, `ridership` present). Run, expect FAIL.
+- [ ] **Step 1:** Tests: `test_excludes_2020_2021`; `test_method_period_boundaries` (2023-10 vs 2023-11 and 2024-12 vs 2025-01); `test_electrified_step` (0 before, 1 from the configured month); `test_columns_match_bart_contract` (`timestamp`, `station_id`, `ridership` present). Run, expect FAIL.
 - [ ] **Step 2:** Implement; transcribe and check the annual table; build and commit the store.
 - [ ] **Step 3:** Run tests, expect PASS. Re-run the BART gate's byte checks (store, website JSON) — unchanged. Commit `feat(caltrain): store with method periods and electrification step`.
 
