@@ -135,8 +135,12 @@ A static React site in `website/` (no build step), served by App Engine and
 Firebase. It reads JSON exported from the benchmark run, so every number on the
 page comes from the data.
 
-- **Results page:** the leaderboard, SARIMA's forecasts with their bands (a
-  toggle shows Chronos-1), and the EDA.
+- **Results page:** the leaderboard, every model's forecasts with their bands
+  (a four-way switch: SARIMA, Prophet, Chronos-1, seasonal naive), a "Why
+  SARIMA" panel with the three-window backtest, and the EDA. Click a model
+  anywhere to highlight it across tables and charts; table columns sort; the
+  Method steps, stat tiles, data splits and recommendations open to show how
+  each figure is computed and where it comes from.
 - **Map demo:** all 50 BART stations on their real routes over Google Maps
   (falls back to OpenStreetMap if Google fails). "Forecast on Cloud Run" fetches
   a live forecast for the clicked station. The hour, day and weather sliders are
