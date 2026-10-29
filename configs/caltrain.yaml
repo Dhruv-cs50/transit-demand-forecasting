@@ -1,0 +1,22 @@
+# Caltrain systemwide monthly average weekday ridership (AWR) series.
+# See data/caltrain/MANIFEST.md for the sources and the evidence behind every value.
+
+# Launch month of fully electrified service (launched 2024-09-21; September 2024 is a
+# partial month, and an EMU soft launch started on 2024-08-11). Caltrain board
+# packet, Oct 3 2024, PDF page 25: "On September 21st Caltrain launched its new
+# electrified schedule". https://www.caltrain.com/media/34193/download
+electrification_start: "2024-09"
+
+# Months in which the ridership estimation method changed. 2020-04 is documented in
+# the board packets; 2022-06 is the project's own date and no Caltrain document I read
+# mentions a change then. The changes Caltrain does document are listed in MANIFEST.md
+# (2019-03, 2020-04, 2023-11, 2025-01).
+method_changes: ["2020-04", "2022-06"]
+
+# COVID-19 period (the estimate was rebuilt from Clipper/conductor counts in April
+# 2020 and service stayed far below normal): not used for fitting or evaluation.
+exclude: ["2020-01", "2020-02", "2020-03", "2020-04", "2020-05", "2020-06", "2020-07", "2020-08", "2020-09", "2020-10", "2020-11", "2020-12", "2021-01", "2021-02", "2021-03", "2021-04", "2021-05", "2021-06", "2021-07", "2021-08", "2021-09", "2021-10", "2021-11", "2021-12"]
+
+# First month of the training window: the earliest usable month at or after the
+# 2022-06 method change (2022-06 itself is published: 18,187, Aug 4 2022 packet).
+train_start: "2022-06"

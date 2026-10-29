@@ -106,3 +106,6 @@ node_modules/
 
 # Run outputs (benchmarks, interval study cache, calibrators): regenerated, never committed
 evaluation/outputs/
+
+# Caltrain board PDFs (downloaded cache for data/caltrain; never committed)
+data/caltrain/pdf_cache/
