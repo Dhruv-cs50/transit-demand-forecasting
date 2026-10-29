@@ -42,7 +42,7 @@
   - `def extract_awr(pdf_text: str, month: str) -> int` — the "Average Weekday Ridership" value for `month` (`"YYYY-MM"`); raises `ExtractionError` when the expected label and month are not found.
   - `def build_series(index_csv: Path, cache_dir: Path) -> pd.DataFrame` — downloads each report once into `cache_dir` (gitignored), records sha256, returns columns `month, awr, report_url, sha256, revised_from`.
   - `data/caltrain/awr_monthly.csv` with those columns, hand-checked: `MANIFEST.md` lists every month with the page where the value appears and a "checked by hand" mark.
-  - `configs/caltrain.yaml`: `electrification_start: "YYYY-MM"` (confirmed from a Caltrain document cited in `MANIFEST.md`), `method_changes` (the changes Caltrain documents, each cited in `MANIFEST.md`: `["2019-03", "2020-04", "2023-11", "2025-01"]`; amended 2026-10-29, the original `2022-06` had no source), `exclude: ["2020-01".."2021-12"]`, `train_start: "2022-01"`, and the holdout windows (Task 3).
+  - `configs/caltrain.yaml`: `electrification_start: "YYYY-MM"` (confirmed from a Caltrain document cited in `MANIFEST.md`), `method_changes` (the changes Caltrain documents, each cited in `MANIFEST.md`: `["2019-02", "2020-04", "2023-11", "2025-01"]`; amended 2026-10-29, the original `2022-06` had no source), `exclude: ["2020-01".."2021-12"]`, `train_start: "2022-01"`, and the holdout windows (Task 3).
 
 - [ ] **Step 1:** Collect report URLs from caltrain.com into `report_index.csv` (target Jan 2019 onward); download; save the extracted text of two reports with different layouts as fixtures.
 - [ ] **Step 2:** Tests: `test_extract_known_value` (fixture → the value printed in that PDF); `test_unmatched_layout_raises`; `test_revision_kept_and_recorded`. Run, expect FAIL.
