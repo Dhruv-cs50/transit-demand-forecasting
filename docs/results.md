@@ -52,6 +52,27 @@ Aug–Sep 2024 spike), then Pittsburg Center (+11.8%) and Downtown Berkeley
 (−9.75%, after +24% year-over-year growth in 2025). Source:
 [review-2026-10-28.md](review-2026-10-28.md).
 
+## All four models across three half-years
+
+`models/baselines/backtest_windows.py` reruns every model with the benchmark's
+own code at three origins (`evaluation/outputs/backtest_windows.csv`, exported
+to `website/data/backtest_windows.json`). Same 50 stations, same 6 steps, 300
+station-months per cell; the Jul–Dec 2025 rows equal the leaderboard exactly.
+
+| Model | Jul–Dec 2024 WAPE | Jan–Jun 2025 WAPE | Jul–Dec 2025 WAPE | Stations SARIMA beats (of 50), per window |
+| --- | ---: | ---: | ---: | --- |
+| SARIMA | 6.36% | **4.27%** | **3.21%** | — |
+| Prophet | **5.36%** | 4.58% | 5.75% | 12 / 25 / 46 |
+| Chronos-1 zero-shot | 8.92% | 9.60% | 9.70% | 38 / 41 / 49 |
+| Seasonal naive | 6.62% | 8.17% | 10.75% | 27 / 42 / 48 |
+
+Jul–Dec 2024 is not a clean holdout: Prophet's `yearly_fourier_order` and
+SARIMA's airline order were both selected by inspecting it
+(`configs/model.yaml`). On the two clean windows SARIMA has the lowest WAPE;
+on the tuned window Prophet is a point lower. Coverage here uses each model's
+own uncalibrated band, because the calibrators are fit on data to Jun 2025 and
+applying them to 2024 would leak.
+
 ## Interval calibration
 
 Point accuracy is sound; interval calibration is not finished. Seasonal naive's

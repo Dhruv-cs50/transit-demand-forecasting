@@ -28,11 +28,23 @@ WAPE is the main metric because stations differ in size by about 100×.
 | Chronos-1 zero-shot (`chronos-t5-small`) | 9.70% | 9,321 | 84.7% |
 | Seasonal naive ("same month last year") | 10.75% | 10,333 | 83.7% |
 
-- **SARIMA is clearly best.** It beats Prophet at 46 and seasonal naive at 48 of
-  50 stations, and its error does not grow with the horizon
+- **SARIMA is best on the test window.** It beats Prophet at 46 and seasonal
+  naive at 48 of 50 stations, and its error does not grow with the horizon
   (2.6 / 2.5 / 3.3 / 3.5 / 4.4 / 2.9% for months 1–6).
-- **Read it as 3–6%, not 3%.** The same model scores 6.36% on Jul–Dec 2024 and
-  4.27% on Jan–Jun 2025; 3.21% is its best of the three half-years.
+- **All four models, three half-years.** Each model refit at each origin and
+  scored on the same 300 station-months (WAPE, lower is better):
+
+  | Model | Jul–Dec 2024 ¹ | Jan–Jun 2025 | Jul–Dec 2025 (test) |
+  | --- | ---: | ---: | ---: |
+  | SARIMA | 6.36% | **4.27%** | **3.21%** |
+  | Prophet | **5.36%** | 4.58% | 5.75% |
+  | Chronos-1 zero-shot | 8.92% | 9.60% | 9.70% |
+  | Seasonal naive | 6.62% | 8.17% | 10.75% |
+
+  ¹ Prophet's Fourier order and SARIMA's airline order were both chosen by
+  looking at Jul–Dec 2024, so it is not a clean holdout. SARIMA has the lowest
+  WAPE on both clean windows; Prophet edges it on the tuned one.
+- **Read it as 3–6%, not 3%.** 3.21% is SARIMA's best of the three half-years.
 - **A small statistical model beat a foundation model.** With about 40 monthly
   points per station and strong yearly seasonality, the "airline" SARIMA
   (one trend difference, one seasonal difference, two parameters) outperforms
@@ -210,7 +222,8 @@ docs/                    results, deployment, API, design and audit documents
   does not provide here.
 - BART workbooks are downloaded by hand, so new months arrive only when someone
   uploads them.
-- The holdout is a single six-month window, and the interval methods were
+- The test holdout is a single six-month window (the three-window backtest
+  above adds two more, one of them tuned on), and the interval methods were
   revised after looking at it; coverage figures are less reliable than the
   point-forecast figures.
 - SARIMA's largest miss (Coliseum, 17.9%) comes from a one-off 2024 spike; an
