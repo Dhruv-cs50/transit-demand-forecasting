@@ -181,6 +181,7 @@ def test_config_keys():
     # A superset: later tasks add the holdout windows to this file.
     assert set(cfg) >= {"electrification_start", "method_changes", "exclude", "train_start"}
     assert cfg["electrification_start"] == "2024-09"
-    assert cfg["method_changes"] == ["2020-04", "2022-06"]
+    assert cfg["method_changes"] == ["2019-02", "2020-04", "2023-11", "2025-01"]
     assert cfg["exclude"] == [str(p) for p in pd.period_range("2020-01", "2021-12", freq="M")]
-    assert cfg["train_start"] >= "2022-06"
+    assert cfg["train_start"] == "2022-01"  # first month after the exclusion
+    assert cfg["train_start"] > cfg["exclude"][-1]

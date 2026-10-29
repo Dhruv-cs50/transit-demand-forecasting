@@ -89,15 +89,17 @@ is published about two months later: the board packet of month *M+2* reports mon
 
 | when | change | evidence |
 |---|---|---|
-| Mar/Apr 2019 | weekday-weighted ticket-sales model replaces the original estimate | media 2403 p16-17 |
+| **Feb 2019** (data month) | weekday-weighted ticket-sales model replaces the original estimate. It is introduced in the Apr 4 2019 packet with Feb 2019 data; Jan 2019 was first published on the old basis and is restated on the new one in this series | media 2403 p16-18 |
 | **Apr 2020** | daily conductor counts at 14 stations plus Clipper tag-ons replace the sales model | media 111 p14 ("temporary methodology to estimate the ridership starting in April 2020") |
 | **Nov 2023** | fully fare-media-sales-based model | media 32238 p12 ("November 2023, on: Caltrain implemented a ridership estimation model that is based entirely on fare media sales data"); packets from Dec 2025 say "Since DECEMBER 2023" instead |
 | **Jan 2025** | rides per monthly pass raised from 26 to 37 per month | the ridership page only (<https://www.caltrain.com/about-caltrain/statistics-reports/ridership>, read 2026-10-28); no board packet mentions it. The series steps up here: Dec 2024 24,037, Jan 2025 29,052 (+21%; +14% a year earlier) |
 
-`configs/caltrain.yaml` carries `method_changes: ["2020-04", "2022-06"]` as instructed. **No Caltrain
-document I read mentions a change in June 2022** (the table pages of Aug 2022, media 21498, p25, are
-the same layout as before). The documented later changes (Nov 2023, Jan 2025) are not in that key;
-see the concerns in the task report.
+`configs/caltrain.yaml` carries `method_changes: ["2019-02", "2020-04", "2023-11", "2025-01"]`, one
+entry per row of the table above. The 2019 entry is the first data month published on the new model
+(Feb 2019); because Jan 2019 is restated on that model, `awr_monthly.csv` has no break there, and 2019
+is outside the training window anyway. The Nov 2023 and Jan 2025 changes fall inside the training
+window; Task 2 encodes each as a step regressor so that the Jan 2025 jump (Dec 2024 24,037 to Jan
+2025 29,052, +21%) is not read as demand.
 
 ## Electrification launch
 
@@ -111,10 +113,10 @@ Executive Director report (media 34015, p5): "Launch New Electric Schedule ... S
 
 ## train_start
 
-`train_start: "2022-06"`. The configured method change is 2022-06 and the series has a published value
-for that month (18,187, media 21498 p25, Table A "Jun. 2022"), so the first usable month at or after it
-is 2022-06 itself. The training window therefore still contains the Nov 2023 model change and the
-Jan 2025 step; Task 3 should decide how to treat them.
+`train_start: "2022-01"`: the first month after the COVID exclusion (`exclude` ends 2021-12), which
+matches the BART train start. The series has a published value for it (9,044, media 18403, Mar 3 2022
+packet, p19, Table A "Jan 2022"). The training window runs through the Nov 2023 and Jan 2025 method
+changes, which is why they are in `method_changes`.
 
 ## How "hand-checked" was done
 

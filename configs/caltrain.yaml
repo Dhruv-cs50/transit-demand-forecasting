@@ -7,16 +7,20 @@
 # electrified schedule". https://www.caltrain.com/media/34193/download
 electrification_start: "2024-09"
 
-# Months in which the ridership estimation method changed. 2020-04 is documented in
-# the board packets; 2022-06 is the project's own date and no Caltrain document I read
-# mentions a change then. The changes Caltrain does document are listed in MANIFEST.md
-# (2019-03, 2020-04, 2023-11, 2025-01).
-method_changes: ["2020-04", "2022-06"]
+# Months in which Caltrain changed how AWR is estimated. Task 2 encodes each one as a step
+# regressor, so the model does not read a method jump (Jan 2025: +21% m/m) as demand. The
+# Nov 2023 and Jan 2025 changes fall inside the training window. Sources: the "Method changes
+# documented by Caltrain" table in data/caltrain/MANIFEST.md.
+method_changes:
+  - "2019-02"  # new weekday-weighted ticket-sales model, first used for Feb 2019 data (media 2403 p16-18); Jan 2019 is restated on it, so the series itself has no break here
+  - "2020-04"  # daily conductor counts at 14 stations plus Clipper tag-ons (media 111 p14)
+  - "2023-11"  # fare-media-sales-only model (media 32238 p12)
+  - "2025-01"  # rides per monthly pass 26 -> 37 (Caltrain ridership web page)
 
 # COVID-19 period (the estimate was rebuilt from Clipper/conductor counts in April
 # 2020 and service stayed far below normal): not used for fitting or evaluation.
 exclude: ["2020-01", "2020-02", "2020-03", "2020-04", "2020-05", "2020-06", "2020-07", "2020-08", "2020-09", "2020-10", "2020-11", "2020-12", "2021-01", "2021-02", "2021-03", "2021-04", "2021-05", "2021-06", "2021-07", "2021-08", "2021-09", "2021-10", "2021-11", "2021-12"]
 
-# First month of the training window: the earliest usable month at or after the
-# 2022-06 method change (2022-06 itself is published: 18,187, Aug 4 2022 packet).
-train_start: "2022-06"
+# First month of the training window: the first month after the COVID exclusion
+# (matches the BART train start). Published value: 9,044 (media 18403, Mar 3 2022 packet, p19).
+train_start: "2022-01"
