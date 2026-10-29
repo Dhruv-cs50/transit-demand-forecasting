@@ -341,10 +341,12 @@ const Dataset = () => {
   const hs = headlineStats(useSiteData('model_comparison.json'), null);
   const bt = backtestStats(useSiteJson('backtest_windows.json'));
   const valN = bt && !bt.failed && bt.byWin['2025-H1'] && bt.byWin['2025-H1'].sarima ? bt.byWin['2025-H1'].sarima.n : null;
+  // Inclusive month count between two 'YYYY-MM' split bounds.
+  const nMonths = (a, b) => { const [ya, ma] = a.split('-').map(Number), [yb, mb] = b.split('-').map(Number); return (yb - ya) * 12 + (mb - ma) + 1; };
   const splits = [
-    { nm:'Train (Jan 2022–Dec 2024)', v:1800, w:0.75, key:'Train', range:'Jan 2022 – Dec 2024', months:36 },
-    { nm:'Validation (Jan–Jun 2025)', v:valN || 300, w:0.125, key:'Validation', range:'Jan – Jun 2025', months:6 },
-    { nm:'Test (Jul–Dec 2025)', v:(hs && hs.n) || 300, w:0.125, key:'Test', range:'Jul – Dec 2025', months:6 },
+    { nm:'Train (Jan 2022–Dec 2024)', v:1800, w:0.75, key:'Train', range:'Jan 2022 – Dec 2024', months:nMonths('2022-01', '2024-12') },
+    { nm:'Validation (Jan–Jun 2025)', v:valN || 300, w:0.125, key:'Validation', range:'Jan – Jun 2025', months:nMonths('2025-01', '2025-06') },
+    { nm:'Test (Jul–Dec 2025)', v:(hs && hs.n) || 300, w:0.125, key:'Test', range:'Jul – Dec 2025', months:nMonths('2025-07', '2025-12') },
   ];
   // Hovered (mouse) or keyboard-focused split previews; a click or tap picks one.
   const [hov, setHov] = useState(null);
@@ -691,7 +693,7 @@ const Benchmarks = () => {
     { body: chrWins.length
         ? <>Chronos-1 zero-shot WAPE by half-year window: {chrWins.map((w, j) => <React.Fragment key={w.id}>{j ? ', ' : ''}<b>{btE.byWin[w.id].chronos.wape.toFixed(2)}%</b> ({w.label})</React.Fragment>)}.{chrLast && chrLast.beats != null ? <> In the latest window SARIMA beats it at {chrLast.beats}{nStations ? ` of ${nStations}` : ''} stations.</> : null}</>
         : <>{chronosRec}</>,
-      href:'#why-windows', label:'See every model across the windows' },
+      href: btOk ? '#why-windows' : '#why-sarima', label: btOk ? 'See every model across the windows' : 'See why SARIMA' },
     { body: <>Not measured yet. Ridership comes from BART's monthly reports, downloaded by hand because bart.gov blocks automated downloads; the 511 fetcher's output is not joined into the feature store, so no figure on this page uses it.</>,
       href:'#mth-01', label:'See Method step 01: data ingestion' },
   ];
@@ -871,7 +873,7 @@ const WhySarima = () => {
       : cleanWinners.length === 1
         ? ` On the ${clean.length === 2 ? 'two' : clean.length} windows the configs were not tuned on (${clean.map(w => `${w.id}, ${w.label}`).join('; ')}), ${name(cleanWinners[0])} has the lowest WAPE${clean.length > 1 ? ' in both' : ''}.`
         : ` On the windows the configs were not tuned on: ${clean.map(w => `${w.id}, ${name(bt.bestByWindow[w.id])}`).join('; ')} has the lowest WAPE.`;
-    return <><b>† {tuned.id} ({tuned.label}) is not a clean holdout:</b> the model configurations were tuned on it, so read {name(tw)}'s lowest WAPE there with that in mind.{cleanTxt}</>;
+    return <><b>† {tuned.id} ({tuned.label}) is not a clean holdout:</b> Prophet's Fourier order and SARIMA's airline order were chosen by inspecting it (configs/model.yaml), so read {name(tw)}'s lowest WAPE there with that in mind.{cleanTxt}</>;
   })() : null;
 
   return (

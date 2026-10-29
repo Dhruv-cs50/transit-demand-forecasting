@@ -506,7 +506,7 @@ tr.hl > td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
 .sort-ic{margin-left:5px; font-size:9px; opacity:.55}
 .sort-btn.on .sort-ic{opacity:1; color:var(--accent)}
 .why-windows th .tuned{display:inline-block; margin-top:4px; padding:1px 6px; border-radius:4px; font-size:10px; letter-spacing:.03em; text-transform:none;
-  color:var(--warn); border:1px solid color-mix(in oklab, var(--warn) 45%, var(--line)); background:color-mix(in oklab, var(--warn) 10%, transparent)}
+  color:color-mix(in oklab, var(--warn) 50%, var(--ink)); border:1px solid color-mix(in oklab, var(--warn) 45%, var(--line)); background:color-mix(in oklab, var(--warn) 10%, transparent)}
 .tuned-note{font-size:13px; margin:0; padding:12px 18px; border-top:1px solid var(--line); color:var(--ink-muted);
   background:color-mix(in oklab, var(--warn) 7%, var(--bg-elev))}
 .tuned-note b{color:var(--ink)}
