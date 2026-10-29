@@ -62,6 +62,11 @@ CAL_DIR       = EVAL_DIR / "calibration"
 # Fitted calibrators, one JSON per model key, read back by
 # scripts/export_website_data.py through evaluation.calibration.serve_band.
 CALIBRATOR_DIR = CAL_DIR / "calibrators"
+# Seasonal naive's test-window forecasts, saved beside the other models' own
+# outputs (models/baselines/outputs/arima/, .../prophet/). The other baselines
+# write theirs inside their run functions; seasonal naive has none, so
+# run_benchmarks saves it here. scripts/export_website_data.py reads it.
+SEASONAL_NAIVE_PATH = Path("models/baselines/outputs/seasonal_naive/seasonal_naive_forecasts.parquet")
 
 
 def load_config() -> dict:
@@ -835,6 +840,16 @@ def run_benchmarks(
             history_df=df[df["timestamp"] <= val_end], as_of=val_end,
         )
         model_preds["SeasonalNaive"] = naive_preds
+        # The forecasts the leaderboard row scores: p10/p90 are the band its
+        # Coverage_% scores (naive_interval says which), p10_raw/p90_raw the
+        # model's own +-20% band. A failed save is logged, not fatal: the
+        # export refuses seasonal naive's forecasts if the file is missing.
+        try:
+            SEASONAL_NAIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            naive_preds.assign(interval_method=naive_interval).to_parquet(SEASONAL_NAIVE_PATH, index=False)
+            log.info(f"  forecasts saved → {SEASONAL_NAIVE_PATH}")
+        except Exception as e:
+            log.error(f"  could not save seasonal naive forecasts to {SEASONAL_NAIVE_PATH} ({e!r})")
         rows = compute_metrics(test_df, naive_preds, "SeasonalNaive", train_df=train_df,
                                interval_method=naive_interval)
         rows = accept_rows_and_calibrator(rows, "SeasonalNaive", CALIBRATOR_DIR / "SeasonalNaive.json")
