@@ -295,6 +295,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
   const fcRes = useSiteData('forecasts.json');
   const split = comparisonSplit(fcRes, cmpRes);
   const data = cmpRes && cmpRes.status === 'ok' ? cmpRes.rows : null;
+  const [hl] = useModelHighlight();  // page-wide model highlight (interactions.jsx)
 
   const message = (...lines) => <ChartMessage width={width} height={height} lines={lines} />;
   if (!cmpRes || !fcRes) return message('Loading…');
@@ -344,8 +345,10 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
         const overflow = wape > DISPLAY_CAP;
         const y = pad.t + i * rowH + rowH * 0.18;
         const bH = rowH * 0.56;
+        const hk = modelKey(r.model);
         return (
-          <g key={i}>
+          <g key={i} className="chart-series" opacity={hl && hk !== hl ? 0.3 : 1}>
+            {hl && hk === hl && <rect x={2} y={y - rowH * 0.12} width={width - 4} height={bH + rowH * 0.24} rx="5" fill="none" stroke="var(--primary)" strokeWidth="1.5" />}
             <text
               x={pad.l - 10} y={y + bH / 2 + 4}
               textAnchor="end" fontSize="11.5" fontFamily="var(--body)"
@@ -511,6 +514,10 @@ const Calibration = ({ width = 460, height = 260, model = 'sarima' }) => {
 const ModelCompare = ({ width = 640, height = 300, station = 'EM', stationName = 'Embarcadero' }) => {
   const files = useFcFiles();
   const acRes = useSiteData('ridership_actuals.json');
+  // Page-wide model highlight (interactions.jsx): the highlighted series is
+  // drawn on top and thicker, the other models fade.
+  const [hl] = useModelHighlight();
+  const fade = k => (hl && hl !== k ? 0.18 : 1);
   const message = (...lines) => <ChartMessage width={width} height={height} lines={lines} />;
   if (!acRes || FC_ORDER.some(k => !files[k])) return message('Loading…');
 
@@ -554,9 +561,9 @@ const ModelCompare = ({ width = 640, height = 300, station = 'EM', stationName =
           <text x={pad.l - 6} y={sy(v) + 4} textAnchor="end" fontSize="9.5" fill="var(--ink-soft)" fontFamily="var(--mono)">{fmtK2(v)}</text>
         </g>
       ))}
-      {shown.map(x => (
-        <g key={x.k}>
-          <path d={path(x.pts)} fill="none" stroke={x.m.color} strokeWidth={x.k === 'sarima' ? 2.6 : 1.8}
+      {[...shown.filter(x => x.k !== hl), ...shown.filter(x => x.k === hl)].map(x => (
+        <g key={x.k} className="chart-series" opacity={fade(x.k)}>
+          <path d={path(x.pts)} fill="none" stroke={x.m.color} strokeWidth={x.k === hl ? 3.4 : x.k === 'sarima' ? 2.6 : 1.8}
             strokeDasharray={x.k === 'naive' ? '5 3' : ''} strokeLinecap="round" strokeLinejoin="round" />
           {x.pts.map(p => <circle key={p.month} cx={sx(idx[p.month])} cy={sy(p.p50)} r={x.k === 'sarima' ? 3.2 : 2.4} fill="var(--bg-elev)" stroke={x.m.color} strokeWidth="1.6" />)}
         </g>
@@ -576,7 +583,7 @@ const ModelCompare = ({ width = 640, height = 300, station = 'EM', stationName =
         {entries.map((e, i) => {
           const x = (i % 3) * 125, y = Math.floor(i / 3) * 14;
           return (
-            <g key={e.id} transform={`translate(${x}, ${y})`}>
+            <g key={e.id} transform={`translate(${x}, ${y})`} className="chart-series" opacity={e.actual ? 1 : fade(e.id)}>
               <line x1="0" y1="0" x2="18" y2="0" stroke={e.color} strokeWidth={e.id === 'sarima' ? 2.6 : 1.8} strokeDasharray={e.dash || ''} />
               <circle cx="9" cy="0" r="2.6" fill={e.actual ? e.color : 'var(--bg-elev)'} stroke={e.color} strokeWidth="1.5" />
               <text x="24" y="4" fontSize="10.5" fill="var(--ink)" fontFamily="var(--body)">{e.label}</text>
