@@ -1,5 +1,39 @@
 # Sprint board
 
+## Sprint 11 — All four models on all three windows; site polish (opened 2026-10-28)  |  Deadline: 2026-11-03  |  Status: On track
+
+**Goal.** The site shows every model's forecasts (not only SARIMA and Chronos-1) and a tracked
+backtest of all four models on three half-year windows, so "SARIMA was best" rests on more than
+one window; the visual regressions the user reported are fixed. Integration branch
+`sprint11/base` (from `main` @ 9a373a5); one PR to `main` after the gate, then deploy.
+The route-planning chatbot (target 2026-11-15) is a separate design on its own branch.
+
+**User decisions (2026-10-28).** Option B: run all four models on all three windows. Site looks
+worse than before (fonts, sizes, Method section) — audit first, fixes approved before building.
+
+**Data contract (lane B writes, lane C reads).**
+- `website/data/forecasts_prophet.json`, `website/data/forecasts_seasonal_naive.json`: same schema
+  as `forecasts_sarima.json` — a list of `{station_id, month "YYYY-MM", p10, p50, p90, p10_raw,
+  p90_raw, interval_method, model}`; Jul–Dec 2025 test forecasts, 300 rows; `p10/p90` are the
+  band the leaderboard scored (calibrated where the leaderboard's `Interval_method` says so).
+- `website/data/backtest_windows.json`: `{"windows": [{"id": "2024-H2", "fit_through":
+  "2024-06-30", "first_month": "2024-07", "last_month": "2024-12"}, …3], "rows": [{"window",
+  "model", "wape", "mae", "n", "coverage_own_band", "stations_sarima_beats"}], "source",
+  "generated_by"}`. Point metrics are comparable across windows; `coverage_own_band` uses each
+  model's own band (calibrators are fit on data to Jun 2025, so applying them to 2024 windows
+  would leak). The 2025-H2 rows must equal the leaderboard's WAPE/MAE/n exactly.
+
+| ID | Goal | Owner | Est. | Depends on | Acceptance check | State |
+|---|---|---|---|---|---|---|
+| S11-01 | Read-only visual regression audit (earlier `20261028t003621` vs current) + Method redesign proposal | lane C | 1h | — | Ranked fix list with file:line and cause; user approves before building | done — no font changed (`styles.css` byte-identical, computed type identical); longer copy from S9-15/S10-02/S10-04 wraps in fixed-width CSS: Method 1260 → 1636 px (equal-height 5-column cards), Data "1,800 station-months" in a 60 px column, "3,000 records" tile, unpadded Benchmarks footnote, map teaser blurb, long ledes. User approved the full fix + Method rows redesign (2026-10-28) |
+| S11-01b | Build the audit fixes + Method redesign (five full-width rows, ~1000 px) + versioned links to the demo pages (App Engine edge serves a stale bare `/transit-demo.html`) | lane C | 3h (3 stories) | S11-01 | Before/after screenshots 1440/1280/375; no 375 px overflow; JSX parses; data-derived numbers | done (8821f2e, merged c84d5b9) |
+| S11-02 | `benchmarks.py` saves seasonal-naive test forecasts; `models/baselines/backtest_windows.py` runs all 4 models on 2024-H2, 2025-H1, 2025-H2 with the benchmark's own model code | lane B | 1h+1h | — | 2025-H2 rows = leaderboard exactly; leaderboard/results/LaTeX bytes unchanged; seeded, two runs identical; tests | done (5bc252e, merged a5ec0c4) — WAPE 2024-H2/2025-H1/2025-H2: SARIMA 6.36/4.27/3.21, Prophet 5.36/4.58/5.75, Chronos-1 8.92/9.60/9.70, SeasonalNaive 6.62/8.17/10.75. Prophet wins 2024-H2, the window both configs were tuned on |
+| S11-03 | Export `forecasts_prophet.json`, `forecasts_seasonal_naive.json`, `backtest_windows.json` (all-or-nothing, checked against leaderboard) | lane B | 1h | S11-02 | Existing 6 JSONs byte-identical; new files match the contract; tests | done (24cae18, merged a5ec0c4) |
+| S11-04 | Site: four-way model switch in the forecast chart and BART table; "Why SARIMA" panel; three-window table | lane C | 2×1h | S11-01b, S11-03 (fixtures meanwhile) | Data-derived text only; JSX parses; browser check desktop + 375 px | done (8db8b6d, merged c84d5b9; browser-checked on localhost after a5ec0c4) |
+| S11-06 | Interactive blocks (user-approved 2026-10-28): Method step rail with scroll-spy + smooth details + step↔pipeline highlight; stat-tile explainers; hover/tap split bars; page-wide model highlight + sortable tables; expandable recommendation cards; tuned-window caveat on 2024-H2 | lane C | 3h (one dispatch) | S11-04 | Keyboard + touch + mouse; `prefers-reduced-motion` respected; no new libraries; no new numbers (all from `website/data`); JSX parses; browser check 1440 + 375 px, no overflow | done (1ba2d0c, merged a53e1d2; review fixes b6b6218: derived month counts, guarded REC 02 link, tuned tag 6.3:1 light / 8.2:1 dark) |
+| S11-05 | Gate, PR to `main`, deploy both hosts (map links carry `?v=` to beat App Engine's edge cache) | orchestrator | 1h | S11-02..04, S11-06 | S7-13 gate set + new files; live hosts = `main` without cache-busting queries | in progress — gate green on a53e1d2 (store 6cde32d4, leaderboard d0d66f03, results 8f708b71, LaTeX 849f1672, 9 site JSONs byte-identical, two runs identical but for Chronos `generated_at`; 536 + 84 tests; JSX parses) |
+
+
 ## Sprint 8 — Ship the gated numbers, harden, design cloud ingestion (opened 2026-10-28)  |  Deadline: 2026-11-03  |  Status: At risk (blocked on user: gcloud auth, deploy yes, Maps billing)
 
 **Goal.** By 2026-11-03: the live site and API serve the numbers gated in S7-13; the live map
