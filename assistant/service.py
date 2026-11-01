@@ -11,8 +11,8 @@ ends), or ``options`` (with ``maps_link`` and no options when there is no route
 or Routing failed), ``text``*, ``replace``?, ``caveats``, ``done``.
 
 Logging: one structured line per request with latencies and event counts and
-nothing the rider typed. No CORS here: whether the site proxies ``/chat`` or
-needs CORS is decided with the panel (Task 7).
+nothing the rider typed. CORS: the panel calls the service cross-origin from
+the two site hosts (``ALLOWED_ORIGINS``) and, for development, from localhost.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from assistant import context_tools  # noqa: F401  (installs the httpx log redaction; keep it imported)
@@ -54,6 +55,12 @@ CACHE_BUCKET_S = 300  # depart_at is rounded down to 5 minutes in the cache key
 RATE_WINDOW_S = 3600
 MAX_BODY_BYTES = 8192
 MAX_IP_CHARS = 64
+# The two hosts that serve the site (Firebase Hosting, App Engine); localhost on any port for development.
+ALLOWED_ORIGINS = (
+    "https://cs-163-final-project-tra-f1136.web.app",
+    "https://cs-163-final-project-tra-f1136.wl.r.appspot.com",
+)
+LOCAL_ORIGIN_RE = r"http://(localhost|127\.0\.0\.1)(:\d+)?"
 
 SAME_PLACE_QUESTION = "Your start and end look like the same place. Please give me a different destination."
 SAFE_TEXT = "The route options are shown above. Check the times with Google Maps before you travel."
@@ -466,6 +473,15 @@ def create_app(
                 await owned.aclose()
 
     app = FastAPI(title="transit-assistant", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(ALLOWED_ORIGINS),
+        allow_origin_regex=LOCAL_ORIGIN_RE,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+        expose_headers=["Retry-After"],
+        max_age=600,
+    )
     app.state.rt = None
     if fake:
         app.state.rt = build(Settings(GEMINI_MODEL="fake-gemini"), fake_services())

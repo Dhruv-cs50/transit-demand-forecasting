@@ -1025,6 +1025,35 @@ const ctReason = s => String(s || '')
   .replace(/; /g, '. ')
   .replace(/(^|\. )([a-z])/g, (_, a, c) => a + c.toUpperCase());
 
+/* Route assistant: the chat panel itself is plain JS (assistant.js), mounted once. */
+const RouteAssistant = () => {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (ref.current && window.TransitAssistant && !ref.current.dataset.mounted) {
+      ref.current.dataset.mounted = '1';
+      window.TransitAssistant.mount(ref.current, {});
+    }
+  }, []);
+  return (
+    <section id="assistant">
+      <div className="wrap">
+        <div className="section-h">
+          <Reveal><div className="eyebrow"><span className="pip" /> Route assistant</div></Reveal>
+          <Reveal delay="1"><div className="row">
+            <h2>Ask how to get there by transit.</h2>
+            <p className="lede" style={{ maxWidth:'60ch' }}>
+              Type a Bay Area trip and get ranked BART, VTA and Caltrain options. Every time and
+              duration comes from Google Routes; Gemini only explains them, and any sentence that
+              states a time Google did not give is replaced. The map demo draws the route on the map.
+            </p>
+          </div></Reveal>
+        </div>
+        <div className="ta-section-card" ref={ref} />
+      </div>
+    </section>
+  );
+};
+
 const Caltrain = () => {
   const serRes = useSiteData('caltrain_series.json');
   const stRes = useSiteData('caltrain_station_annual.json');
@@ -1807,4 +1836,4 @@ const BARTForecasts = () => {
   );
 };
 
-Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, WhySarima, EDAViz, About, Footer, BARTForecasts, Caltrain });
+Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, WhySarima, EDAViz, About, Footer, BARTForecasts, Caltrain, RouteAssistant });

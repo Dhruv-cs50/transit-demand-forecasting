@@ -533,3 +533,58 @@ def test_logs_contain_no_secrets_or_message_text(caplog):
 def test_module_level_app_import_needs_no_environment(monkeypatch):
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     assert svc.app.title  # importing assistant.service did not read settings
+
+
+# --- CORS (Task 7: the panel calls the service cross-origin) ------------------------
+
+SITE = "https://cs-163-final-project-tra-f1136.web.app"
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        SITE,
+        "https://cs-163-final-project-tra-f1136.wl.r.appspot.com",
+        "http://localhost:8000",
+        "http://127.0.0.1:5500",
+        "http://localhost",
+    ],
+)
+def test_cors_allows_the_site_hosts_and_localhost(origin):
+    rig = Rig()
+    pre = rig.client.options(
+        "/chat",
+        headers={"Origin": origin, "Access-Control-Request-Method": "POST",
+                 "Access-Control-Request-Headers": "content-type"},
+    )
+    assert pre.status_code == 200
+    assert pre.headers["access-control-allow-origin"] == origin
+    resp = rig.chat(headers={"Origin": origin})
+    assert resp.headers["access-control-allow-origin"] == origin
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://evil.example.com",
+        SITE + ".evil.com",
+        "http://cs-163-final-project-tra-f1136.web.app",
+        "http://localhost.evil.com",
+        "https://localhost:8000",
+    ],
+)
+def test_cors_refuses_other_origins(origin):
+    rig = Rig()
+    pre = rig.client.options("/chat", headers={"Origin": origin, "Access-Control-Request-Method": "POST"})
+    assert "access-control-allow-origin" not in pre.headers
+    resp = rig.chat(headers={"Origin": origin})
+    assert "access-control-allow-origin" not in resp.headers
+
+
+def test_cors_exposes_retry_after_on_429():
+    rig = Rig()
+    resps = [rig.chat(headers={"Origin": SITE}) for _ in range(SETTINGS.RATE_LIMIT_PER_HOUR + 1)]
+    last = resps[-1]
+    assert last.status_code == 429
+    assert last.headers["access-control-allow-origin"] == SITE
+    assert "retry-after" in last.headers["access-control-expose-headers"].lower()
