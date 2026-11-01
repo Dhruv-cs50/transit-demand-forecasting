@@ -28,12 +28,13 @@ questions:
     expect_agencies: [Caltrain]
 
   # Known issue: "12th St Oakland" geocodes near West Oakland. The destination must be the
-  # 12th St. / Oakland City Center station, not West Oakland.
+  # 12th St. / Oakland City Center station (or a stop at 12th St), not West Oakland. "City center" is not
+# required: a bus alternative may end at "Broadway & 12th St".
   - id: powell-12th-st-oakland
     message: Powell St BART to 12th St Oakland City Center BART tomorrow at 9 am
     kind: route
     expect_agencies: [BART]
-    dest_stop_contains: ["12th st", "city center"]
+    dest_stop_contains: ["12th st"]
     dest_stop_excludes: ["west oakland"]
 
   - id: winchester-santa-teresa-vta
