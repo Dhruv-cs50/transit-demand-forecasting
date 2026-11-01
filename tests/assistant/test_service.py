@@ -364,7 +364,36 @@ def test_unexpected_failure_before_options_returns_the_form():
     assert events(rig.chat()) == [{"type": "form"}]
 
 
-def test_options_are_sent_before_context_finishes():
+def test_options_are_sent_while_context_is_still_running():
+    """Drive the stream directly: options arrive with the context tools started but unfinished."""
+    import asyncio
+
+    state: dict = {}
+
+    class GatedContext(FakeContext):
+        async def gather(self, options, q):
+            state["started"] = True
+            await state["gate"].wait()
+            return await super().gather(options, q)
+
+    rig = Rig(context=GatedContext())
+
+    async def go():
+        state["gate"] = asyncio.Event()
+        gen = svc.stream_chat(rig.app.state.rt, MESSAGE)
+        first = json.loads(await gen.__anext__())
+        assert first["type"] == "options"
+        await asyncio.sleep(0)  # let the context task reach its gate
+        assert state.get("started") is True  # context began as soon as routing returned
+        assert not state["gate"].is_set()  # and is still running while options are on the wire
+        state["gate"].set()
+        return [json.loads(line) async for line in gen]
+
+    rest = asyncio.run(go())
+    assert [e["type"] for e in rest][-2:] == ["caveats", "done"]
+
+
+def test_slow_context_is_timed_in_the_done_event():
     import asyncio
 
     class SlowContext(FakeContext):
@@ -372,8 +401,7 @@ def test_options_are_sent_before_context_finishes():
             await asyncio.sleep(0.1)
             return await super().gather(options, q)
 
-    rig = Rig(context=SlowContext())
-    evs = events(rig.chat())
+    evs = events(Rig(context=SlowContext()).chat())
     assert types_of(evs)[0] == "options" and evs[-1]["latency_ms"]["context"] >= 90
 
 
