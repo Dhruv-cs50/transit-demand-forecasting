@@ -63,3 +63,12 @@ gate:
 
 # The one object that is overwritten: the API reads it to find the current store.
 serving_pointer: "processed/serving.json"
+
+# Caltrain monthly AWR (docs/cloud-ingestion-design.md, section 2b). Optional and
+# non-blocking: absent -> skipped; present and passing -> caltrain_store.parquet is
+# published beside the BART store; present and failing -> recorded as rejected in
+# manifest.json, BART publishes as normal.
+caltrain:
+  raw_object: "raw/caltrain/awr_monthly.csv"          # uploaded by hand after each report
+  committed_csv: "data/caltrain/awr_monthly.csv"      # the reference series (relative to the repo root)
+  config: "configs/caltrain.yaml"

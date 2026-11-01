@@ -62,6 +62,40 @@ Daily 03:15 America/Los_Angeles; entrypoint `python -m machine_learning_files.cl
 Exit codes: 0 published/unchanged; 1 gate/build failure; 2 a fetch failed (rest completes);
 3 another execution published first.
 
+## 2b. Caltrain rides along and never blocks BART
+
+After each Caltrain ridership report, upload the extended series by hand:
+`gcloud storage cp awr_monthly.csv gs://…/raw/caltrain/` (same columns as
+`data/caltrain/awr_monthly.csv`; revisions carry `revised_from`). The job stages it with the other
+raw objects and decides:
+
+- **Absent**: skipped silently. Nothing about the BART run changes: same objects, same
+  `manifest.json` keys, same log lines.
+- **Present and passing** the checks (every month of the committed series present with an identical
+  `awr` unless the new row carries `revised_from`; months strictly increasing; no month after the
+  last closed month): rebuilt with `build_caltrain_store` and published as
+  `runs/<id>/caltrain_store.parquet`, after `feature_store.parquet` and before `manifest.json`, which
+  lists it under `"caltrain"` (`status: published`, object, sha256, rows, months). `gate.json`
+  carries the identical entry: the Caltrain object is uploaded before `gate.json` is written, so
+  both name the final status. A new Caltrain month alone (BART unchanged) still publishes a run; the
+  pointer moves with the same BART bytes. A run that publishes nothing (BART gate failed, dry run, or
+  nothing new) leaves the entry at `accepted` in `gate.json` (checks passed, not published).
+- **Present and failing**: BART publishes as normal; no Caltrain object; `manifest.json` and
+  `gate.json` carry `"caltrain": {"status": "rejected", "reason": …}`; an ERROR line names the reason.
+  An upload failure of the Caltrain object, or a malformed `caltrain:` block in `ingest.yaml`, is
+  handled the same way.
+  If BART is unchanged and the file is rejected, nothing is published, so there is no
+  `manifest.json`; the reason is in that run's `gate.json`. The pointer does not move, so the
+  rebuild and the ERROR line repeat on every daily run until the file is fixed. That is intended:
+  it is the alert.
+
+The exit code follows BART only. The reference series for the checks is
+`data/caltrain/awr_monthly.csv` as baked into the image, so after a Caltrain month is accepted,
+commit the new CSV and rebuild the image; until then the checks still pass (a longer series
+extends the committed one). Months newer than the baked CSV are not re-checked across runs: a
+later upload that changes an already-published newer month without `revised_from` passes until
+the committed CSV is updated.
+
 ## 3. BART stays manual
 
 bart.gov answers automated downloads with 403. Flow: download the workbook in a browser →
