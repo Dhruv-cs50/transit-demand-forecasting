@@ -811,9 +811,10 @@ const CaltrainForecastChart = ({ forecast, series, context = 12 }) => {
         {fc.map(r => <circle key={r.k} cx={sx(r.k)} cy={sy(r.p50)} r="3.2" fill="var(--bg-elev)" stroke="var(--primary)" strokeWidth="1.6" />)}
         <path d={path(act, r => r.awr)} fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         {act.map(a => <circle key={a.k} cx={sx(a.k)} cy={sy(a.awr)} r="3" fill="var(--accent)" stroke="var(--bg-elev)" strokeWidth="1.1" />)}
-        {ks.filter((k, j) => (ks.length - 1 - j) % labelEvery === 0).map(k => (
+        {/* The year on the first drawn label and on the first drawn label of each later year. */}
+        {ks.filter((k, j) => (ks.length - 1 - j) % labelEvery === 0).map((k, j, drawn) => (
           <text key={k} x={sx(k)} y={pad.t + H + 16} textAnchor="middle" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">
-            {MONTH_ABBR[k % 12]}{k % 12 === 0 || k === ks[0] ? ` ${String(Math.floor(k / 12)).slice(2)}` : ''}
+            {MONTH_ABBR[k % 12]}{j === 0 || Math.floor(drawn[j - 1] / 12) !== Math.floor(k / 12) ? ` ’${String(Math.floor(k / 12)).slice(2)}` : ''}
           </text>
         ))}
         {ck != null && (

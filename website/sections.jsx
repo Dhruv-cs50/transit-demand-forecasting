@@ -1003,6 +1003,13 @@ const CT_METHOD_NOTES = {
   '2023-11': 'an estimate from fare-media sales alone replaced the counts',
   '2025-01': 'each monthly pass began to count as more rides',
 };
+// Station-year notes from data/caltrain/MANIFEST.md ("Basis of each year", FY2026
+// row: FY2026 annual report, section 4.1, quoted on PDF page 14). The change
+// against the previous year shown beside it is computed from the data.
+const CT_STATION_NOTES = [
+  { station: 'Tamien', fy: 2026, from: '2025-06', to: '2026-01',
+    text: 'electrified service was suspended there' },
+];
 // What the estimate rests on from each change on (same source, no figures).
 const CT_METHOD_BASIS = {
   '2019-02': 'a weekday-weighted ticket-sales model',
@@ -1116,6 +1123,12 @@ const Caltrain = () => {
   });
   const rejected = windows.filter(w => !w.admitted);
   const scoredMonths = admitted.reduce((s, w) => s + ctMonths(w.start, w.end), 0);
+  const winLens = [...new Set(admitted.map(w => ctMonths(w.start, w.end)))];
+  const thinNote = admitted.length
+    ? `${ctWord(admitted.length).replace(/^./, c => c.toUpperCase())} admitted window${admitted.length > 1 ? 's' : ''}`
+      + (winLens.length === 1 ? ` of ${ctWord(winLens[0])} months${admitted.length > 1 ? ' each' : ''}` : '')
+      + ` (${scoredMonths} months in all) ${admitted.length > 1 ? 'are' : 'is'} thin evidence, so read this as indicative, not as a measured error rate.`
+    : null;
   const winners = [...new Set(admitted.map(w => bestIn[w.window]).filter(Boolean))];
   const name = k => (FC_MODELS[k] ? FC_MODELS[k].short : k);
   const f2 = v => (typeof v === 'number' && isFinite(v) ? `${v.toFixed(2)}%` : '—');
@@ -1137,6 +1150,11 @@ const Caltrain = () => {
   const yInfo = {}; stRows.forEach(r => { if (!yInfo[r.fiscal_year]) yInfo[r.fiscal_year] = r; });
   const val = {}; stRows.forEach(r => { (val[r.station] = val[r.station] || {})[r.fiscal_year] = r.avg_midweek_boardings; });
   const latestFy = years[years.length - 1];
+  // Notes for station-years present in the data, with the change on the previous published year.
+  const stNotes = CT_STATION_NOTES.filter(n => val[n.station] && val[n.station][n.fy] != null).map(n => {
+    const prevFy = [...years].reverse().find(y => y < n.fy && val[n.station][y] != null);
+    return { ...n, prevFy, ch: prevFy != null ? val[n.station][n.fy] / val[n.station][prevFy] - 1 : null };
+  });
   const stations = Object.keys(val).sort((a, b) => (val[b][latestFy] || 0) - (val[a][latestFy] || 0));
   const missingFy = years.length ? Array.from({ length: years[years.length - 1] - years[0] + 1 }, (_, j) => years[0] + j).filter(y => !years.includes(y)) : [];
   const fyRange = ys => (ys.length === 1 ? `FY${ys[0]}` : `FY${ys[0]}–FY${ys[ys.length - 1]}`);
@@ -1230,7 +1248,7 @@ const Caltrain = () => {
             {fc && <CaltrainForecastChart forecast={fc} series={series} />}
             {fcCell && (
               <p className="text-muted" style={{ fontSize:12, margin:0 }}>
-                WAPE {f2(fcCell.wape)} over {fcCell.n} months.
+                WAPE {f2(fcCell.wape)} over {fcCell.n} months.{thinNote ? ` ${thinNote}` : ''}
                 {fcHits != null && ` Its own P10–P90 band held ${fcHits} of ${fcCell.n} months (${Math.round(fcCell.coverage_own_band)}%, against a nominal 80%), uncalibrated: with ${fcCell.n} months that is a rough check, not a coverage estimate.`}
               </p>
             )}
@@ -1305,6 +1323,7 @@ const Caltrain = () => {
                 {counts.map(fy => <li key={`c${fy}`}><b>{yHead(fy)}</b> is the {yPeriod(fy)}, an onboard passenger count, not a fiscal-year average. {estimates.length ? `${estimates.map(yHead).join(', ').replace(/, ([^,]*)$/, ' and $1')} are Caltrain's fare-media model estimates.` : ''}</li>)}
                 {partial.map(fy => <li key={`p${fy}`}><b>{yHead(fy)}</b> covers {ctSpan(yInfo[fy].first_month, yInfo[fy].last_month).range} only ({ctMonths(yInfo[fy].first_month, yInfo[fy].last_month)} months), so it is not comparable to a full year.</li>)}
                 {missingFy.length > 0 && <li><b>Caltrain published no station figures for {fyRange(missingFy)}</b>, so those years are absent, not zero.</li>}
+                {stNotes.map(n => <li key={`n${n.station}${n.fy}`}><b>{n.station}, {yHead(n.fy)}</b>{n.ch != null ? ` (${ctPct(n.ch)} on ${yHead(n.prevFy)})` : ''}: {n.text} from {ctYM(n.from)} to {ctYM(n.to)}. Marked † in the table.</li>)}
               </ul>
             )}
           </div>
@@ -1319,8 +1338,13 @@ const Caltrain = () => {
               <tbody>
                 {stSorted.map(s => (
                   <tr key={s}>
-                    <td className="model">{s}</td>
-                    {years.map(fy => <td key={fy} className="num">{fmtInt(val[s][fy])}</td>)}
+                    <td className="model">{s}{stNotes.filter(n => n.station === s).map(n => (
+                      <span key={n.fy} className="ct-rownote">† {yHead(n.fy)}{n.ch != null ? ` ${ctPct(n.ch)}` : ''}: {n.text}, {ctYM(n.from)}–{ctYM(n.to)}</span>
+                    ))}</td>
+                    {years.map(fy => {
+                      const mark = stNotes.some(n => n.station === s && n.fy === fy);
+                      return <td key={fy} className="num">{fmtInt(val[s][fy])}{mark && <sup className="ct-dag" title="See the note under the station name">†</sup>}</td>;
+                    })}
                   </tr>
                 ))}
                 {!stRes && <tr><td colSpan={years.length + 1} style={{ textAlign:'center', color:'var(--ink-muted)' }}>Loading…</td></tr>}
