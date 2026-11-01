@@ -6,7 +6,11 @@ __pycache__/
 *.pyo
 *.zip
 node_modules/
-website/
+# Dockerfile.assistant copies three website/data JSON files; the rest of website/ stays out.
+website/*
+!website/data/stations_meta.json
+!website/data/stations_ridership.json
+!website/data/forecasts_sarima.json
 Final_eda/
 transit_eda/notebooks/__pycache__/
 .firebase/
