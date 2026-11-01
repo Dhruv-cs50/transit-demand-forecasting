@@ -1,0 +1,45 @@
+# ── Route assistant image ────────────────────────────────────────────────────
+# FastAPI service behind POST /chat (NDJSON stream) and GET /health: a rider's
+# question -> Gemini on Vertex AI -> Google Routes -> short, checked explanation.
+# Target: Google Cloud Run (linux/amd64). Runbook: docs/assistant.md
+#
+# Build & push (Apple Silicon: use Cloud Build, not a local docker build):
+#   gcloud builds submit --config=cloudbuild.assistant.yaml \
+#     --substitutions=_TAG=$(git rev-parse --short HEAD) .
+#
+# Run locally with fakes (no keys, no network):
+#   docker build -t transit-assistant -f Dockerfile.assistant .
+#   docker run -p 8080:8080 -e ASSISTANT_FAKE=1 transit-assistant
+
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Runtime pins only; test tools are in assistant/requirements-dev.txt and stay out.
+COPY assistant/requirements.txt ./assistant/requirements.txt
+RUN pip install -r assistant/requirements.txt
+
+# App source
+COPY assistant/ ./assistant/
+
+# The three files station_context reads (assistant/station_data.py): monthly
+# BART context, never live crowding. Nothing else from website/ is shipped.
+COPY website/data/stations_meta.json    ./website/data/stations_meta.json
+COPY website/data/stations_ridership.json ./website/data/stations_ridership.json
+COPY website/data/forecasts_sarima.json ./website/data/forecasts_sarima.json
+
+# Run unprivileged.
+RUN useradd --system --uid 10001 --no-create-home app
+USER app
+
+# Cloud Run injects PORT; default 8080. GEMINI_MODEL, GCP_PROJECT, VERTEX_REGION and
+# the secrets are set at deploy time (docs/assistant.md); GEMINI_MODEL has no default.
+ENV PORT=8080
+EXPOSE 8080
+
+CMD ["sh", "-c", "exec uvicorn assistant.service:app --host 0.0.0.0 --port ${PORT:-8080}"]
