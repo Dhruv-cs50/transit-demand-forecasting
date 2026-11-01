@@ -8,7 +8,9 @@ __pycache__
 *.pyc
 *.pyo
 node_modules
-website
+# Dockerfile.assistant needs website/data (three JSON files); the rest of website/ stays out.
+website/*
+!website/data
 Final_eda
 transit_eda
 .firebase

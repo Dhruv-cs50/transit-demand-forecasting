@@ -1,0 +1,29 @@
+# ── Route assistant image (transit-assistant on Cloud Run) ───────────────────
+# FastAPI /chat service: Google Routes + Gemini (Vertex AI) + context tools.
+# Installs assistant/requirements.txt only (test pins live in
+# requirements-dev.txt and stay out of the image).
+#
+# Build & push (Apple Silicon — use Cloud Build, not a local docker build):
+#   gcloud builds submit --config=cloudbuild.assistant.yaml \
+#     --substitutions=_TAG=$(git rev-parse --short HEAD) .
+# Deploy and operate: docs/assistant.md.
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY assistant/requirements.txt ./assistant/requirements.txt
+RUN pip install --no-cache-dir -r assistant/requirements.txt
+
+COPY assistant/ ./assistant/
+# station_data reads these three files from <repo>/website/data.
+COPY website/data/stations_meta.json      ./website/data/stations_meta.json
+COPY website/data/stations_ridership.json ./website/data/stations_ridership.json
+COPY website/data/forecasts_sarima.json   ./website/data/forecasts_sarima.json
+
+ENV PYTHONUNBUFFERED=1 \
+    PORT=8080
+
+EXPOSE 8080
+
+CMD ["sh", "-c", "exec uvicorn assistant.service:app --host 0.0.0.0 --port ${PORT:-8080}"]

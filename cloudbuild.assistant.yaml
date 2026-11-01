@@ -1,0 +1,31 @@
+# Builds the route assistant image (Dockerfile.assistant) and pushes it to
+# Artifact Registry as transit-assistant:$_TAG. Build and push only; never deploys.
+#
+#   gcloud builds submit --config=cloudbuild.assistant.yaml \
+#     --substitutions=_TAG=$(git rev-parse --short HEAD) .
+#
+# Deploy by digest (see docs/assistant.md), never by tag.
+substitutions:
+  _TAG: manual
+
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - --platform=linux/amd64
+      - -f
+      - Dockerfile.assistant
+      - -t
+      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-assistant:$_TAG
+      - .
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - push
+      - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-assistant:$_TAG
+
+images:
+  - us-west2-docker.pkg.dev/$PROJECT_ID/transit-repo/transit-assistant:$_TAG
+
+options:
+  logging: CLOUD_LOGGING_ONLY
