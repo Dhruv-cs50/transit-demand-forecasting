@@ -46,6 +46,7 @@ from test_cloud_ingest import (   # the sibling suite's harness (tests/ is on sy
     TRACKED,
     Builder,
     add_month,
+    make_cfg,
     pointer_of,
     run,
     seed,
@@ -150,6 +151,7 @@ def test_caltrain_csv_staged_and_published(tmp_path, monkeypatch, candidate, cap
     assert entry["rows"] == len(ct)
     assert entry["months"][-1] == "2026-09"
     assert entry["input_sha256"] == sha(data)
+    assert gate_of(store)["caltrain"] == entry          # gate.json and manifest.json agree
     # The CSV is one of the run's inputs, so a changed file changes the fingerprint.
     assert RAW_CSV in {i["name"] for i in manifest["inputs"]}
     assert pointer_of(store)["input_fingerprint"] == cloud_ingest.input_fingerprint(store.list("raw/"))
@@ -177,7 +179,8 @@ def test_the_pointer_is_still_written_last_with_caltrain(tmp_path, monkeypatch, 
 
     monkeypatch.setattr(cloud_ingest, "open_store", lambda uri: Recording())
     assert run(bucket, "--skip-fetch", builder=Builder(candidate)) == 0
-    assert writes == [RUN_DIR + "gate.json", RUN_DIR + "feature_store.parquet", CT_STORE,
+    # The Caltrain object goes first so gate.json and manifest.json can both name its final status.
+    assert writes == [CT_STORE, RUN_DIR + "gate.json", RUN_DIR + "feature_store.parquet",
                       RUN_DIR + "manifest.json", "processed/serving.json"]
 
 
@@ -259,7 +262,25 @@ def test_a_bad_caltrain_file_is_rejected_and_bart_still_publishes(
     assert set(entry) == {"status", "reason"}
     errors = caltrain_errors(caplog)
     assert errors and entry["reason"] in errors[0]
-    assert gate_of(store)["caltrain"]["status"] == "rejected"
+    assert gate_of(store)["caltrain"] == entry          # gate.json and manifest.json agree
+
+
+def test_a_malformed_caltrain_config_block_is_a_rejection_not_a_failed_run(tmp_path, monkeypatch, candidate, caplog):
+    stub_gate(monkeypatch)
+    bucket = tmp_path / "bucket"
+    store = seed(bucket)
+    builder = Builder(candidate)
+    cfg = make_cfg(caltrain="not-a-mapping")
+
+    with caplog.at_level(logging.ERROR):
+        assert run(bucket, "--skip-fetch", builder=builder, cfg=cfg) == 0
+
+    bart_published(store, builder)
+    entry = manifest_of(store)["caltrain"]
+    assert entry["status"] == "rejected" and entry["reason"].strip()
+    assert gate_of(store)["caltrain"] == entry
+    assert caltrain_errors(caplog)
+    assert run_names(store) == sorted(LEGACY_RUN_OBJECTS)
 
 
 def test_caltrain_rejected_does_not_block_bart(tmp_path, monkeypatch, candidate, caplog):
@@ -321,6 +342,7 @@ def test_a_caltrain_publish_failure_does_not_block_bart(tmp_path, monkeypatch, c
     assert pointer_of(inner)["run_id"] == RUN_ID
     entry = manifest_of(inner)["caltrain"]
     assert entry["status"] == "rejected" and "simulated outage" in entry["reason"]
+    assert gate_of(inner)["caltrain"] == entry          # gate.json and manifest.json agree
     assert caltrain_errors(caplog)
 
 

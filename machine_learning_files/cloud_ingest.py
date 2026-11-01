@@ -42,7 +42,8 @@ BART. If raw/caltrain/awr_monthly.csv is absent it is skipped silently. If prese
 it is checked (committed months unchanged unless `revised_from`, months strictly
 increasing, none after the last closed month) and, when it passes, rebuilt with
 caltrain_store.build_caltrain_store and published as runs/<id>/caltrain_store.parquet
-before manifest.json, listed in it under "caltrain". If it fails, BART publishes
+(uploaded before gate.json, so gate.json and manifest.json both carry the final status),
+listed in manifest.json under "caltrain". If it fails, BART publishes
 as normal, no Caltrain object is written, manifest.json (and gate.json) record
 {"caltrain": {"status": "rejected", "reason": ...}} and an ERROR line names the
 reason. The exit code follows BART only.
@@ -405,19 +406,18 @@ def evaluate_caltrain(workdir: Path, cfg: dict, last_closed: dt.date) -> tuple[O
 
     The entry is {"status": "rejected", "reason"} or {"status": "accepted", "sha256", "rows",
     "months", "input_sha256"} (the manifest says "published", with the object name, once it
-    is). Never raises: whatever goes wrong is a rejection, because
-    Caltrain must not stop BART.
+    is). Never raises: whatever goes wrong, a malformed config block included, is a rejection,
+    because Caltrain must not stop BART.
     """
-    c = _caltrain_cfg(cfg)
-    csv_path = workdir / c["raw_object"]
-    if not csv_path.is_file():
-        return None, None
-
     def reject(reason: str) -> tuple[dict, None]:
         log.error("caltrain rejected: %s", reason)
         return {"status": "rejected", "reason": reason}, None
 
     try:
+        c = _caltrain_cfg(cfg)       # a malformed `caltrain:` block is a rejection, not a failed run
+        csv_path = workdir / c["raw_object"]
+        if not csv_path.is_file():
+            return None, None
         problems = _check_caltrain_series(csv_path, _resolve_repo_path(c["committed_csv"]), last_closed)
         if problems:
             return reject("; ".join(problems))
@@ -635,13 +635,33 @@ def _run(args, cfg, uri, builder, now, run_id, weather_client, nhl_client) -> in
         gate_doc = {"run_id": run_id, "git_sha": git_sha, "created_at": _iso(now),
                     "input_fingerprint": fingerprint, "last_closed_month": str(last_closed),
                     "store_sha256": candidate_sha, **report.to_dict()}
-        if caltrain is not None:       # absent: gate.json is exactly what it was before Caltrain
-            gate_doc["caltrain"] = caltrain
         if report.passed:
             log.info("gate passed (%d checks)", len(report.checks))
         else:
             for f in report.failures:
                 log.error("gate failed: %s", f)
+
+        # Will this run publish? Decided before gate.json is written so that gate.json and
+        # manifest.json record the same final Caltrain status. A new Caltrain month changes
+        # no BART byte, but must still go live.
+        caltrain_new = (caltrain is not None and caltrain["status"] == "accepted"
+                        and caltrain["sha256"] != _served_caltrain_sha(store, pointer))
+        identical = _same_content(candidate, candidate_sha, served_bytes, served) and not caltrain_new
+        if (caltrain is not None and caltrain["status"] == "accepted"
+                and report.passed and not identical and not args.dry_run):
+            caltrain_object = f"{run_dir}{CALTRAIN_STORE_FILENAME}"
+            try:
+                store.upload(caltrain_path, caltrain_object, if_generation_match=0)
+                caltrain = {**caltrain, "status": "published", "object": caltrain_object}
+            except PreconditionFailed:
+                log.error("%s already exists: another execution has this run id", caltrain_object)
+                return EXIT_RACE
+            except Exception as e:  # noqa: BLE001 - Caltrain must not block BART
+                reason = f"the Caltrain store could not be uploaded ({type(e).__name__}: {e})"
+                log.error("caltrain rejected: %s", reason)
+                caltrain = {"status": "rejected", "reason": reason}
+        if caltrain is not None:       # absent: gate.json is exactly what it was before Caltrain
+            gate_doc["caltrain"] = caltrain
 
         summary = {"dry_run": bool(args.dry_run), "run_id": run_id, "gate_passed": report.passed,
                    "months": [months[0], months[-1], len(months)], "store_sha256": candidate_sha,
@@ -661,10 +681,7 @@ def _run(args, cfg, uri, builder, now, run_id, weather_client, nhl_client) -> in
             return EXIT_FAILED
 
         # 6. publish ---------------------------------------------------------
-        # A new Caltrain month changes no BART byte, but must still go live.
-        caltrain_new = (caltrain is not None and caltrain["status"] == "accepted"
-                        and caltrain["sha256"] != _served_caltrain_sha(store, pointer))
-        if _same_content(candidate, candidate_sha, served_bytes, served) and not caltrain_new:
+        if identical:
             log.info("identical to the served store (run %s); nothing to publish", pointer["run_id"])
             summary["published"] = False
             summary["reason"] = "identical to the served store"
@@ -680,7 +697,7 @@ def _run(args, cfg, uri, builder, now, run_id, weather_client, nhl_client) -> in
         try:
             published = publish(store, run_id=run_id, store_path=store_path, store_sha256=candidate_sha,
                                 pointer_name=pointer_name, pointer_generation=pointer_gen,
-                                fingerprint=fingerprint, now=now, caltrain_path=caltrain_path,
+                                fingerprint=fingerprint, now=now,
                                 manifest=_manifest(run_id, git_sha, now, fingerprint, inputs, candidate,
                                                    candidate_sha, months, report, gate_doc, fetches,
                                                    tracked_path, last_closed, caltrain))
@@ -721,34 +738,19 @@ def _manifest(run_id, git_sha, now, fingerprint, inputs, candidate, candidate_sh
         "runtime": {"python": platform.python_version(), "pandas": pd.__version__},
     }
     if caltrain is not None:       # absent: no key, the manifest is what it was before Caltrain
-        entry = dict(caltrain)
-        if entry["status"] == "accepted":      # becomes "published" (or "rejected") in publish()
-            entry = {**entry, "status": "published",
-                     "object": f"{RUNS_PREFIX}{run_id}/{CALTRAIN_STORE_FILENAME}"}
-        manifest["caltrain"] = entry
+        manifest["caltrain"] = caltrain       # the final entry, the same one gate.json holds
     return manifest
 
 
 def publish(store, *, run_id: str, store_path: Path, store_sha256: str, manifest: dict,
             pointer_name: str, pointer_generation: int, fingerprint: str,
-            now: dt.datetime, caltrain_path: Optional[Path] = None) -> dict:
-    """Write the run's store, the Caltrain store if there is one, and the manifest
-    (write-once), then the pointer last, under `if_generation_match`. Returns the
-    pointer written. Raises PreconditionFailed if another execution got there first.
-
-    The Caltrain upload is the one write that may fail without failing the run: it
-    is recorded as rejected in the manifest and BART publishes regardless."""
+            now: dt.datetime) -> dict:
+    """Write the run's store and manifest (write-once), then the pointer last,
+    under `if_generation_match`. Returns the pointer written. Raises
+    PreconditionFailed if another execution got there first. (The Caltrain store, if
+    any, was uploaded by _run before gate.json, so both documents name its final status.)"""
     store_object = f"{RUNS_PREFIX}{run_id}/{STORE_FILENAME}"
     store.upload(store_path, store_object, if_generation_match=0)
-    if caltrain_path is not None and manifest.get("caltrain", {}).get("status") == "published":
-        try:
-            store.upload(caltrain_path, manifest["caltrain"]["object"], if_generation_match=0)
-        except PreconditionFailed:
-            raise
-        except Exception as e:  # noqa: BLE001 - Caltrain must not block BART
-            reason = f"the Caltrain store could not be uploaded ({type(e).__name__}: {e})"
-            log.error("caltrain rejected: %s", reason)
-            manifest["caltrain"] = {"status": "rejected", "reason": reason}
     store.write_bytes(f"{RUNS_PREFIX}{run_id}/manifest.json", _json_bytes(manifest),
                       if_generation_match=0)
     pointer = {"run_id": run_id, "store_object": store_object, "store_sha256": store_sha256,
