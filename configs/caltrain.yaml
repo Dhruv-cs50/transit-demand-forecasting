@@ -24,3 +24,46 @@ exclude: ["2020-01", "2020-02", "2020-03", "2020-04", "2020-05", "2020-06", "202
 # First month of the training window: the first month after the COVID exclusion
 # (matches the BART train start). Published value: 9,044 (media 18403, Mar 3 2022 packet, p19).
 train_start: "2022-01"
+
+# ── Benchmark (Task 3): half-year holdout windows ─────────────────────────────
+# Every candidate half-year states its own first month (start), last month (end) and
+# fit cutoff (cutoff = the last month the models may see; always the month before
+# start). Which candidates are admitted is COMPUTED by
+# models.caltrain.benchmark.evaluate_windows from the rules below and written to
+# evaluation/outputs/caltrain/windows.csv with the reason for every rejection. It is
+# not listed here, and a rejected window is never padded back in.
+#
+# Admission rule (amended 2026-10-31): a window is admitted when
+#   1. it has >= min_train_months usable months in train_start..cutoff,
+#   2. all of its horizon_steps actual months are present, and
+#   3. every step column (electrified, method_*) that is 1 in any month of the
+#      window has >= min_step_support_months months at 1 in train_start..cutoff
+#      (a step with no training support cannot be estimated).
+# The step columns are scheduled changes, so each model gets their configured values
+# for the window months as known-future covariates (SARIMA exog, Prophet regressors).
+# Seasonal naive and Chronos-1 run univariate.
+benchmark:
+  horizon_steps: 6
+  min_train_months: 24
+  min_step_support_months: 6
+  # The latest admitted window is the test window. The other admitted windows are
+  # development windows. No choice below may be tuned on the test window.
+  test_window: "2026-H1"
+  windows:
+    - {name: "2023-H1", start: "2023-01", end: "2023-06", cutoff: "2022-12"}
+    - {name: "2023-H2", start: "2023-07", end: "2023-12", cutoff: "2023-06"}
+    - {name: "2024-H1", start: "2024-01", end: "2024-06", cutoff: "2023-12"}
+    - {name: "2024-H2", start: "2024-07", end: "2024-12", cutoff: "2024-06"}
+    - {name: "2025-H1", start: "2025-01", end: "2025-06", cutoff: "2024-12"}
+    - {name: "2025-H2", start: "2025-07", end: "2025-12", cutoff: "2025-06"}
+    - {name: "2026-H1", start: "2026-01", end: "2026-06", cutoff: "2025-12"}
+
+# Prophet settings: copied unchanged from configs/model.yaml, NOT tuned on Caltrain.
+# The seed fixes the interval sampling, so coverage is reproducible run to run.
+prophet:
+  seed: 42
+  yearly_seasonality: true
+  yearly_fourier_order: 4
+  weekly_seasonality: false
+  daily_seasonality: false
+  changepoint_prior_scale: 0.05
