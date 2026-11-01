@@ -245,16 +245,24 @@ def test_rate_limit_429_on_eleventh():
     assert rig.gemini.extract_calls == 10  # the refused one cost nothing
 
 
-def test_rate_limit_is_per_client_ip_first_forwarded_hop():
+def test_rate_limit_is_per_client_ip_last_forwarded_hop():
+    # Cloud Run appends the real client address as the last X-Forwarded-For hop.
     rig = Rig(settings=replace(SETTINGS, RATE_LIMIT_PER_HOUR=2))
-    mine = {"X-Forwarded-For": "203.0.113.7, 10.0.0.1"}
     for _ in range(2):
-        assert rig.chat(headers=mine).status_code == 200
-    # Same first hop behind a different proxy hop: still the same client.
-    assert rig.chat(headers={"X-Forwarded-For": "203.0.113.7, 10.9.9.9"}).status_code == 429
+        assert rig.chat(headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 200
+    assert rig.chat(headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 429
     # Another client, and the peer address when there is no header.
     assert rig.chat(headers={"X-Forwarded-For": "198.51.100.9"}).status_code == 200
     assert rig.chat().status_code == 200
+
+
+def test_forged_first_hop_does_not_reset_the_limit():
+    rig = Rig(settings=replace(SETTINGS, RATE_LIMIT_PER_HOUR=2))
+    for forged in ("1.1.1.1", "2.2.2.2"):
+        assert rig.chat(headers={"X-Forwarded-For": f"{forged}, 203.0.113.7"}).status_code == 200
+    # A new forged value per request is still the same real client.
+    assert rig.chat(headers={"X-Forwarded-For": "9.9.9.9, 203.0.113.7"}).status_code == 429
+    assert rig.chat(headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 429
 
 
 def test_two_gemini_calls_one_routing_call():

@@ -100,10 +100,14 @@ def fake_services() -> Services:
 
 
 def client_ip(request: Request) -> str:
-    """The rider's address: first ``X-Forwarded-For`` hop (Cloud Run sets it), else the peer."""
-    first = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-    if first and len(first) <= MAX_IP_CHARS:
-        return first
+    """The rider's address: the last ``X-Forwarded-For`` hop, else the peer.
+
+    Cloud Run appends the real client address as the last hop; earlier hops are
+    whatever the client sent, so trusting them would let anyone reset the limit.
+    """
+    last = request.headers.get("x-forwarded-for", "").split(",")[-1].strip()
+    if last and len(last) <= MAX_IP_CHARS:
+        return last
     return request.client.host if request.client else "unknown"
 
 
