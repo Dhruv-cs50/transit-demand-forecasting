@@ -12,6 +12,7 @@ import ast
 import asyncio
 import gzip
 import json
+import logging
 import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -129,6 +130,18 @@ async def test_service_alerts_filters_by_agency_and_active_period():
 
 
 @pytest.mark.asyncio
+async def test_service_alerts_other_agencies_never_match():
+    # AC Transit, Muni, SamTrans... are not BART, VTA or Caltrain: a trip that
+    # uses one must not pull in their alerts under the label "other".
+    with respx.mock(assert_all_called=False) as m:
+        m.get(ALERTS_URL).mock(return_value=httpx.Response(200, content=alerts_bytes()))
+        async with httpx.AsyncClient() as c:
+            assert await ct.service_alerts({"other"}, c, TOKEN, now=FEED_NOW) == ()
+            both = await ct.service_alerts({"other", "VTA"}, c, TOKEN, now=FEED_NOW)
+    assert both and {a.agency for a in both} == {"VTA"}
+
+
+@pytest.mark.asyncio
 async def test_service_alerts_maps_bart_and_caltrain_agency_ids():
     # Synthetic feed: the real recording has no BART or Caltrain alerts today.
     from google.transit import gtfs_realtime_pb2 as gtfs
@@ -178,6 +191,23 @@ async def test_service_alerts_cached_for_five_minutes():
             await ct.service_alerts({"VTA"}, c, TOKEN, now=FEED_NOW)
             await ct.service_alerts({"BART"}, c, TOKEN, now=FEED_NOW)
     assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_secrets_never_reach_logs(caplog):
+    # httpx logs "HTTP Request: GET <url>" with the query string, so the 511
+    # token and Ticketmaster key would land in the logs without redaction.
+    caplog.set_level(logging.DEBUG)
+    key = "tm-test-key-abcdef"
+    with respx.mock(assert_all_called=False) as m:
+        m.get(ALERTS_URL).mock(return_value=httpx.Response(200, content=alerts_bytes()))
+        m.get(TM_URL).mock(return_value=httpx.Response(200, json={}))
+        m.get(url__regex=NHL_URL).mock(return_value=httpx.Response(200, json=nhl()))
+        async with httpx.AsyncClient() as c:
+            await ct.service_alerts({"VTA"}, c, TOKEN, now=FEED_NOW)
+            await ct.events_near(*SAP, GAME_START, c, tm_key=key)
+    assert "HTTP Request" in caplog.text  # request logging itself still works
+    assert TOKEN not in caplog.text and key not in caplog.text
 
 
 # --- weather -----------------------------------------------------------------
@@ -349,7 +379,8 @@ def test_station_context_label():
     assert s.label == "monthly context, not live crowding"
     assert s.station == "Powell St."
     assert s.typical_monthly == 344882
-    assert (s.forecast_month, s.forecast_p50) == ("2025-07", 343599)  # recorded SARIMA value
+    # The latest SARIMA month in the bundled data: the forecast nearest to today.
+    assert (s.forecast_month, s.forecast_p50) == ("2025-12", 365997)
 
 
 @pytest.mark.parametrize(
@@ -417,6 +448,33 @@ async def test_gather_context_with_real_fixtures():
     assert ctx.weather is not None
     assert [e.venue for e in ctx.events] == ["SAP Center at San Jose"]
     assert "Powell St." in {s.station for s in ctx.stations}  # boarding stop of the top option
+
+
+@pytest.mark.asyncio
+async def test_gather_context_finds_events_at_either_end():
+    # The spec asks for events near either end of the trip: leaving SAP Center
+    # after a game is as relevant as arriving for one.
+    q, options = await routes("routes_bart.json")
+    options = [replace(o, origin_latlng=SAP, arrive=GAME_START + timedelta(hours=9)) for o in options]
+    options = [replace(o, depart=GAME_START) for o in options]
+    with respx.mock(assert_all_called=False) as m:
+        mock_all_tools(m)
+        async with httpx.AsyncClient() as c:
+            ctx = await ct.gather_context(options, q, c, settings())
+    assert [e.venue for e in ctx.events] == ["SAP Center at San Jose"]  # once, not twice
+
+
+@pytest.mark.asyncio
+async def test_gather_context_alerts_are_those_active_at_departure():
+    q, options = await routes("routes_bart.json")
+    election_day = datetime(2026, 11, 3, 18, 0, tzinfo=UTC)  # after the feed was recorded
+    shifted = [replace(o, depart=election_day, arrive=election_day + timedelta(hours=1)) for o in options]
+    shifted = [replace(o, agencies=("VTA",)) for o in shifted]
+    with respx.mock(assert_all_called=False) as m:
+        mock_all_tools(m)
+        async with httpx.AsyncClient() as c:
+            ctx = await ct.gather_context(shifted, q, c, settings())
+    assert any(a.header.startswith("Free Fares on VTA Bus") for a in ctx.alerts)
 
 
 @pytest.mark.asyncio

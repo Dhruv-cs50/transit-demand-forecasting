@@ -59,17 +59,18 @@ def _load() -> dict:
     ridership = json.loads((base / "stations_ridership.json").read_text(encoding="utf-8"))
     forecasts = json.loads((base / "forecasts_sarima.json").read_text(encoding="utf-8"))
 
-    first_forecast: dict[str, dict] = {}
+    # The latest SARIMA month in the data: the forecast nearest to today.
+    latest_forecast: dict[str, dict] = {}
     for row in forecasts:
         sid = str(row["station_id"])
-        if sid not in first_forecast or row["month"] < first_forecast[sid]["month"]:
-            first_forecast[sid] = row
+        if sid not in latest_forecast or row["month"] > latest_forecast[sid]["month"]:
+            latest_forecast[sid] = row
 
     stations: dict[str, dict] = {}
     for row in meta:
         sid = row["bart_id"]
         rid = ridership.get(sid, {})
-        fc = first_forecast.get(sid)
+        fc = latest_forecast.get(sid)
         if not rid or fc is None:
             continue
         stations[sid] = {

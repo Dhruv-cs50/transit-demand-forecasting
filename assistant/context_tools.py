@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -62,6 +63,27 @@ _AGENCY_511_NAMES = {
     "CT": "Caltrain",
     "SC": "VTA",
 }
+
+
+_SECRET_PARAM = re.compile(r"(api_?key=)[^&\s\"')]+", re.IGNORECASE)
+
+
+class _RedactSecrets(logging.Filter):
+    """httpx logs ``HTTP Request: GET <url>`` at INFO, query string included.
+
+    The 511 token and the Ticketmaster key are query parameters, so scrub them
+    from every record httpx emits. Keep this filter if logging is reconfigured.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = _SECRET_PARAM.sub(r"\1REDACTED", message)
+        if redacted != message:
+            record.msg, record.args = redacted, ()
+        return True
+
+
+logging.getLogger("httpx").addFilter(_RedactSecrets())
 
 
 class ToolError(Exception):
@@ -175,8 +197,15 @@ def _parse_feed(content: bytes) -> tuple[_FeedAlert, ...]:
     return tuple(entries)
 
 
-def _agency_label(agency_id: str) -> str:
-    return normalise_agency(_AGENCY_511_NAMES.get(agency_id, agency_id))
+def _agency_label(agency_id: str) -> str | None:
+    """BART, VTA or Caltrain for a 511 agency id; ``None`` for every other agency.
+
+    The regional feed also carries AC Transit, Muni, SamTrans and others. They
+    must not become "other": a trip that merely uses one of them would then
+    pick up all of that agency's alerts.
+    """
+    name = _AGENCY_511_NAMES.get(agency_id)
+    return normalise_agency(name) if name else None
 
 
 async def service_alerts(
@@ -186,9 +215,10 @@ async def service_alerts(
     *,
     now: datetime | None = None,
 ) -> tuple[Alert, ...]:
-    """Active 511 alerts for ``agencies`` (labels such as ``"BART"``), deduplicated.
+    """511 alerts for ``agencies`` (BART, VTA, Caltrain) active at ``now``, deduplicated.
 
-    ``now`` exists so tests can pin "active" to the recording's own time.
+    ``now`` defaults to the current time; ``gather_context`` passes the trip's
+    departure so a planned trip sees the alerts that will be in force then.
     """
     if not agencies:
         return ()
@@ -205,7 +235,8 @@ async def service_alerts(
     for entry in entries:
         if not entry.active(at):
             continue
-        for label in sorted({_agency_label(i) for i in entry.agency_ids} & agencies):
+        labels = {_agency_label(i) for i in entry.agency_ids} - {None}
+        for label in sorted(labels & agencies):
             if (label, entry.header) not in seen:
                 seen.add((label, entry.header))
                 out.append(Alert(agency=label, header=entry.header))
@@ -376,6 +407,18 @@ def _bart_stop_names(option: TripOption) -> list[str]:
     return names[:MAX_STATIONS]
 
 
+async def _trip_events(
+    top: TripOption, client: httpx.AsyncClient, tm_key: str | None
+) -> tuple[Event, ...]:
+    """Events near either end of the trip: the origin at departure, the destination at arrival."""
+    ends = await asyncio.gather(
+        events_near(*top.origin_latlng, top.depart, client, tm_key),
+        events_near(*top.dest_latlng, top.arrive, client, tm_key),
+    )
+    unique = {(e.name, e.start): e for found in ends for e in found}
+    return tuple(sorted(unique.values(), key=lambda e: e.start))
+
+
 async def _stations(options: list[TripOption]) -> tuple[StationContext, ...]:
     # One thread per name: the lookup is synchronous, and a thread per call
     # keeps it from holding up the event loop or the other tools.
@@ -410,8 +453,9 @@ async def gather_context(
 ) -> Context:
     """Run the four tools concurrently; each gets ``settings.TOOL_TIMEOUT_S``.
 
-    Weather is for the origin at departure (the walk to the first stop), events
-    for the destination at arrival. ``q`` is accepted for symmetry with routing.
+    Weather is for the origin at departure, alerts are those in force at
+    departure, and events are those near either end (origin at departure,
+    destination at arrival). ``q`` is accepted for symmetry with routing.
     """
     if not options:
         return Context(alerts=(), weather=None, events=(), stations=(), missing=())
@@ -419,9 +463,9 @@ async def gather_context(
     agencies = {a for option in options for a in option.agencies}
     timeout = settings.TOOL_TIMEOUT_S
     results = await asyncio.gather(
-        _bounded("alerts", service_alerts(agencies, client, settings.TOKEN_511), timeout),
+        _bounded("alerts", service_alerts(agencies, client, settings.TOKEN_511, now=top.depart), timeout),
         _bounded("weather", weather(*top.origin_latlng, top.depart, client), timeout),
-        _bounded("events", events_near(*top.dest_latlng, top.arrive, client, settings.TICKETMASTER_KEY), timeout),
+        _bounded("events", _trip_events(top, client, settings.TICKETMASTER_KEY), timeout),
         _bounded("stations", _stations(options), timeout),
     )
     got = {name: value for name, value, ok in results if ok}
