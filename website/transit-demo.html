@@ -146,6 +146,7 @@ html.dark .cf-err { color: #fca5a5; background: #450a0a; }
 .hot-val em { font-style: normal; color: var(--faint); font-size: 10px; }
 
 hr.sep { border: none; border-top: 1px solid var(--line); }
+.sidebar [hidden] { display: none; }
 
 /* legend */
 .legend { display: flex; align-items: center; gap: 8px; }
@@ -168,12 +169,12 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
 
 <aside class="sidebar">
 
-  <div>
+  <div id="assistantBlock" hidden>
     <div class="lbl">Route assistant · BART, VTA, Caltrain</div>
     <div id="assistantPanel"></div>
   </div>
 
-  <hr class="sep"/>
+  <hr class="sep" id="assistantSep" hidden/>
 
   <div>
     <div class="lbl">Network</div>
@@ -273,7 +274,7 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
   </div>
 
 </aside>
-<script src="assistant.js?v=1"></script>
+<script src="assistant.js?v=2"></script>
 
 <script>
 /* ── Station data ─────────────────────────────────────────────── */
@@ -967,7 +968,12 @@ document.getElementById('speedRow').addEventListener('click',e=>{
 });
 
 /* route assistant panel */
-if (window.TransitAssistant) TransitAssistant.mount(document.getElementById('assistantPanel'), { onRoute: showAssistantRoute });
+/* Shown only once the service URL is configured; until then the sidebar is exactly as before. */
+if (window.TransitAssistant && TransitAssistant.configured()) {
+  document.getElementById('assistantBlock').hidden = false;
+  document.getElementById('assistantSep').hidden = false;
+  TransitAssistant.mount(document.getElementById('assistantPanel'), { onRoute: showAssistantRoute });
+}
 
 /* dark mode */
 document.getElementById('darkBtn').addEventListener('click',()=>{
