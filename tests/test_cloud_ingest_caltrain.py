@@ -389,6 +389,14 @@ def _bart_gate_view(store: LocalStorage) -> dict:
 @pytest.mark.parametrize("case", ["absent", "pass", "fail"])
 def test_bart_gate_unchanged(gate_runs, case):
     got, base = gate_runs[case], gate_runs["absent"]
+    # The run reached the branch the case names (a job that skipped Caltrain every time fails here).
+    manifest, objects = manifest_of(got["store"]), run_names(got["store"])
+    if case == "absent":
+        assert "caltrain" not in manifest and CT_STORE not in objects
+    elif case == "pass":
+        assert manifest["caltrain"]["status"] == "published" and CT_STORE in objects
+    else:
+        assert manifest["caltrain"]["status"] == "rejected" and CT_STORE not in objects
     assert got["code"] == base["code"] == 0
     assert _bart_gate_view(got["store"]) == _bart_gate_view(base["store"])
     assert _bart_gate_view(got["store"])["passed"] is True
