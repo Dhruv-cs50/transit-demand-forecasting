@@ -1035,12 +1035,15 @@ const ctReason = s => String(s || '')
 /* Route assistant: the chat panel itself is plain JS (assistant.js), mounted once. */
 const RouteAssistant = () => {
   const ref = React.useRef(null);
+  /* No service URL yet (assistant.js ASSISTANT_URL is empty): render no section at all. */
+  const on = !!(window.TransitAssistant && window.TransitAssistant.configured());
   React.useEffect(() => {
     if (ref.current && window.TransitAssistant && !ref.current.dataset.mounted) {
       ref.current.dataset.mounted = '1';
       window.TransitAssistant.mount(ref.current, {});
     }
   }, []);
+  if (!on) return null;
   return (
     <section id="assistant">
       <div className="wrap">

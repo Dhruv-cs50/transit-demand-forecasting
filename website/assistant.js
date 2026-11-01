@@ -1,8 +1,10 @@
 /* Route assistant chat panel (BART, VTA, Caltrain).
 
    window.TransitAssistant.mount(el, { apiBase, onRoute })
-     apiBase  the transit-assistant service; defaults to ASSISTANT_URL below,
-              overridable with ?assistant=<url> for local testing.
+     apiBase  the transit-assistant service; defaults to ASSISTANT_URL below.
+              ?assistant=<url> overrides it, but only on localhost / 127.0.0.1.
+   With no URL configured, mount() renders nothing at all, and
+   TransitAssistant.configured() is false so a host page can hide its block.
      onRoute  called with { option, path } when an option is shown or picked;
               path is [[lat, lng], ...] decoded from Google's encoded polyline
               (a straight origin -> destination line when there is none).
@@ -17,6 +19,8 @@
   var ASSISTANT_URL = '';
   var MAX_CHARS = 500;
   var WAKING_MS = 1500;
+  var IDLE_MS = 20000;   /* abort when no data arrives for this long (reset on every chunk) */
+  var CAP_MS = 45000;    /* abort an answer that takes longer than this overall */
 
   function h(tag, attrs, kids) {
     var el = document.createElement(tag);
@@ -53,7 +57,11 @@
 
   function apiBaseFrom(opts) {
     var q = null;
-    try { q = new URLSearchParams(location.search).get('assistant'); } catch (e) { /* old browser */ }
+    /* The override is a local-testing aid: on any other host it is ignored, so a
+       crafted link cannot point the live page at someone else's service. */
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      try { q = new URLSearchParams(location.search).get('assistant'); } catch (e) { /* old browser */ }
+    }
     var base = q || (opts && opts.apiBase) || ASSISTANT_URL;
     return (base || '').replace(/\/+$/, '');
   }
@@ -68,9 +76,10 @@
   function mount(root, opts) {
     opts = opts || {};
     var api = apiBaseFrom(opts);
+    if (!api) return { ask: function () {} };   /* not configured: render nothing */
     var onRoute = typeof opts.onRoute === 'function' ? opts.onRoute : null;
     var uid = 'ta' + Math.random().toString(36).slice(2, 8);
-    var busy = false, ctrl = null;
+    var ctrl = null, gen = 0;   /* gen: token of the newest question; older streams go quiet */
 
     root.classList.add('ta');
     var input = h('input', { type: 'text', id: uid + '-q', maxlength: String(MAX_CHARS), autocomplete: 'off',
@@ -88,10 +97,6 @@
     var out = h('div', { cls: 'ta-out', 'aria-busy': 'false' }, [status, cards, text, extra]);
     root.appendChild(form);
     root.appendChild(out);
-
-    if (!api) {
-      status.textContent = 'The route assistant is not connected yet.';
-    }
 
     form.addEventListener('submit', function (e) { e.preventDefault(); ask(input.value); });
 
@@ -207,34 +212,45 @@
     async function ask(raw) {
       var message = (raw || '').trim();
       if (!message) { note('Please type a question first.', 'warn'); input.focus(); return; }
-      if (!api) { note('The route assistant is not connected yet.', 'warn'); return; }
-      if (busy && ctrl) ctrl.abort();
+      /* A new question replaces the current one: abort its stream and bump the
+         token so anything it still delivers is dropped. */
+      if (ctrl) ctrl.abort();
+      var my = ++gen, mine = new AbortController();
+      ctrl = mine;
+      var live = function () { return my === gen; };
       reset();
-      busy = true; ctrl = new AbortController();
-      var mine = ctrl;
-      out.setAttribute('aria-busy', 'true'); send.disabled = true;
-      var got = false;
-      var waking = setTimeout(function () { if (!got) note('Waking the assistant up…'); }, WAKING_MS);
+      out.setAttribute('aria-busy', 'true');
+      var got = false, why = null, idle = null;
+      var stop = function (reason) { why = reason; mine.abort(); };
+      var bump = function () { clearTimeout(idle); idle = setTimeout(function () { stop('idle'); }, IDLE_MS); };
+      var cap = setTimeout(function () { stop('cap'); }, CAP_MS);
+      var waking = setTimeout(function () { if (live() && !got) note('Waking the assistant up…'); }, WAKING_MS);
+      bump();
       note('Finding routes…');
       try {
         var resp = await fetch(api + '/chat', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: message, client_time: localIso() }), signal: mine.signal
         });
+        if (!live()) return;
         if (!resp.ok) {
           var body = null;
           try { body = await resp.json(); } catch (e) { /* not JSON */ }
-          got = true; note(friendly(resp.status, body, resp.headers.get('Retry-After')), 'err');
+          if (!live()) return;
+          got = true; note(friendly(resp.status, body, resp.headers.get('Retry-After')), resp.status >= 500 && resp.status !== 503 ? 'err' : 'warn');
           return;
         }
+        bump();
         var reader = resp.body.getReader(), dec = new TextDecoder(), buf = '';
         for (;;) {
           var r = await reader.read();
+          if (!live()) return;
           if (r.done) break;
+          bump();
           buf += dec.decode(r.value, { stream: true });
           var lines = buf.split('\n'); buf = lines.pop();
           lines.forEach(function (line) {
-            if (!line.trim()) return;
+            if (!live() || !line.trim()) return;
             var ev; try { ev = JSON.parse(line); } catch (e) { return; }
             if (!got) { got = true; note(''); }
             handle(ev);
@@ -244,16 +260,23 @@
         if (buf.trim()) { try { got = true; handle(JSON.parse(buf)); } catch (e) { /* partial line */ } }
         if (!got) note('No answer came back. Please try again.', 'err');
       } catch (e) {
-        if (e && e.name === 'AbortError') return;
+        if (!live()) return;
+        if (e && e.name === 'AbortError') {
+          if (why) note('The assistant is taking too long to answer. Please try again.', 'warn');
+          return;
+        }
         note('Could not reach the route assistant. Check your connection and try again.', 'err');
       } finally {
-        clearTimeout(waking);
-        if (ctrl === mine) { busy = false; out.setAttribute('aria-busy', 'false'); send.disabled = false; }
+        clearTimeout(waking); clearTimeout(idle); clearTimeout(cap);
+        if (live()) { ctrl = null; out.setAttribute('aria-busy', 'false'); }
       }
     }
 
     return { ask: ask };
   }
 
-  window.TransitAssistant = { mount: mount, decodePolyline: decodePolyline };
+  window.TransitAssistant = {
+    mount: mount, decodePolyline: decodePolyline,
+    configured: function (opts) { return !!apiBaseFrom(opts); }
+  };
 })();
