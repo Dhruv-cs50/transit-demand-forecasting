@@ -357,6 +357,48 @@ async def _ticketmaster_events(
     return events
 
 
+async def _source(name: str, call: Any, timeout_s: float | None) -> tuple[str, list[Event], bool]:
+    """Run one event source on its own. Returns ``(name, events, ok)``; never raises."""
+    try:
+        found = await (asyncio.wait_for(call, timeout_s) if timeout_s else call)
+        return name, found, True
+    except asyncio.TimeoutError:
+        log.warning("event source %s timed out after %.1fs", name, timeout_s or 0.0)
+    except Exception as exc:  # one source failing must not hide the other's events
+        log.warning("event source %s failed: %s", name, type(exc).__name__)
+    return name, [], False
+
+
+async def events_with_status(
+    lat: float,
+    lng: float,
+    when: datetime,
+    client: httpx.AsyncClient,
+    tm_key: str | None,
+    *,
+    timeout_s: float | None = None,
+) -> tuple[tuple[Event, ...], tuple[str, ...]]:
+    """Events from each source independently, plus the names of sources that failed.
+
+    A failed or late source ("nhl", "ticketmaster") is reported in the second
+    item and the other source's events are still returned. Without ``tm_key``
+    Ticketmaster is skipped, not reported as failed: it was never configured.
+    """
+    when = _utc(when)
+    sources = [_source("nhl", _nhl_events(lat, lng, when, client), timeout_s)]
+    if tm_key:
+        sources.append(_source("ticketmaster", _ticketmaster_events(lat, lng, when, client, tm_key), timeout_s))
+    results = await asyncio.gather(*sources)
+    events: list[Event] = []
+    for _, found, _ in results:
+        for event in found:
+            if not any(abs(event.start - known.start) <= DEDUPE_WINDOW for known in events):
+                events.append(event)
+    events.sort(key=lambda e: e.start)
+    failed = tuple(name for name, _, ok in results if not ok)
+    return tuple(events), failed
+
+
 async def events_near(
     lat: float,
     lng: float,
@@ -366,18 +408,14 @@ async def events_near(
 ) -> tuple[Event, ...]:
     """Sharks home games (NHL) and, with a key, Ticketmaster events near the point.
 
-    Within 1.5 km and +-3 h of ``when``. Without ``tm_key`` Ticketmaster is
-    skipped, not reported as missing: it was never configured.
+    Within 1.5 km and +-3 h of ``when``. If one source fails the other's events
+    are returned; ``ToolError`` is raised only when every source failed. Use
+    ``events_with_status`` to learn which source failed.
     """
-    when = _utc(when)
-    events = await _nhl_events(lat, lng, when, client)
-    if tm_key:
-        for event in await _ticketmaster_events(lat, lng, when, client, tm_key):
-            duplicate = any(abs(event.start - known.start) <= DEDUPE_WINDOW for known in events)
-            if not duplicate:
-                events.append(event)
-    events.sort(key=lambda e: e.start)
-    return tuple(events)
+    events, failed = await events_with_status(lat, lng, when, client, tm_key)
+    if failed and len(failed) == 1 + bool(tm_key):
+        raise ToolError("every event source failed: " + ", ".join(failed))
+    return events
 
 
 # --- station context ----------------------------------------------------------
@@ -408,15 +446,20 @@ def _bart_stop_names(option: TripOption) -> list[str]:
 
 
 async def _trip_events(
-    top: TripOption, client: httpx.AsyncClient, tm_key: str | None
-) -> tuple[Event, ...]:
-    """Events near either end of the trip: the origin at departure, the destination at arrival."""
+    top: TripOption, client: httpx.AsyncClient, tm_key: str | None, timeout_s: float
+) -> tuple[tuple[Event, ...], tuple[str, ...]]:
+    """Events near either end: the origin at departure, the destination at arrival.
+
+    Returns the events and the failed sources as "events:<source>" names.
+    """
     ends = await asyncio.gather(
-        events_near(*top.origin_latlng, top.depart, client, tm_key),
-        events_near(*top.dest_latlng, top.arrive, client, tm_key),
+        events_with_status(*top.origin_latlng, top.depart, client, tm_key, timeout_s=timeout_s),
+        events_with_status(*top.dest_latlng, top.arrive, client, tm_key, timeout_s=timeout_s),
     )
-    unique = {(e.name, e.start): e for found in ends for e in found}
-    return tuple(sorted(unique.values(), key=lambda e: e.start))
+    unique = {(e.name, e.start): e for found, _ in ends for e in found}
+    events = tuple(sorted(unique.values(), key=lambda e: e.start))
+    failed = tuple(dict.fromkeys(f"events:{name}" for _, names in ends for name in names))
+    return events, failed
 
 
 async def _stations(options: list[TripOption]) -> tuple[StationContext, ...]:
@@ -465,14 +508,23 @@ async def gather_context(
     results = await asyncio.gather(
         _bounded("alerts", service_alerts(agencies, client, settings.TOKEN_511, now=top.depart), timeout),
         _bounded("weather", weather(*top.origin_latlng, top.depart, client), timeout),
-        _bounded("events", _trip_events(top, client, settings.TICKETMASTER_KEY), timeout),
+        # Each event source has the full timeout itself, so the outer bound is
+        # only a backstop that fires after it.
+        _bounded("events", _trip_events(top, client, settings.TICKETMASTER_KEY, timeout), timeout + 0.1),
         _bounded("stations", _stations(options), timeout),
     )
     got = {name: value for name, value, ok in results if ok}
+    events, failed_sources = got.get("events", ((), ()))
+    missing: list[str] = []
+    for name, _, ok in results:
+        if not ok:
+            missing.append(name)
+        elif name == "events":
+            missing.extend(failed_sources)  # e.g. "events:ticketmaster": partial, not total
     return Context(
         alerts=got.get("alerts", ()),
         weather=got.get("weather"),
-        events=got.get("events", ()),
+        events=events,
         stations=got.get("stations", ()),
-        missing=tuple(name for name, _, ok in results if not ok),
+        missing=tuple(missing),
     )

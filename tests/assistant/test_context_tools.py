@@ -348,15 +348,74 @@ async def test_events_near_ticketmaster_with_key_adds_and_dedupes():
 
 
 @pytest.mark.asyncio
-async def test_events_near_ticketmaster_error_never_leaks_key():
+async def test_events_near_ticketmaster_failure_keeps_the_sharks_game(caplog):
     key = "tm-test-key-abcdef"
+    caplog.set_level(logging.DEBUG)
     with respx.mock(assert_all_called=False) as m:
         m.get(TM_URL).mock(return_value=httpx.Response(429))
         m.get(url__regex=NHL_URL).mock(return_value=httpx.Response(200, json=nhl()))
         async with httpx.AsyncClient() as c:
+            events = await ct.events_near(*SAP, GAME_START, c, tm_key=key)
+            _, failed = await ct.events_with_status(*SAP, GAME_START, c, tm_key=key)
+    assert [e.name for e in events] == ["Sharks vs New York Islanders"]
+    assert failed == ("ticketmaster",)
+    assert key not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_events_near_nhl_failure_keeps_ticketmaster_events():
+    key = "tm-test-key-abcdef"
+    venue = {"name": "SAP Center at San Jose", "location": {"latitude": "37.3327", "longitude": "-121.9010"}}
+    tm_body = {
+        "_embedded": {
+            "events": [
+                {
+                    "name": "Concert at the Tank",
+                    "dates": {"start": {"dateTime": "2026-11-10T04:00:00Z"}},
+                    "_embedded": {"venues": [venue]},
+                }
+            ]
+        }
+    }
+    with respx.mock(assert_all_called=False) as m:
+        m.get(TM_URL).mock(return_value=httpx.Response(200, json=tm_body))
+        m.get(url__regex=NHL_URL).mock(return_value=httpx.Response(503))
+        async with httpx.AsyncClient() as c:
+            events, failed = await ct.events_with_status(*SAP, GAME_START, c, tm_key=key)
+    assert [e.name for e in events] == ["Concert at the Tank"]
+    assert failed == ("nhl",)
+
+
+@pytest.mark.asyncio
+async def test_events_near_raises_only_when_every_source_failed():
+    key = "tm-test-key-abcdef"
+    with respx.mock(assert_all_called=False) as m:
+        m.get(TM_URL).mock(return_value=httpx.Response(429))
+        m.get(url__regex=NHL_URL).mock(return_value=httpx.Response(503))
+        async with httpx.AsyncClient() as c:
             with pytest.raises(ct.ToolError) as err:
                 await ct.events_near(*SAP, GAME_START, c, tm_key=key)
+            with pytest.raises(ct.ToolError):  # NHL is the only source without a key
+                await ct.events_near(*SAP, GAME_START, c, tm_key=None)
     assert key not in str(err.value)
+
+
+@pytest.mark.asyncio
+async def test_events_slow_ticketmaster_times_out_without_dropping_nhl():
+    async def slow(request):
+        await asyncio.sleep(3)
+        return httpx.Response(200, json={})
+
+    with respx.mock(assert_all_called=False) as m:
+        m.get(TM_URL).mock(side_effect=slow)
+        m.get(url__regex=NHL_URL).mock(return_value=httpx.Response(200, json=nhl()))
+        async with httpx.AsyncClient() as c:
+            t0 = time.perf_counter()
+            events, failed = await ct.events_with_status(*SAP, GAME_START, c, tm_key="k", timeout_s=0.3)
+            elapsed = time.perf_counter() - t0
+    assert elapsed < 1.0
+    assert [e.venue for e in events] == ["SAP Center at San Jose"]
+    assert failed == ("ticketmaster",)
 
 
 def test_venue_table_matches_fetch_events_source():
@@ -478,6 +537,19 @@ async def test_gather_context_alerts_are_those_active_at_departure():
 
 
 @pytest.mark.asyncio
+async def test_gather_context_ticketmaster_failure_is_partial():
+    q, options = await routes("routes_bart.json")
+    options = [replace(o, dest_latlng=SAP) for o in options]
+    with respx.mock(assert_all_called=False) as m:
+        mock_all_tools(m)
+        m.get(TM_URL).mock(return_value=httpx.Response(500))
+        async with httpx.AsyncClient() as c:
+            ctx = await ct.gather_context(options, q, c, settings(TICKETMASTER_KEY="tm-test-key"))
+    assert [e.venue for e in ctx.events] == ["SAP Center at San Jose"]
+    assert ctx.missing == ("events:ticketmaster",)  # named once; "events" itself is not missing
+
+
+@pytest.mark.asyncio
 async def test_gather_context_times_out_slow_tool():
     q, options = await routes("routes_bart.json")
     with respx.mock(assert_all_called=False) as m:
@@ -536,7 +608,7 @@ async def test_gather_context_runs_concurrently(monkeypatch):
 
     async def slow_events(*a, **k):
         await asyncio.sleep(1)
-        return ()
+        return (), ()
 
     def slow_station(name):  # sync tool: must not block the loop
         time.sleep(1)
@@ -544,7 +616,7 @@ async def test_gather_context_runs_concurrently(monkeypatch):
 
     monkeypatch.setattr(ct, "service_alerts", slow_alerts)
     monkeypatch.setattr(ct, "weather", slow_weather)
-    monkeypatch.setattr(ct, "events_near", slow_events)
+    monkeypatch.setattr(ct, "events_with_status", slow_events)
     monkeypatch.setattr(ct, "station_context", slow_station)
     async with httpx.AsyncClient() as c:
         t0 = time.perf_counter()
