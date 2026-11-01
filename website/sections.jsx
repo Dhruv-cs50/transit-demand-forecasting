@@ -39,7 +39,7 @@ const Reveal = ({ as: Tag = 'div', className = '', children, delay, ...rest }) =
 const Nav = ({ dark, onToggleDark }) => {
   const links = [
     ['overview','Overview'], ['method','Method'], ['data','Data'],
-    ['results','Results'], ['demo','Demo'], ['recs','Recommendations'], ['eda','EDA'], ['about','About']
+    ['results','Results'], ['demo','Demo'], ['recs','Recommendations'], ['caltrain','Caltrain'], ['eda','EDA'], ['about','About']
   ];
   const extLinks = [
     { href:'transit-demo.html?v=26', label:'Map Demo ↗' },
@@ -989,6 +989,321 @@ const WhySarima = () => {
   );
 };
 
+/* ── Caltrain ─────────────────────────────────────────────────────
+   One systemwide monthly series, the same four models, half-year holdouts.
+   Every number here is read from the four exports (scripts/export_website_data.py
+   --caltrain): caltrain_series.json, caltrain_forecast.json,
+   caltrain_leaderboard.json, caltrain_station_annual.json. The only fixed text
+   is CT_METHOD_NOTES, which says in words what each documented method change
+   was (data/caltrain/MANIFEST.md, "Method changes documented by Caltrain"); it
+   is keyed by the method_period values in the series and holds no figures. */
+const CT_METHOD_NOTES = {
+  '2019-02': 'a weekday-weighted ticket-sales model replaced the original estimate',
+  '2020-04': 'conductor counts plus Clipper tag-ons replaced the sales model',
+  '2023-11': 'an estimate from fare-media sales alone replaced the counts',
+  '2025-01': 'each monthly pass began to count as more rides',
+};
+// What the estimate rests on from each change on (same source, no figures).
+const CT_METHOD_BASIS = {
+  '2019-02': 'a weekday-weighted ticket-sales model',
+  '2020-04': 'conductor counts plus Clipper tag-ons',
+  '2023-11': 'fare-media sales alone',
+  '2025-01': 'fare-media sales with more rides counted per monthly pass',
+};
+const ctWord = n => ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][n] || String(n);
+const ctSpan = (a, b) => monthSpan([{ month: a }, { month: b }]);
+const ctMonths = (a, b) => ctMonthIdx(b) - ctMonthIdx(a) + 1;
+const ctPct = v => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(0)}%`;
+// windows.csv reasons in words; every figure is the one in the reason.
+const ctReason = s => String(s || '')
+  .replace(/method_(\d{4})_(\d{2})/g, (_, y, m) => `the ${ctYM(`${y}-${m}`)} method step`)
+  .replace(/\belectrified\b/g, 'the electrification step')
+  .replace(/insufficient history \((\d+) < (\d+) usable months before the cutoff\)/g,
+    (_, a, b) => `insufficient history: ${a} usable months before the cutoff, the rule needs ${b}`)
+  .replace(/ is 1 in (\d+) window month\(s\) but has (\d+) < (\d+) months at 1 before the cutoff/g,
+    (_, w, p, need) => ` applies to ${w} of the window's months but to ${p} months before the cutoff (the rule needs ${need})`)
+  .replace(/; /g, '. ')
+  .replace(/(^|\. )([a-z])/g, (_, a, c) => a + c.toUpperCase());
+
+const Caltrain = () => {
+  const serRes = useSiteData('caltrain_series.json');
+  const stRes = useSiteData('caltrain_station_annual.json');
+  const fcRes = useSiteJson('caltrain_forecast.json');
+  const lbRes = useSiteJson('caltrain_leaderboard.json');
+  const [hl] = useModelHighlight();
+  const ws = useSort();
+  const ss = useSort();
+  const [hoverMark, setHoverMark] = useState(null);
+  const [pinMark, setPinMark] = useState(null);
+  const activeMark = pinMark || hoverMark;
+
+  /* Series: span, the excluded gap, method changes, electrification. */
+  const series = siteRows(serRes).filter(r => r && ctMonthIdx(r.month) != null && typeof r.awr === 'number')
+    .sort((a, b) => a.month.localeCompare(b.month));
+  const byMonth = {}; series.forEach(r => { byMonth[r.month] = r; });
+  const first = series[0], last = series[series.length - 1];
+  const gaps = [];
+  series.forEach((r, j) => {
+    if (!j) return;
+    const a = ctMonthIdx(series[j - 1].month), b = ctMonthIdx(r.month);
+    if (b - a > 1) gaps.push({ from: ctIdxYM(a + 1), to: ctIdxYM(b - 1), n: b - a - 1 });
+  });
+  const methods = [...new Set(series.map(r => r.method_period).filter(Boolean))].sort();
+  const elec = series.find(r => r.electrified === 1);
+  const markers = [...methods.map(m => ({ id: `m-${m}`, month: m, kind: 'method' })),
+    ...(elec ? [{ id: 'elec', month: elec.month, kind: 'elec' }] : [])]
+    .sort((a, b) => a.month.localeCompare(b.month)).map((m, j) => ({ ...m, n: j + 1 }));
+  // The latest method change with the month before it in the series: its step.
+  const stepAt = [...methods].reverse().find(m => byMonth[m] && byMonth[ctIdxYM(ctMonthIdx(m) - 1)]);
+  const step = stepAt ? (() => {
+    const before = ctIdxYM(ctMonthIdx(stepAt) - 1);
+    const yA = ctIdxYM(ctMonthIdx(stepAt) - 12), yB = ctIdxYM(ctMonthIdx(stepAt) - 13);
+    return {
+      month: stepAt, before, a: byMonth[before].awr, b: byMonth[stepAt].awr,
+      ch: byMonth[stepAt].awr / byMonth[before].awr - 1,
+      prior: byMonth[yA] && byMonth[yB] ? { month: yA, before: yB, ch: byMonth[yA].awr / byMonth[yB].awr - 1 } : null,
+    };
+  })() : null;
+
+  /* Leaderboard: windows, verdicts, cells. */
+  const lb = lbRes && lbRes.status === 'ok' ? lbRes.body : null;
+  const lbOk = !!(lb && Array.isArray(lb.windows) && Array.isArray(lb.rows));
+  const windows = lbOk ? lb.windows.filter(w => w && typeof w.window === 'string') : [];
+  const admitted = windows.filter(w => w.admitted);
+  const testW = windows.find(w => w.role === 'test');
+  const cell = {};
+  (lbOk ? lb.rows : []).forEach(r => {
+    const k = r && modelKey(r.model);
+    if (k) (cell[r.window] = cell[r.window] || {})[k] = r;
+  });
+  // Newest first, so the test and development windows lead (and stay in view at 375 px).
+  const tableWins = windows.filter(w => cell[w.window]).slice().reverse();
+  const models = FC_ORDER.filter(k => tableWins.some(w => cell[w.window][k]));
+  const scored = r => r && r.status === 'ok' && typeof r.wape === 'number';
+  const bestIn = {};
+  tableWins.forEach(w => {
+    const ok = Object.entries(cell[w.window]).filter(([, r]) => scored(r));
+    if (ok.length) bestIn[w.window] = ok.reduce((a, c) => (c[1].wape < a[1].wape ? c : a))[0];
+  });
+  const rejected = windows.filter(w => !w.admitted);
+  const scoredMonths = admitted.reduce((s, w) => s + ctMonths(w.start, w.end), 0);
+  const winners = [...new Set(admitted.map(w => bestIn[w.window]).filter(Boolean))];
+  const name = k => (FC_MODELS[k] ? FC_MODELS[k].short : k);
+  const f2 = v => (typeof v === 'number' && isFinite(v) ? `${v.toFixed(2)}%` : '—');
+  const winLabel = w => { const s = ctSpan(w.start, w.end); return s ? s.range : w.window; };
+  const roleLabel = w => (w.role === 'test' ? 'test' : w.role === 'development' ? 'development' : 'not admitted');
+
+  /* Forecast: the test window's best model. */
+  const fc = fcRes && fcRes.status === 'ok' ? fcRes.body : null;
+  const fcKey = fc ? modelKey(fc.model) : null;
+  const fcRows = fc && Array.isArray(fc.rows) ? fc.rows : [];
+  const fcSpan = fcRows.length ? ctSpan(fcRows[0].month, fcRows[fcRows.length - 1].month) : null;
+  const fcCell = fc && cell[fc.window] && fcKey ? cell[fc.window][fcKey] : null;
+  const fcHits = fcCell && typeof fcCell.coverage_own_band === 'number' && fcCell.n
+    ? Math.round(fcCell.coverage_own_band * fcCell.n / 100) : null;
+
+  /* Station table. */
+  const stRows = siteRows(stRes).filter(r => r && typeof r.station === 'string' && Number.isFinite(r.fiscal_year));
+  const years = [...new Set(stRows.map(r => r.fiscal_year))].sort((a, b) => a - b);
+  const yInfo = {}; stRows.forEach(r => { if (!yInfo[r.fiscal_year]) yInfo[r.fiscal_year] = r; });
+  const val = {}; stRows.forEach(r => { (val[r.station] = val[r.station] || {})[r.fiscal_year] = r.avg_midweek_boardings; });
+  const latestFy = years[years.length - 1];
+  const stations = Object.keys(val).sort((a, b) => (val[b][latestFy] || 0) - (val[a][latestFy] || 0));
+  const missingFy = years.length ? Array.from({ length: years[years.length - 1] - years[0] + 1 }, (_, j) => years[0] + j).filter(y => !years.includes(y)) : [];
+  const fyRange = ys => (ys.length === 1 ? `FY${ys[0]}` : `FY${ys[0]}–FY${ys[ys.length - 1]}`);
+  const yHead = fy => (yInfo[fy] && yInfo[fy].basis === 'count' ? String(fy) : `FY${fy}`);
+  const yPeriod = fy => {
+    const r = yInfo[fy]; if (!r) return '';
+    if (r.first_month === r.last_month) return `${ctYM(r.first_month)}${r.basis === 'count' ? ' count' : ''}`;
+    const n = ctMonths(r.first_month, r.last_month);
+    const s = ctSpan(r.first_month, r.last_month);
+    return `${s ? s.range : ''}${n < 12 ? ' only' : ''}`;
+  };
+  const partial = years.filter(fy => yInfo[fy].basis !== 'count' && ctMonths(yInfo[fy].first_month, yInfo[fy].last_month) < 12);
+  const counts = years.filter(fy => yInfo[fy].basis === 'count');
+  const estimates = years.filter(fy => yInfo[fy].basis !== 'count');
+  const stSorted = ss.apply(stations, Object.assign({ station: s => s }, ...years.map(fy => ({ [fy]: s => val[s][fy] }))));
+  const winSorted = ws.apply(models, Object.assign({ model: k => name(k) },
+    ...tableWins.map(w => ({ [w.window]: k => (scored(cell[w.window][k]) ? cell[w.window][k].wape : null) }))));
+
+  const loading = !serRes || !stRes || !fcRes || !lbRes;
+  const failed = [[serRes, 'caltrain_series.json'], [stRes, 'caltrain_station_annual.json'],
+    [fcRes, 'caltrain_forecast.json'], [lbRes, 'caltrain_leaderboard.json']].filter(([r]) => siteFailed(r)).map(([, f]) => f);
+
+  const lede = !first ? (loading ? 'Loading the Caltrain data…' : 'The Caltrain series could not be loaded.')
+    : `Caltrain's systemwide average weekday ridership, ${ctYM(first.month)} to ${ctYM(last.month)}: ${series.length} months from its monthly board reports, in a separate store, benchmark and leaderboard so no BART figure above moves. `
+      + (lbOk ? `The same four models are scored on half-year holdouts, but only ${ctWord(admitted.length)} of the ${ctWord(windows.length)} candidate half-years pass the admission rule, ${scoredMonths} months of scored forecasts per model in all. That is thin evidence, so read the ranking as provisional.` : '');
+
+  const markNote = m => (m.kind === 'elec' ? 'fully electrified service begins'
+    : `method change: ${CT_METHOD_NOTES[m.month] || 'Caltrain changed how it estimates ridership'}`);
+  const markBind = m => ({
+    'aria-pressed': pinMark === m.id,
+    onClick: () => setPinMark(p => (p === m.id ? null : m.id)),
+    onPointerEnter: e => { if (e.pointerType === 'mouse') setHoverMark(m.id); },
+    onPointerLeave: e => { if (e.pointerType === 'mouse') setHoverMark(null); },
+    onFocus: () => setHoverMark(m.id), onBlur: () => setHoverMark(null),
+  });
+
+  return (
+    <section id="caltrain">
+      <div className="wrap">
+        <div className="section-h">
+          <Reveal><div className="eyebrow"><span className="pip" /> Caltrain</div></Reveal>
+          <Reveal delay="1"><div className="row">
+            <h2>Caltrain: the same four models on a second railway.</h2>
+            <p className="lede" style={{ maxWidth:'62ch' }}>{lede}</p>
+          </div></Reveal>
+        </div>
+        {failed.length > 0 && <p className="ct-note" role="status">Could not load {failed.join(', ')}. Reload the page to try again.</p>}
+
+        <Reveal className="card chart-card">
+          <div className="chart-head">
+            <div>
+              <h3>Average weekday ridership by month</h3>
+              <p>{first ? `${ctYM(first.month)}–${ctYM(last.month)} · Caltrain's estimate, systemwide · numbered lines mark the changes below` : 'Loading…'}</p>
+            </div>
+          </div>
+          <CaltrainSeriesChart series={series} markers={markers} active={activeMark} />
+          {markers.length > 0 && (
+            <ol className="ct-marks" aria-label="Changes marked on the chart">
+              {markers.map(m => (
+                <li key={m.id}>
+                  <button type="button" className={`ct-mark${m.kind === 'elec' ? ' elec' : ''}`} {...markBind(m)}>
+                    <span className="n" aria-hidden="true">{m.n}</span>
+                    <span><b>{ctYM(m.month)}</b> · {markNote(m)}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+          {gaps.map(g => (
+            <p key={g.from} className="ct-gap"><b>{ctYM(g.from)}–{ctYM(g.to)} is a gap, not a dip:</b> these {g.n} months (COVID-19, when service and the counting method both changed) are left out of the store, so they are neither fitted nor scored. The line breaks there rather than joining across it.</p>
+          ))}
+          {first && (
+            <div className="ct-note">
+              <b>These are estimates, not counts.</b> Caltrain has no turnstiles or fare gates, so its average weekday ridership is estimated, not counted at the platform: {methods.map((m, j) => `${j ? (j === methods.length - 1 ? ' and from ' : ', from ') : 'from '}${ctYM(m)} on ${CT_METHOD_BASIS[m] || 'a changed method'}`).join('')}.
+              {step && <> The step from {ctYM(step.before)} to {ctYM(step.month)} ({fmtInt(step.a)} → {fmtInt(step.b)}, {ctPct(step.ch)}) is that counting change, not new demand{step.prior ? <>; for scale, {ctYM(step.prior.month)} was {ctPct(step.prior.ch)} on {ctYM(step.prior.before)}</> : null}.</>}
+              {' '}SARIMA and Prophet carry each method change inside the training window and the electrification as a step input, so they do not read a step as growth; seasonal naive and Chronos-1 run univariate and cannot.
+            </div>
+          )}
+        </Reveal>
+
+        <div className="results-grid" style={{ marginTop:24 }}>
+          <Reveal className="card chart-card">
+            <div className="chart-head">
+              <div>
+                <h3>Backtest on a held-out half-year{fc ? ` · ${name(fcKey)}` : ''}</h3>
+                <p>{fc && fcSpan
+                  ? `${fcSpan.range}, the test window. ${name(fcKey)} (lowest WAPE there) was fit on data through ${ctYM(fc.fit_through)} and compared with the ${fcRows.length} months Caltrain has since published. These months are past: this tests the model, it is not a forecast of the future.`
+                  : loading ? 'Loading…' : 'caltrain_forecast.json could not be used.'}</p>
+              </div>
+            </div>
+            {fc && <CaltrainForecastChart forecast={fc} series={series} />}
+            {fcCell && (
+              <p className="text-muted" style={{ fontSize:12, margin:0 }}>
+                WAPE {f2(fcCell.wape)} over {fcCell.n} months.
+                {fcHits != null && ` Its own P10–P90 band held ${fcHits} of ${fcCell.n} months (${Math.round(fcCell.coverage_own_band)}%, against a nominal 80%), uncalibrated: with ${fcCell.n} months that is a rough check, not a coverage estimate.`}
+              </p>
+            )}
+          </Reveal>
+
+          <Reveal delay="1" className="card chart-card ct-win-card">
+            <div className="chart-head">
+              <div>
+                <h3>Every window, every model</h3>
+                <p>{lbOk
+                  ? (winners.length === 1 && admitted.length
+                    ? `${name(winners[0])} has the lowest WAPE in ${admitted.length === 2 ? 'both' : `all ${ctWord(admitted.length)}`} admitted window${admitted.length > 1 ? 's' : ''} (${admitted.map(w => `${winLabel(w)}: ${f2(cell[w.window] && cell[w.window][winners[0]] && cell[w.window][winners[0]].wape)}`).join('; ')}).`
+                    : `Lowest WAPE by window: ${admitted.map(w => `${winLabel(w)}, ${name(bestIn[w.window])}`).join('; ')}.`)
+                  : loading ? 'Loading…' : 'caltrain_leaderboard.json could not be used.'}</p>
+              </div>
+            </div>
+            {lbOk && (
+              <div className="ct-scroll">
+                <table className="why-windows ct-win">
+                  <thead><tr>
+                    <SortTh k="model" s={ws}>Model · WAPE</SortTh>
+                    {tableWins.map(w => (
+                      <SortTh key={w.window} k={w.window} s={ws} className="r" sub={<span className="wid">{w.window} · {roleLabel(w)}</span>}>
+                        {winLabel(w)}
+                      </SortTh>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {winSorted.map(k => (
+                      <tr key={k} className={hl && k === hl ? 'hl' : ''}>
+                        <td className="model"><ModelBtn k={k}>{name(k)}</ModelBtn></td>
+                        {tableWins.map(w => {
+                          const r = cell[w.window][k];
+                          return (
+                            <td key={w.window} className={`num${bestIn[w.window] === k ? ' win' : ''}`}>
+                              {!r ? '—' : scored(r) ? <>
+                                <b>{f2(r.wape)}</b>
+                                <span className="sub">{typeof r.coverage_own_band === 'number' ? `cov ${Math.round(r.coverage_own_band)}%` : ' '}</span>
+                              </> : <span className="ct-na">{r.status}</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {lbOk && rejected.length > 0 && (
+              <div className="ct-rej">
+                <p><b>Why {ctWord(rejected.length)} of the {ctWord(windows.length)} half-years are not scored.</b> A window is admitted only with enough history before its cutoff, complete actuals, and enough training months for every step it contains; a window that fails is reported, never padded back in.</p>
+                <ul>
+                  {rejected.map(w => <li key={w.window}><b>{w.window}</b> ({winLabel(w)}): {ctReason(w.reason)}.</li>)}
+                </ul>
+              </div>
+            )}
+            {lbOk && (
+              <p className="text-muted" style={{ fontSize:12, margin:0 }}>
+                Windows run newest first; the lowest WAPE in each scored window is shaded; “cov” is the model's own P10–P90 band (nominal 80%), uncalibrated. {testW ? `${testW.window} is the test window, scored once; ` : ''}model choices were fixed before it was scored. Click a heading to sort; click a model to highlight it here and in the BART tables above.
+                {typeof lb.source === 'string' ? ` Source: ${lb.source}${typeof lb.generated_by === 'string' ? ` (${lb.generated_by})` : ''}.` : ''}
+              </p>
+            )}
+          </Reveal>
+        </div>
+
+        <Reveal className="card bench" style={{ marginTop:24 }}>
+          <div className="ct-st-head">
+            <h3>Average mid-week boardings by station</h3>
+            <p>Boardings by origin station on an average Tuesday–Thursday, from Caltrain's annual reports. Shown as published; not modelled.</p>
+            {years.length > 0 && (
+              <ul className="ct-caveats">
+                {counts.map(fy => <li key={`c${fy}`}><b>{yHead(fy)}</b> is the {yPeriod(fy)}, an onboard passenger count, not a fiscal-year average. {estimates.length ? `${estimates.map(yHead).join(', ').replace(/, ([^,]*)$/, ' and $1')} are Caltrain's fare-media model estimates.` : ''}</li>)}
+                {partial.map(fy => <li key={`p${fy}`}><b>{yHead(fy)}</b> covers {ctSpan(yInfo[fy].first_month, yInfo[fy].last_month).range} only ({ctMonths(yInfo[fy].first_month, yInfo[fy].last_month)} months), so it is not comparable to a full year.</li>)}
+                {missingFy.length > 0 && <li><b>Caltrain published no station figures for {fyRange(missingFy)}</b>, so those years are absent, not zero.</li>}
+              </ul>
+            )}
+          </div>
+          <div className="ct-scroll">
+            <table className="ct-st">
+              <thead><tr>
+                <SortTh k="station" s={ss}>Station</SortTh>
+                {years.map(fy => (
+                  <SortTh key={fy} k={fy} s={ss} className="r" sub={<span className="wid">{yPeriod(fy)}</span>}>{yHead(fy)}</SortTh>
+                ))}
+              </tr></thead>
+              <tbody>
+                {stSorted.map(s => (
+                  <tr key={s}>
+                    <td className="model">{s}</td>
+                    {years.map(fy => <td key={fy} className="num">{fmtInt(val[s][fy])}</td>)}
+                  </tr>
+                ))}
+                {!stRes && <tr><td colSpan={years.length + 1} style={{ textAlign:'center', color:'var(--ink-muted)' }}>Loading…</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+};
+
 /* ── EDA Visualizations ────────────────────────────────────────── */
 // PNGs and captions come from transit_eda/notebooks/eda_complete.ipynb. When the
 // notebook is rerun, its last cell fails unless each caption below (and EDA_NOTE)
@@ -1492,4 +1807,4 @@ const BARTForecasts = () => {
   );
 };
 
-Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, WhySarima, EDAViz, About, Footer, BARTForecasts });
+Object.assign(window, { Nav, Hero, AtAGlance, Method, Dataset, Results, Demo, Benchmarks, WhySarima, EDAViz, About, Footer, BARTForecasts, Caltrain });
