@@ -46,6 +46,7 @@ from assistant.answer import unverified_claims  # noqa: E402
 from assistant.config import DISPLAY_TZ  # noqa: E402
 from assistant.types import Leg, TripOption  # noqa: E402
 
+SLEEP_FLAG_S = 2.0  # wall clock minus timing clock above this marks a sample as possibly slept through
 RATE_LIMIT_PER_HOUR = 10  # the service's RATE_LIMIT_PER_HOUR; the warm-up counts against it too
 DEFAULT_QUESTIONS = Path(__file__).with_name("assistant_questions.yaml")
 DEFAULT_OUT = Path(__file__).with_name("outputs") / "assistant_eval.json"
@@ -326,23 +327,46 @@ def load_questions(path: Path) -> tuple[str, list[dict[str, Any]]]:
 # --- the run ---------------------------------------------------------------------------------------------
 
 
-def ask(client: Any, message: str, clock: Callable[[], float] = time.perf_counter) -> dict[str, Any]:
-    """POST one question and time its events. Never raises: failures come back as ``outcome`` values."""
+def ask(
+    client: Any,
+    message: str,
+    clock: Callable[[], float] = time.perf_counter,
+    wall: Callable[[], float] = time.time,
+) -> dict[str, Any]:
+    """POST one question and time its events. Never raises: failures come back as ``outcome`` values.
+
+    ``suspended_s`` is how much longer the wall clock ran than the timing clock. On macOS the timing
+    clock stops while the computer sleeps, so a value over ``SLEEP_FLAG_S`` marks a sample the
+    laptop's sleep may have distorted (it is reported, not dropped).
+    """
+    result = _ask(client, message, clock, wall)
+    return result
+
+
+def _ask(client: Any, message: str, clock: Callable[[], float], wall: Callable[[], float]) -> dict[str, Any]:
     requested_at = datetime.now(timezone.utc)
+    w0 = wall()
     t0 = clock()
+
+    def stamp(result: dict[str, Any]) -> dict[str, Any]:
+        suspended = max(0.0, (wall() - w0) - (clock() - t0))
+        return {**result, "suspended_s": round(suspended, 3), "suspect_sleep": suspended > SLEEP_FLAG_S}
+
     timed: list[tuple[float, dict[str, Any]]] = []
     malformed = 0
     try:
         with client.stream("POST", "/chat", json={"message": message}) as response:
             if response.status_code != 200:
                 response.read()
-                return {
-                    **summarize([]),
-                    "outcome": "rate_limited" if response.status_code == 429 else "http_error",
-                    "status": response.status_code,
-                    "retry_after": response.headers.get("retry-after"),
-                    "requested_at": requested_at.isoformat(),
-                }
+                return stamp(
+                    {
+                        **summarize([]),
+                        "outcome": "rate_limited" if response.status_code == 429 else "http_error",
+                        "status": response.status_code,
+                        "retry_after": response.headers.get("retry-after"),
+                        "requested_at": requested_at.isoformat(),
+                    }
+                )
             for line in response.iter_lines():
                 if not line.strip():
                     continue
@@ -351,13 +375,15 @@ def ask(client: Any, message: str, clock: Callable[[], float] = time.perf_counte
                 now = clock() - t0
                 timed.extend((now, e) for e in events)
     except Exception as exc:  # noqa: BLE001  a network failure is a result, not a crash
-        return {
-            **summarize(timed, malformed),
-            "outcome": "error",
-            "error": type(exc).__name__,
-            "requested_at": requested_at.isoformat(),
-        }
-    return {**summarize(timed, malformed), "status": 200, "requested_at": requested_at.isoformat()}
+        return stamp(
+            {
+                **summarize(timed, malformed),
+                "outcome": "error",
+                "error": type(exc).__name__,
+                "requested_at": requested_at.isoformat(),
+            }
+        )
+    return stamp({**summarize(timed, malformed), "status": 200, "requested_at": requested_at.isoformat()})
 
 
 def _compact(q: dict[str, Any], s: dict[str, Any], checks: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -376,7 +402,7 @@ def _compact(q: dict[str, Any], s: dict[str, Any], checks: dict[str, dict[str, A
     keep = (
         "outcome", "status", "retry_after", "error", "first_options_s", "done_s", "end_s", "agencies",
         "kinds", "replaced", "server_latency_ms", "caveats", "question", "malformed_lines", "text",
-        "attribution", "requested_at",
+        "attribution", "requested_at", "suspended_s", "suspect_sleep",
     )
     return {
         "id": q.get("id"),

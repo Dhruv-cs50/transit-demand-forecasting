@@ -367,3 +367,48 @@ def test_run_refuses_to_exceed_the_rate_limit_before_sending(tmp_path):
 
     code = ev.run("https://assistant.test", qfile, tmp_path / "r.json", client=_client(handler))
     assert code == 2 and calls == []
+
+
+# --- sleep detection ----------------------------------------------------------------------------------
+
+
+class _Stub:
+    """A client whose stream yields the route_ok lines; ``tick`` advances the fake clocks per line."""
+
+    def __init__(self, tick):
+        self.tick = tick
+
+    def stream(self, method, url, json):
+        stub = self
+
+        class _Response:
+            status_code = 200
+            headers: dict = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def iter_lines(self):
+                for line in stream("route_ok").splitlines():
+                    stub.tick()
+                    yield line
+
+        return _Response()
+
+
+def test_ask_flags_a_sample_the_computer_slept_through():
+    mono, wall = [0.0], [1000.0]
+    awake = _Stub(lambda: (mono.__setitem__(0, mono[0] + 0.1), wall.__setitem__(0, wall[0] + 0.1)))
+    r = ev.ask(awake, "x", clock=lambda: mono[0], wall=lambda: wall[0])
+    assert r["suspect_sleep"] is False and r["outcome"] == "options"
+
+    def nap():
+        mono[0] += 0.1
+        wall[0] += 0.1 + (900.0 if wall[0] < 1100 else 0.0)  # the wall clock keeps running while the timing clock stops
+
+    mono, wall = [0.0], [1000.0]
+    r = ev.ask(_Stub(nap), "x", clock=lambda: mono[0], wall=lambda: wall[0])
+    assert r["suspect_sleep"] is True and r["suspended_s"] > 100
