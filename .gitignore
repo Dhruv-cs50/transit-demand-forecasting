@@ -11,6 +11,8 @@ data/raw/
 # raw workbooks it is built from cannot be re-fetched automatically.
 data/processed/*
 !data/processed/feature_store.parquet
+# The Caltrain store (68 rows) is versioned too, like the BART store.
+!data/processed/caltrain_store.parquet
 models/baselines/outputs/
 models/chronos2/outputs/
 models/chronos2/weights/
