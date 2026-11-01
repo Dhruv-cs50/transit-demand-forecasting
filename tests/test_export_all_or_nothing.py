@@ -1,9 +1,10 @@
 """
 tests/test_export_all_or_nothing.py
 ───────────────────────────────────
-scripts/export_website_data.py publishes its six website/data/*.json files all
+scripts/export_website_data.py publishes its nine website/data/*.json files all
 or none: they are staged first and moved into the output directory only when
-every one was produced. A failure anywhere (a refused forecasts.json, an
+every one was produced. A failure anywhere (a refused forecasts file or
+backtest_windows.json, an
 exception in any exporter, a move that fails midway) leaves the output
 directory byte-for-byte as it was, with no staging directory left behind.
 
@@ -34,7 +35,8 @@ ewd = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ewd)
 logging.getLogger("export_website_data").setLevel(logging.CRITICAL)
 
-FILES = ["forecasts.json", "forecasts_sarima.json", "model_comparison.json", "ridership_actuals.json",
+FILES = ["backtest_windows.json", "forecasts.json", "forecasts_prophet.json", "forecasts_sarima.json",
+         "forecasts_seasonal_naive.json", "model_comparison.json", "ridership_actuals.json",
          "stations_meta.json", "stations_ridership.json"]
 
 
@@ -52,7 +54,7 @@ class AllOrNothing(unittest.TestCase):
     def _snapshot(self):
         return {p.name: p.read_bytes() for p in self.out.iterdir()}
 
-    def _stub_exporters(self, forecasts=None, comparison=None):
+    def _stub_exporters(self, forecasts=None, comparison=None, backtest=None):
         """Patch everything main() calls so only the staging logic is real."""
         def write(name):
             def fn(*a):
@@ -64,6 +66,12 @@ class AllOrNothing(unittest.TestCase):
             if forecasts:
                 return forecasts
             (out_dir / "forecasts.json").write_text('"new forecasts.json"')
+            return None
+
+        def fake_backtest(out_dir):
+            if backtest:
+                return backtest
+            (out_dir / "backtest_windows.json").write_text('"new backtest_windows.json"')
             return None
 
         patches = mock.patch.multiple(
@@ -80,6 +88,12 @@ class AllOrNothing(unittest.TestCase):
             export_forecasts=fake_forecasts,
             export_sarima_forecasts=lambda out_dir, df: (
                 out_dir.joinpath("forecasts_sarima.json").write_text('"new forecasts_sarima.json"') and None),
+            export_prophet_forecasts=lambda out_dir, df: (
+                out_dir.joinpath("forecasts_prophet.json").write_text('"new forecasts_prophet.json"') and None),
+            export_seasonal_naive_forecasts=lambda out_dir, df: (
+                out_dir.joinpath("forecasts_seasonal_naive.json").write_text(
+                    '"new forecasts_seasonal_naive.json"') and None),
+            export_backtest_windows=fake_backtest,
             export_model_comparison=comparison or write("model_comparison.json"),
         )
         patches.start()
@@ -94,7 +108,7 @@ class AllOrNothing(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.site.iterdir()), ["data"],
                          "a staging directory was left behind")
 
-    def test_success_replaces_all_six_files(self):
+    def test_success_replaces_all_nine_files(self):
         self._stub_exporters()
         self._main()
         self.assertEqual(sorted(self._snapshot()), FILES)
@@ -104,6 +118,13 @@ class AllOrNothing(unittest.TestCase):
 
     def test_refused_forecasts_publish_nothing(self):
         self._stub_exporters(forecasts="calibrator missing")
+        with self.assertRaises(SystemExit) as cm:
+            self._main()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertUntouched()
+
+    def test_refused_backtest_publishes_nothing(self):
+        self._stub_exporters(backtest="2025-H2 does not equal the leaderboard")
         with self.assertRaises(SystemExit) as cm:
             self._main()
         self.assertEqual(cm.exception.code, 1)

@@ -63,6 +63,30 @@ the store's `station_name` column.
       the leaderboard's Interval_method. Refused unless the parquet reproduces
       the leaderboard's SARIMA row (n, WAPE, MAE, coverage).
 
+  forecasts_prophet.json, forecasts_seasonal_naive.json
+      Prophet's and seasonal naive's test-window forecasts, the same records as
+      forecasts_sarima.json (station_id, month, p10, p50, p90, p10_raw, p90_raw,
+      interval_method, model). p10/p90 are the band the leaderboard's Coverage_%
+      scored (Interval_method says which: both are conformal-calibrated) and
+      p10_raw/p90_raw the model's own. Prophet's come from the parquet
+      benchmarks.py saved plus its saved calibrator (evaluation.calibration.
+      serve_band, as for Chronos-1); seasonal naive's parquet already carries
+      both bands. Each is refused unless it has one row per (station, month),
+      as many as the leaderboard row's `n`, and reproduces that row's WAPE_%,
+      MAE, Coverage_% and Coverage_raw_% against the feature-store actuals, and
+      the band's label is the row's Interval_method.
+
+  backtest_windows.json
+      SARIMA, Prophet, Chronos-1 and seasonal naive on three half-year windows
+      (models/baselines/backtest_windows.py): {"windows": [{id, fit_through,
+      first_month, last_month}], "rows": [{window, model, wape, mae, n,
+      coverage_own_band, stations_sarima_beats}], "source", "generated_by"}.
+      coverage_own_band scores each model's own band (calibrators are fit on
+      data to 2025-06-30, so the 2024 windows cannot use them); stations_sarima_beats
+      is null for SARIMA. Refused unless the published window's (2025-H2) rows
+      equal the leaderboard's overall rows in WAPE_%, MAE and n and its own-band
+      coverage equals Coverage_raw_%.
+
   model_comparison.json
       The benchmark leaderboard (evaluation/outputs/benchmark_leaderboard.csv).
       Read by website/sections.jsx and website/charts.jsx.
@@ -70,11 +94,11 @@ the store's `station_name` column.
 If the leaderboard does not exist (and --allow-val-fallback is not given),
 the script exits 1 before writing any file.
 
-The six files are all-or-nothing. They are written to a staging directory
+The nine files are all-or-nothing. They are written to a staging directory
 beside the output directory and moved into it only when every one was produced
 (os.replace, one file at a time, with the previous copies restored if a move
-fails). A refused forecasts.json, or any error while exporting, therefore leaves
-the output directory exactly as it was; nothing stale is published beside fresh
+fails). A refused forecasts file or backtest_windows.json, or any error while
+exporting, therefore leaves the output directory exactly as it was; nothing stale is published beside fresh
 data.
 
 The evaluation/outputs/ inputs are read relative to the working directory, so
@@ -131,6 +155,15 @@ CALIBRATOR_PATH = Path("evaluation/outputs/calibration/calibrators/Chronos.json"
 # standalone `models/baselines/arima.py` run writes the same file with another
 # cutoff, so export_sarima_forecasts() checks it against the leaderboard row.
 SARIMA_PREDS_PATH = Path("models/baselines/outputs/arima/arima_forecasts.parquet")
+# Prophet's test-window forecasts (its model's own band; the calibrator
+# benchmarks.py saved turns it into the band the leaderboard scored) and seasonal
+# naive's (already carrying the scored band), written by the same benchmarks.py run.
+PROPHET_PREDS_PATH = Path("models/baselines/outputs/prophet/prophet_forecasts.parquet")
+PROPHET_CALIBRATOR_PATH = Path("evaluation/outputs/calibration/calibrators/Prophet.json")
+SEASONAL_NAIVE_PREDS_PATH = Path("models/baselines/outputs/seasonal_naive/seasonal_naive_forecasts.parquet")
+# models/baselines/backtest_windows.py's output.
+BACKTEST_PATH = Path("evaluation/outputs/backtest_windows.csv")
+BACKTEST_PUBLISHED_WINDOW = "2025-H2"
 # The config benchmarks.py ran with: which band each model gets, and the
 # Chronos checkpoint the calibrator must have been fitted for.
 CONFIG_PATH = Path("configs/model.yaml")
@@ -697,6 +730,243 @@ def export_sarima_forecasts(out_dir: Path, actuals: pd.DataFrame) -> str | None:
     return None
 
 
+def _export_checked_forecasts(
+    out_dir: Path,
+    actuals: pd.DataFrame,
+    *,
+    filename: str,
+    model_label: str,
+    preds_path: Path,
+    model_key: str | None = None,
+    calibrator_path: Path | None = None,
+) -> str | None:
+    """Export one baseline model's test-window forecasts, refused unless they
+    are the ones its leaderboard row scored.
+
+    With `model_key`, preds_path holds the model's own band and the band the
+    leaderboard scored is the one configs/model.yaml assigns to that key, applied
+    from the calibrator benchmarks.py saved (serve_band; nothing is refit).
+    Without it, preds_path already carries the scored band as p10/p90 and the
+    model's own as p10_raw/p90_raw, with the band's label in `interval_method`.
+
+    Refused (returns the reason, writes nothing) unless the leaderboard has one
+    overall row for `model_label`; the parquet has one prediction per
+    (station_id, month), as many as the row's `n` (and `n_expected`), every
+    quantile finite and every station in the table; the band's label is the row's
+    Interval_method (and a calibrator was fitted for this model's label); every
+    row has one feature-store actual; and WAPE_%, MAE, Coverage_% (served band)
+    and Coverage_raw_% (own band), recomputed against the actuals and rounded as
+    the leaderboard rounds, equal the row's.
+    """
+    leaderboard_path = LEADERBOARD_PATH
+
+    def _refuse(reason: str) -> str:
+        log.error(f"{filename} NOT written: {reason}")
+        return reason
+
+    if not preds_path.exists():
+        return _refuse(f"{preds_path} not found (run models/baselines/benchmarks.py)")
+    if not leaderboard_path.exists():
+        return _refuse(f"{leaderboard_path} not found")
+    leaderboard = pd.read_csv(leaderboard_path)
+    need = {"model", "slice", "n", "WAPE_%", "MAE", "Coverage_%", "Coverage_raw_%", "Interval_method"}
+    if not need <= set(leaderboard.columns):
+        return _refuse(f"{leaderboard_path} lacks columns {sorted(need - set(leaderboard.columns))}")
+    rows = leaderboard[(leaderboard["slice"] == "overall") & (leaderboard["model"].astype(str) == model_label)]
+    if len(rows) != 1:
+        return _refuse(f"{leaderboard_path} has {len(rows)} overall {model_label} rows, expected 1")
+    row = rows.iloc[0]
+
+    df = pd.read_parquet(preds_path)
+    missing = {"timestamp", "station_id", "p10", "p50", "p90"} - set(df.columns)
+    if missing:
+        return _refuse(f"{preds_path} lacks columns {sorted(missing)}")
+    if "model" in df.columns and not (df["model"].astype(str) == model_label).all():
+        return _refuse(f"{preds_path} model column is not all {model_label!r}")
+    unknown = sorted(set(df["station_id"].astype(str).unique()) - set(CODES))
+    if unknown:
+        return _refuse(f"{preds_path} station_ids not in the station table: {unknown}")
+    df = df.assign(station_id=df["station_id"].astype(str), month=_month_strings(df["timestamp"]))
+    key = ["station_id", "month"]
+    if df.duplicated(key).any():
+        return _refuse(f"{preds_path} has more than one prediction for a (station_id, month)")
+    for col in ("n", "n_expected"):
+        if col in leaderboard.columns and float(row[col]) != len(df):
+            return _refuse(f"{preds_path} has {len(df)} predictions but the leaderboard's {model_label} "
+                           f"row has {col}={float(row[col]):g}; these are not the forecasts it scored")
+    if not np.isfinite(df[["p10", "p50", "p90"]].to_numpy(dtype=float)).all():
+        return _refuse(f"{preds_path} has non-finite quantiles")
+
+    scored_label = row["Interval_method"]
+    if model_key is not None:
+        try:
+            with open(CONFIG_PATH) as f:
+                cfg = yaml.safe_load(f) or {}
+            served, plan = serve_band(df, model_key, cfg, calibrator_path=calibrator_path,
+                                      forecast_origin=cfg["data"]["val_end"])
+        except (OSError, yaml.YAMLError, CalibratorUnavailable, ValueError, KeyError, TypeError) as e:
+            return _refuse(str(e))
+        label = plan["label"]
+        if plan["calibrated"] and plan["provenance"].get("model") != model_label:
+            return _refuse(f"{calibrator_path} was fitted for {plan['provenance'].get('model')!r}, "
+                           f"not the leaderboard's {model_label!r}")
+    else:
+        extra = {"p10_raw", "p90_raw", "interval_method"} - set(df.columns)
+        if extra:
+            return _refuse(f"{preds_path} lacks columns {sorted(extra)}")
+        labels = set(df["interval_method"].astype(str))
+        if len(labels) != 1:
+            return _refuse(f"{preds_path} carries {len(labels)} interval_method labels, expected 1")
+        label = labels.pop()
+        served = df
+        if not np.isfinite(df[["p10_raw", "p90_raw"]].to_numpy(dtype=float)).all():
+            return _refuse(f"{preds_path} has non-finite raw quantiles")
+    if not isinstance(scored_label, str) or scored_label != label:
+        return _refuse(f"the leaderboard's {model_label} Interval_method is {scored_label!r}, but the band "
+                       f"served here is {label!r}")
+    if not np.isfinite(served[["p10", "p90"]].to_numpy(dtype=float)).all():
+        return _refuse(f"the served {model_label} band has non-finite bounds")
+
+    truth = pd.DataFrame({
+        "station_id": actuals["station_id"].astype(str).to_numpy(),
+        "month": _month_strings(actuals["timestamp"]).to_numpy(),
+        "actual": pd.to_numeric(actuals["ridership"], errors="coerce").astype("float64").to_numpy(),
+    })
+    joined = served.merge(truth, on=key, how="left")
+    if len(joined) != len(served) or joined["actual"].isna().any():
+        return _refuse("an exported (station_id, month) has no single feature-store actual")
+    y = joined["actual"].to_numpy(dtype=float)
+    p50 = np.maximum(joined["p50"].to_numpy(dtype=float), 0)  # as compute_metrics scores it
+    checks = [
+        ("WAPE_%", metric_wape(y, p50)),
+        ("MAE", metric_mae(y, p50)),
+        ("Coverage_%", coverage(y, joined["p10"].to_numpy(float), joined["p90"].to_numpy(float))),
+        ("Coverage_raw_%", coverage(y, joined["p10_raw"].to_numpy(float), joined["p90_raw"].to_numpy(float))),
+    ]
+    for col, got in checks:
+        got, want = round(float(got), 2), float(pd.to_numeric(row[col], errors="coerce"))
+        if not (math.isfinite(got) and math.isfinite(want) and math.isclose(got, want, abs_tol=1e-9)):
+            return _refuse(f"{preds_path} scores {col}={got} against the feature-store actuals but the "
+                           f"leaderboard's {model_label} row has {want}; these are not the forecasts it scored")
+
+    records = [
+        {
+            "station_id": r.station_id,
+            "month": r.month,
+            "p10": round(float(r.p10), 0),
+            "p50": round(float(r.p50), 0),
+            "p90": round(float(r.p90), 0),
+            "p10_raw": round(float(r.p10_raw), 0),
+            "p90_raw": round(float(r.p90_raw), 0),
+            "interval_method": label,
+            "model": model_label,
+        }
+        for r in served.sort_values(key, kind="stable").itertuples(index=False)
+    ]
+    with open(out_dir / filename, "w") as f:
+        json.dump(records, f)
+    log.info(
+        f"{filename} → {out_dir / filename}  ({len(records)} records, {df['station_id'].nunique()} stations, "
+        f"{df['month'].min()} … {df['month'].max()}; band: {label}, coverage {row['Coverage_%']}% "
+        f"and WAPE {row['WAPE_%']}% as on the leaderboard)"
+    )
+    return None
+
+
+def export_prophet_forecasts(out_dir: Path, actuals: pd.DataFrame) -> str | None:
+    """forecasts_prophet.json: Prophet's leaderboard forecasts (see _export_checked_forecasts)."""
+    return _export_checked_forecasts(
+        out_dir, actuals, filename="forecasts_prophet.json", model_label="Prophet",
+        preds_path=PROPHET_PREDS_PATH, model_key="Prophet", calibrator_path=PROPHET_CALIBRATOR_PATH)
+
+
+def export_seasonal_naive_forecasts(out_dir: Path, actuals: pd.DataFrame) -> str | None:
+    """forecasts_seasonal_naive.json: the forecasts benchmarks.py saved for seasonal naive."""
+    return _export_checked_forecasts(
+        out_dir, actuals, filename="forecasts_seasonal_naive.json", model_label="SeasonalNaive",
+        preds_path=SEASONAL_NAIVE_PREDS_PATH)
+
+
+def export_backtest_windows(out_dir: Path) -> str | None:
+    """backtest_windows.json from models/baselines/backtest_windows.py's CSV.
+
+    Refused (returns the reason, writes nothing) unless the CSV has the columns
+    below, each window has exactly the leaderboard's models, `n` is the same for
+    every row of a window, SARIMA's stations_sarima_beats is empty and every
+    other model's is a count of at most that n's stations, and the published
+    window (2025-H2) equals the leaderboard's overall rows: WAPE_%, MAE and n,
+    with coverage_own_band equal to Coverage_raw_%.
+    """
+    def _refuse(reason: str) -> str:
+        log.error(f"backtest_windows.json NOT written: {reason}")
+        return reason
+
+    if not BACKTEST_PATH.exists():
+        return _refuse(f"{BACKTEST_PATH} not found (run models/baselines/backtest_windows.py)")
+    if not LEADERBOARD_PATH.exists():
+        return _refuse(f"{LEADERBOARD_PATH} not found")
+    table = pd.read_csv(BACKTEST_PATH)
+    need = ["window", "fit_through", "first_month", "last_month", "model", "wape", "mae", "n",
+            "coverage_own_band", "stations_sarima_beats"]
+    if not set(need) <= set(table.columns):
+        return _refuse(f"{BACKTEST_PATH} lacks columns {sorted(set(need) - set(table.columns))}")
+    leaderboard = pd.read_csv(LEADERBOARD_PATH)
+    overall = leaderboard[leaderboard["slice"] == "overall"]
+    models = [str(m) for m in overall["model"]]
+    if table.empty or table[need[:-1]].isna().any().any():
+        return _refuse(f"{BACKTEST_PATH} is empty or has missing values")
+
+    windows = (table.drop_duplicates("window")[["window", "fit_through", "first_month", "last_month"]]
+               .rename(columns={"window": "id"}).to_dict("records"))
+    if BACKTEST_PUBLISHED_WINDOW not in {w["id"] for w in windows}:
+        return _refuse(f"{BACKTEST_PATH} has no {BACKTEST_PUBLISHED_WINDOW} window")
+    for w in windows:
+        part = table[table["window"] == w["id"]]
+        if (part[["fit_through", "first_month", "last_month"]].nunique() != 1).any():
+            return _refuse(f"window {w['id']} has more than one fit_through / first_month / last_month")
+        if sorted(part["model"].astype(str)) != sorted(models):
+            return _refuse(f"window {w['id']} has models {sorted(part['model'].astype(str))}, "
+                           f"the leaderboard's are {sorted(models)}")
+        if part["n"].nunique() != 1:
+            return _refuse(f"window {w['id']} scored a different number of rows per model: {part['n'].tolist()}")
+        beats = part.set_index("model")["stations_sarima_beats"]
+        if "SARIMA" not in beats.index or pd.notna(beats["SARIMA"]):
+            return _refuse(f"window {w['id']}: SARIMA's stations_sarima_beats must be empty")
+        others = beats.drop("SARIMA")
+        if others.isna().any() or ((others < 0) | (others > 300) | (others % 1 != 0)).any():
+            return _refuse(f"window {w['id']}: stations_sarima_beats must be a station count for every other model")
+
+    published = table[table["window"] == BACKTEST_PUBLISHED_WINDOW]
+    for r in published.itertuples(index=False):
+        lb = overall[overall["model"].astype(str) == r.model].iloc[0]
+        for ours, theirs, col in ((r.wape, lb["WAPE_%"], "WAPE_%"), (r.mae, lb["MAE"], "MAE"),
+                                  (r.n, lb["n"], "n"), (r.coverage_own_band, lb.get("Coverage_raw_%"), "Coverage_raw_%")):
+            if not (math.isfinite(float(ours)) and pd.notna(theirs) and float(ours) == float(theirs)):
+                return _refuse(f"{BACKTEST_PUBLISHED_WINDOW} {r.model}: {col} is {ours} in {BACKTEST_PATH} "
+                               f"but {theirs} on the leaderboard")
+
+    def _num(v, as_int=False):
+        return None if pd.isna(v) else (int(v) if as_int else float(v))
+
+    rows = [
+        {
+            "window": r.window, "model": r.model, "wape": _num(r.wape), "mae": _num(r.mae),
+            "n": _num(r.n, True), "coverage_own_band": _num(r.coverage_own_band),
+            "stations_sarima_beats": _num(r.stations_sarima_beats, True),
+        }
+        for r in table.itertuples(index=False)
+    ]
+    payload = {
+        "windows": windows, "rows": rows,
+        "source": str(BACKTEST_PATH), "generated_by": "models/baselines/backtest_windows.py",
+    }
+    with open(out_dir / "backtest_windows.json", "w") as f:
+        json.dump(payload, f, indent=2)
+    log.info(f"backtest_windows.json → {out_dir / 'backtest_windows.json'}  ({len(windows)} windows, {len(rows)} rows; "
+             f"{BACKTEST_PUBLISHED_WINDOW} equals the leaderboard)")
+    return None
+
+
 def export_model_comparison(out_dir: Path) -> None:
     leaderboard_path = LEADERBOARD_PATH
     if leaderboard_path.exists():
@@ -879,7 +1149,13 @@ def main():
         log.info(f"stations_meta.json      staged  ({len(meta_json)} stations)")
 
         export_ridership_actuals(df, staging)
-        refusals = [r for r in (export_forecasts(staging, df), export_sarima_forecasts(staging, df)) if r]
+        refusals = [r for r in (
+            export_forecasts(staging, df),
+            export_sarima_forecasts(staging, df),
+            export_prophet_forecasts(staging, df),
+            export_seasonal_naive_forecasts(staging, df),
+            export_backtest_windows(staging),
+        ) if r]
         forecasts_refused = "; ".join(refusals) if refusals else None
         export_model_comparison(staging)
 
@@ -888,7 +1164,7 @@ def main():
             # prints the deploy command. Nothing is published, so the old
             # forecasts.json is not left beside fresh data.
             log.error(
-                f"A forecasts file was refused. Reason: {forecasts_refused}. "
+                f"A forecasts or backtest file was refused. Reason: {forecasts_refused}. "
                 f"Nothing was published; {out_dir} is unchanged. Exiting 1."
             )
             raise SystemExit(1)

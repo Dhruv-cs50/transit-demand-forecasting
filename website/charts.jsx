@@ -106,14 +106,117 @@ const scoredForecasts = (fcRes, cmpRes, rowPrefix = 'Chronos') => {
   return rows.length === 1 && Number(rows[0].n_predictions) === fc.length;
 };
 
-/* The two per-station forecast exports the site shows. SARIMA (forecasts_sarima.json)
-   is the leaderboard's best model and the default; Chronos-1 (forecasts.json) is
-   the zero-shot foundation model. rowPrefix finds the model's leaderboard row. */
+/* The four per-station forecast exports the site shows, in display order. SARIMA
+   (forecasts_sarima.json) is the leaderboard's best model and the default;
+   Prophet, Chronos-1 (the zero-shot foundation model, forecasts.json) and the
+   seasonal-naive baseline follow. rowPrefix finds the model's leaderboard row;
+   color is the model's line in the all-models chart. */
 const FC_MODELS = {
-  sarima:  { key:'sarima',  short:'SARIMA',    label:'SARIMA',              file:'forecasts_sarima.json', rowPrefix:'SARIMA' },
-  chronos: { key:'chronos', short:'Chronos-1', label:'Chronos-1 zero-shot', file:'forecasts.json',        rowPrefix:'Chronos',
+  sarima:  { key:'sarima',  short:'SARIMA',         label:'SARIMA',               file:'forecasts_sarima.json',          rowPrefix:'SARIMA',        color:'var(--primary)' },
+  prophet: { key:'prophet', short:'Prophet',        label:'Prophet',              file:'forecasts_prophet.json',         rowPrefix:'Prophet',       color:'var(--gold)' },
+  chronos: { key:'chronos', short:'Chronos-1',      label:'Chronos-1 zero-shot',  file:'forecasts.json',                 rowPrefix:'Chronos',       color:'var(--good)',
              full:'Chronos-1 zero-shot (chronos-t5-small)' },
+  naive:   { key:'naive',   short:'Seasonal naive', label:'Seasonal-naive baseline', file:'forecasts_seasonal_naive.json', rowPrefix:'SeasonalNaive', color:'var(--ink-soft)' },
 };
+const FC_ORDER = ['sarima', 'prophet', 'chronos', 'naive'];
+
+// Every forecast export's load result, keyed by model. The four hooks are
+// always called, in the same order, so a model toggle never changes hook order;
+// the loader caches, so each file is fetched once per page.
+const useFcFiles = () => {
+  const sarima = useSiteData(FC_MODELS.sarima.file);
+  const prophet = useSiteData(FC_MODELS.prophet.file);
+  const chronos = useSiteData(FC_MODELS.chronos.file);
+  const naive = useSiteData(FC_MODELS.naive.file);
+  return { sarima, prophet, chronos, naive };
+};
+
+/* ── Backtest windows (website/data/backtest_windows.json) ──────────
+   An object, not an array, so it has its own loader: { windows: [{id,
+   fit_through, first_month, last_month}], rows: [{window, model, wape, mae, n,
+   coverage_own_band, stations_sarima_beats}], source, generated_by }.
+   backtestStats() turns it into what the page shows, or says why it cannot:
+     null                      still loading
+     { failed:true, reason }   missing, unreadable or malformed
+     { windows, byWin, models, bestByWindow, ... } otherwise
+   byWin[windowId][modelKey] = { wape, mae, n, cov, beats } with wape and cov in
+   percent: a file written as fractions (every wape <= 1.5, every coverage <= 1)
+   is scaled by 100. modelKey() maps a row's model name to sarima / prophet /
+   chronos / naive. */
+const __siteJson = {};
+const loadSiteJson = (file) => {
+  if (!__siteJson[file]) {
+    __siteJson[file] = fetch(`data/${file}`, { cache: 'no-cache' })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(body => {
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('not a JSON object');
+        return { status: 'ok', body };
+      })
+      .catch(err => ({ status: 'failed', error: String((err && err.message) || err) }));
+  }
+  return __siteJson[file];
+};
+const useSiteJson = (file) => {
+  const [res, setRes] = React.useState(null);
+  React.useEffect(() => {
+    let live = true;
+    loadSiteJson(file).then(r => { if (live) setRes(r); });
+    return () => { live = false; };
+  }, [file]);
+  return res;
+};
+
+const modelKey = name => {
+  const s = String(name || '').toLowerCase().replace(/[^a-z]/g, '');
+  return s.startsWith('sarima') ? 'sarima' : s.startsWith('prophet') ? 'prophet'
+    : s.startsWith('chronos') ? 'chronos' : /^(seasonal|snaive|naive)/.test(s) ? 'naive' : null;
+};
+
+const backtestStats = (res) => {
+  if (!res) return null;
+  const fail = reason => ({ failed: true, reason });
+  if (res.status === 'failed') return fail(res.error);
+  const b = res.body;
+  if (!Array.isArray(b.windows) || !b.windows.length || !Array.isArray(b.rows) || !b.rows.length) return fail('no windows or rows');
+  const num = v => (typeof v === 'number' && isFinite(v) ? v : null);
+  const rows = b.rows.filter(r => r && num(r.wape) != null && modelKey(r.model) && typeof r.window === 'string');
+  if (!rows.length) return fail('no scored rows');
+  const wapeScale = Math.max(...rows.map(r => r.wape)) <= 1.5 ? 100 : 1;
+  const covs = rows.map(r => num(r.coverage_own_band)).filter(v => v != null);
+  const covScale = covs.length && Math.max(...covs) <= 1 ? 100 : 1;
+  const windows = b.windows.filter(w => w && typeof w.id === 'string')
+    .map(w => {
+      const a = parseYM(w.first_month), z = parseYM(w.last_month);
+      const span = a && z ? monthSpan([{ month: w.first_month }, { month: w.last_month }]) : null;
+      return { id: w.id, first: w.first_month, last: w.last_month, label: span ? span.range : w.id };
+    })
+    .sort((x, y) => String(x.first).localeCompare(String(y.first)));
+  if (!windows.length) return fail('no windows');
+  const byWin = {};
+  rows.forEach(r => {
+    (byWin[r.window] = byWin[r.window] || {})[modelKey(r.model)] = {
+      wape: r.wape * wapeScale, mae: num(r.mae), n: num(r.n),
+      cov: num(r.coverage_own_band) != null ? r.coverage_own_band * covScale : null,
+      beats: num(r.stations_sarima_beats),
+    };
+  });
+  // A window is usable when SARIMA and at least one other model were scored on it.
+  const usable = windows.filter(w => byWin[w.id] && byWin[w.id].sarima && Object.keys(byWin[w.id]).length > 1);
+  if (!usable.length) return fail('no window scores SARIMA against another model');
+  const bestByWindow = {};
+  usable.forEach(w => {
+    const e = Object.entries(byWin[w.id]);
+    bestByWindow[w.id] = e.reduce((a, c) => (c[1].wape < a[1].wape ? c : a))[0];
+  });
+  return { windows: usable, byWin, bestByWindow, source: b.source, generatedBy: b.generated_by,
+           models: FC_ORDER.filter(k => usable.some(w => byWin[w.id][k])) };
+};
+
+// "6.36 / 4.27 / 3.21" style list of SARIMA's WAPE over the windows, oldest first.
+const sarimaAcrossWindows = bt => (bt && !bt.failed ? bt.windows.map(w => ({ id: w.id, label: w.label, wape: bt.byWin[w.id].sarima.wape })) : null);
 
 const comparisonSplit = (fcRes, cmpRes) => {
   if (!fcRes || !cmpRes) return null;
@@ -192,6 +295,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
   const fcRes = useSiteData('forecasts.json');
   const split = comparisonSplit(fcRes, cmpRes);
   const data = cmpRes && cmpRes.status === 'ok' ? cmpRes.rows : null;
+  const [hl] = useModelHighlight();  // page-wide model highlight (interactions.jsx)
 
   const message = (...lines) => <ChartMessage width={width} height={height} lines={lines} />;
   if (!cmpRes || !fcRes) return message('Loading…');
@@ -241,8 +345,10 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
         const overflow = wape > DISPLAY_CAP;
         const y = pad.t + i * rowH + rowH * 0.18;
         const bH = rowH * 0.56;
+        const hk = modelKey(r.model);
         return (
-          <g key={i}>
+          <g key={i} className="chart-series" opacity={hl && hk !== hl ? 0.3 : 1}>
+            {hl && hk === hl && <rect x={2} y={y - rowH * 0.12} width={width - 4} height={bH + rowH * 0.24} rx="5" fill="none" stroke="var(--primary)" strokeWidth="1.5" />}
             <text
               x={pad.l - 10} y={y + bH / 2 + 4}
               textAnchor="end" fontSize="11.5" fontFamily="var(--body)"
@@ -275,11 +381,7 @@ const ROCCurve = ({ width = 460, height = 280 }) => {
 /* ── Forecast interval chart — P10/P50/P90 vs actual riders for Embarcadero (real data) ── */
 const Calibration = ({ width = 460, height = 260, model = 'sarima' }) => {
   const FC = FC_MODELS[model] || FC_MODELS.sarima;
-  // Both files are requested on every render so the hook order never changes;
-  // the loader caches, so each is fetched once.
-  const sarRes = useSiteData('forecasts_sarima.json');
-  const chrRes = useSiteData('forecasts.json');
-  const fcRes = FC.key === 'sarima' ? sarRes : chrRes;
+  const fcRes = useFcFiles()[FC.key];
   const acRes = useSiteData('ridership_actuals.json');
   const message = (...lines) => <ChartMessage width={width} height={height} lines={lines} />;
   if (!fcRes || !acRes) return message('Loading…');
@@ -404,6 +506,98 @@ const Calibration = ({ width = 460, height = 260, model = 'sarima' }) => {
   );
 };
 
+/* ── All four models' P50 forecasts against actual riders — Embarcadero ──
+   One line per model that has Embarcadero rows in its export; a model whose
+   export is missing, unreadable or has no Embarcadero rows is named under the
+   chart instead of silently dropped. Months are the union of the forecast
+   months; actuals come from ridership_actuals.json. */
+const ModelCompare = ({ width = 640, height = 300, station = 'EM', stationName = 'Embarcadero' }) => {
+  const files = useFcFiles();
+  const acRes = useSiteData('ridership_actuals.json');
+  // Page-wide model highlight (interactions.jsx): the highlighted series is
+  // drawn on top and thicker, the other models fade.
+  const [hl] = useModelHighlight();
+  const fade = k => (hl && hl !== k ? 0.18 : 1);
+  const message = (...lines) => <ChartMessage width={width} height={height} lines={lines} />;
+  if (!acRes || FC_ORDER.some(k => !files[k])) return message('Loading…');
+
+  const series = FC_ORDER.map(k => {
+    const pts = siteRows(files[k]).filter(r => r && r.station_id === station && typeof r.month === 'string' && r.p50 != null)
+      .sort((a, b) => a.month.localeCompare(b.month));
+    return { k, m: FC_MODELS[k], pts };
+  });
+  const shown = series.filter(x => x.pts.length);
+  const missing = series.filter(x => !x.pts.length).map(x => x.m.short);
+  if (!shown.length) return message(`No ${stationName} forecasts are published.`);
+
+  const months = [...new Set(shown.flatMap(x => x.pts.map(p => p.month)))].sort();
+  const actualByMonth = {};
+  siteRows(acRes).forEach(r => { if (r && r.station_id === station && r.ridership != null) actualByMonth[r.month] = r.ridership; });
+  const actuals = months.map((m, i) => ({ i, v: actualByMonth[m] })).filter(a => a.v != null);
+
+  const pad = { l: 58, r: 20, t: 52, b: 34 };
+  const W = width - pad.l - pad.r, H = height - pad.t - pad.b;
+  const n = months.length;
+  const allVals = [...shown.flatMap(x => x.pts.map(p => p.p50)), ...actuals.map(a => a.v)];
+  const minV = Math.min(...allVals) * 0.94, maxV = Math.max(...allVals) * 1.04;
+  const sx = i => pad.l + (n === 1 ? W / 2 : (i / (n - 1)) * W);
+  const sy = v => pad.t + (1 - (v - minV) / (maxV - minV)) * H;
+  const fmtK2 = v => v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : (v / 1e3).toFixed(0) + 'k';
+  const idx = {}; months.forEach((m, i) => { idx[m] = i; });
+  const path = pts => pts.map((p, j) => `${j ? 'L' : 'M'}${sx(idx[p.month]).toFixed(1)},${sy(p.p50).toFixed(1)}`).join(' ');
+  const span = monthSpan(months.map(m => ({ month: m })));
+  const gridVals = [0.25, 0.5, 0.75, 1].map(t => minV + (maxV - minV) * t);
+
+  // Legend: two rows of up to three entries.
+  const entries = [...shown.map(x => ({ id: x.k, label: x.m.short, color: x.m.color, dash: x.k === 'naive' ? '5 3' : '' })),
+    ...(actuals.length ? [{ id: 'actual', label: 'Actual riders', color: 'var(--accent)', actual: true }] : [])];
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display:'block' }} role="img"
+      aria-label={`${stationName}: P50 forecast of each model against actual riders${span ? `, ${span.range}` : ''}`}>
+      {gridVals.map((v, i) => (
+        <g key={i}>
+          <line x1={pad.l} x2={pad.l + W} y1={sy(v)} y2={sy(v)} stroke="var(--line)" strokeDasharray="2 4" />
+          <text x={pad.l - 6} y={sy(v) + 4} textAnchor="end" fontSize="9.5" fill="var(--ink-soft)" fontFamily="var(--mono)">{fmtK2(v)}</text>
+        </g>
+      ))}
+      {[...shown.filter(x => x.k !== hl), ...shown.filter(x => x.k === hl)].map(x => (
+        <g key={x.k} className="chart-series" opacity={fade(x.k)}>
+          <path d={path(x.pts)} fill="none" stroke={x.m.color} strokeWidth={x.k === hl ? 3.4 : x.k === 'sarima' ? 2.6 : 1.8}
+            strokeDasharray={x.k === 'naive' ? '5 3' : ''} strokeLinecap="round" strokeLinejoin="round" />
+          {x.pts.map(p => <circle key={p.month} cx={sx(idx[p.month])} cy={sy(p.p50)} r={x.k === 'sarima' ? 3.2 : 2.4} fill="var(--bg-elev)" stroke={x.m.color} strokeWidth="1.6" />)}
+        </g>
+      ))}
+      {actuals.length > 0 && (
+        <g>
+          <path d={actuals.map((a, j) => `${j ? 'L' : 'M'}${sx(a.i).toFixed(1)},${sy(a.v).toFixed(1)}`).join(' ')} fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          {actuals.map(a => <circle key={a.i} cx={sx(a.i)} cy={sy(a.v)} r="3.4" fill="var(--accent)" stroke="var(--bg-elev)" strokeWidth="1.2" />)}
+        </g>
+      )}
+      {months.map((m, i) => (
+        <text key={m} x={sx(i)} y={pad.t + H + 16} textAnchor="middle" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{MONTH_ABBR[parseInt(m.slice(5, 7), 10) - 1]}</text>
+      ))}
+      <text x={pad.l} y={14} fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{`${stationName} · P50 forecast of each model${span ? ` · ${span.range}` : ''}`}</text>
+      <text x={pad.l + W} y={pad.t + H + 30} textAnchor="end" fontSize="10" fill="var(--ink-muted)">{span ? span.range.replace(/^[A-Za-z]+(?:–[A-Za-z]+)?\s/, '') : ''}</text>
+      <g transform={`translate(${pad.l}, 30)`}>
+        {entries.map((e, i) => {
+          const x = (i % 3) * 125, y = Math.floor(i / 3) * 14;
+          return (
+            <g key={e.id} transform={`translate(${x}, ${y})`} className="chart-series" opacity={e.actual ? 1 : fade(e.id)}>
+              <line x1="0" y1="0" x2="18" y2="0" stroke={e.color} strokeWidth={e.id === 'sarima' ? 2.6 : 1.8} strokeDasharray={e.dash || ''} />
+              <circle cx="9" cy="0" r="2.6" fill={e.actual ? e.color : 'var(--bg-elev)'} stroke={e.color} strokeWidth="1.5" />
+              <text x="24" y="4" fontSize="10.5" fill="var(--ink)" fontFamily="var(--body)">{e.label}</text>
+            </g>
+          );
+        })}
+      </g>
+      {missing.length > 0 && (
+        <text x={pad.l} y={height - 2} fontSize="10" fill="var(--ink-muted)">{`Not shown (no ${stationName} forecasts published): ${missing.join(', ')}`}</text>
+      )}
+    </svg>
+  );
+};
+
 const HeroOrbit = () => {
   const hs = headlineStats(useSiteData('model_comparison.json'), null);
   return (
@@ -504,7 +698,7 @@ const Gauge = ({ value = 0.42 }) => {
 };
 
 Object.assign(window, {
-  ROCCurve, Calibration, HeroOrbit, Gauge,
+  ROCCurve, Calibration, ModelCompare, HeroOrbit, Gauge,
   loadSiteData, useSiteData, siteRows, siteFailed, monthSpan, yearSpan, scoredForecasts, comparisonSplit,
-  FC_MODELS, headlineStats, fmtPct, fmtInt, fmtK, shortModel, holdoutLabel,
+  FC_MODELS, FC_ORDER, useFcFiles, loadSiteJson, useSiteJson, modelKey, backtestStats, sarimaAcrossWindows, headlineStats, fmtPct, fmtInt, fmtK, shortModel, holdoutLabel,
 });
