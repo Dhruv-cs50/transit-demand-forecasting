@@ -1,0 +1,63 @@
+# Questions for eval/assistant_eval.py.
+#
+# The service allows 10 questions an hour per address and the warm-up counts, so
+# keep this file at 9 questions or fewer (the script refuses to send more). Today
+# it holds 7, so a run sends 8 requests. The plan's 25-question set does not fit
+# one hour: split a bigger set across hours with --only.
+#
+# Times are explicit ("tomorrow at 9 am") wherever the expected agency depends on
+# service hours: a run at 1 a.m. with "now" gets AC Transit and SamTrans night
+# buses, not BART. The relative-time question is the exception, on purpose.
+#
+# kind: route  -> must return options (and so a final text and a `done`)
+#   expect_agencies     agencies that must appear among the options
+#   dest_stop_contains  words every option's last transit stop must contain
+#   dest_stop_excludes  words none of those stops may contain
+#   depart_offset_min   [low, high] minutes between the request and option 1's departure
+# kind: refuse -> must get a follow_up or a form, never an options event
+
+# Sent first and discarded (it warms Gemini, Routes and the connection). Not one of the questions below,
+# so the routing cache cannot make any of them faster.
+warmup:
+  message: Diridon Caltrain to San Francisco Caltrain tomorrow at 8 am
+
+questions:
+  - id: mv-sap-caltrain
+    message: Mountain View Caltrain to SAP Center tomorrow at 6 pm
+    kind: route
+    expect_agencies: [Caltrain]
+
+  # Known issue: "12th St Oakland" geocodes near West Oakland. The destination must be the
+  # 12th St. / Oakland City Center station (or a stop at 12th St), not West Oakland. "City center" is not
+# required: a bus alternative may end at "Broadway & 12th St".
+  - id: powell-12th-st-oakland
+    message: Powell St BART to 12th St Oakland City Center BART tomorrow at 9 am
+    kind: route
+    expect_agencies: [BART]
+    dest_stop_contains: ["12th st"]
+    dest_stop_excludes: ["west oakland"]
+
+  - id: winchester-santa-teresa-vta
+    message: Winchester to Santa Teresa on VTA light rail tomorrow at 9 am
+    kind: route
+    expect_agencies: [VTA]
+
+  - id: millbrae-sfo-bart
+    message: Millbrae BART to SFO airport tomorrow at 9 am
+    kind: route
+    expect_agencies: [BART]
+
+  # No agency expectation: "in 30 minutes" lands at whatever hour the run happens, and BART does not
+  # run at night. What is checked is that the first departure is at least about 30 minutes away.
+  - id: relative-time-berkeley-sfo
+    message: Berkeley BART to SFO in 30 minutes
+    kind: route
+    depart_offset_min: [25, 120]
+
+  - id: out-of-area-la-san-diego
+    message: Los Angeles to San Diego tomorrow morning
+    kind: refuse
+
+  - id: nonsense
+    message: asdf qwerty purple monkey dishwasher
+    kind: refuse
