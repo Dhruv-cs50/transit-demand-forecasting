@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assistant.css?v=1"/>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -168,6 +169,13 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
 <aside class="sidebar">
 
   <div>
+    <div class="lbl">Route assistant · BART, VTA, Caltrain</div>
+    <div id="assistantPanel"></div>
+  </div>
+
+  <hr class="sep"/>
+
+  <div>
     <div class="lbl">Network</div>
     <div class="seg" id="sysSeg">
       <button class="on" data-sys="bart">BART · 50 stations</button>
@@ -265,6 +273,7 @@ hr.sep { border: none; border-top: 1px solid var(--line); }
   </div>
 
 </aside>
+<script src="assistant.js?v=1"></script>
 
 <script>
 /* ── Station data ─────────────────────────────────────────────── */
@@ -685,6 +694,24 @@ function initMap() {
   redraw();
 }
 
+/* ── Route assistant ─────────────────────────────────────────── */
+/* onRoute keeps the path so redraw() repaints it, and fits the existing map to it. */
+const ROUTE = { path: null, color: '#ee6c4d' };
+function showAssistantRoute(r) {
+  ROUTE.path = r && r.path && r.path.length > 1 ? r.path : null;
+  redraw();
+  if (!R || !ROUTE.path) return;
+  try {
+    if (R.name === 'google') {
+      const b = new google.maps.LatLngBounds();
+      ROUTE.path.forEach(p => b.extend({ lat: p[0], lng: p[1] }));
+      R.map.fitBounds(b, 40);
+    } else if (R.name === 'leaflet') {
+      R.map.fitBounds(ROUTE.path, { padding: [40, 40] });
+    }
+  } catch (e) { /* fitting is cosmetic */ }
+}
+
 /* ── Draw ────────────────────────────────────────────────────── */
 function redraw() {
   const stations = S.sys==='bart' ? BART : VTA;
@@ -701,6 +728,8 @@ function redraw() {
     if (path.length < 2) return;
     R.line(path, ln.c);
   });
+  /* the route assistant's chosen option, drawn over the network lines */
+  if (R && ROUTE.path && ROUTE.path.length > 1) R.line(ROUTE.path, ROUTE.color);
 
   /* markers */
   /* Ties in heat (several stations clamp at the 2.4 ceiling) are broken by the
@@ -936,6 +965,9 @@ document.getElementById('speedRow').addEventListener('click',e=>{
   document.querySelectorAll('#speedRow button').forEach(btn=>btn.classList.toggle('on',btn===b));
   if(S.playing) restartTimer();
 });
+
+/* route assistant panel */
+if (window.TransitAssistant) TransitAssistant.mount(document.getElementById('assistantPanel'), { onRoute: showAssistantRoute });
 
 /* dark mode */
 document.getElementById('darkBtn').addEventListener('click',()=>{
