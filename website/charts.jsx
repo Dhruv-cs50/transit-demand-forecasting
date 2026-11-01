@@ -598,6 +598,241 @@ const ModelCompare = ({ width = 640, height = 300, station = 'EM', stationName =
   );
 };
 
+/* ── Caltrain charts (caltrain_series.json, caltrain_forecast.json) ──────
+   Both draw at the measured width of their box (a ResizeObserver), so the
+   text stays readable at 375 px instead of shrinking with a fixed viewBox.
+   A month cursor follows the pointer (mouse, pen or touch: touch-action pan-y
+   keeps vertical scrolling) and the keyboard (focus the chart, then ← → Home
+   End, Esc clears); the month it points at is read out in text below. */
+const ctMonthIdx = ym => { const p = parseYM(ym); return p ? p.y * 12 + p.m - 1 : null; };
+const ctYM = ym => { const p = parseYM(ym); return p ? `${MONTH_ABBR[p.m - 1]} ${p.y}` : String(ym); };
+const ctIdxYM = i => `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
+// Up to ~`count` round ticks from lo to hi (step 1, 2, 2.5 or 5 x 10^k).
+const ctTicks = (lo, hi, count = 4) => {
+  const raw = (hi - lo) / count;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(f => f * p).find(s => s >= raw) || raw;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(v);
+  return out;
+};
+const ctK = v => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v)));
+
+const useCtWidth = (fallback) => {
+  const ref = React.useRef(null);
+  const [w, setW] = React.useState(fallback);
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => { const cw = Math.round(e.contentRect.width); if (cw > 0) setW(cw); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w];
+};
+
+// xs: the x position (viewBox units) of each selectable point, left to right.
+const useCtCursor = (xs, viewW) => {
+  const [i, setI] = React.useState(null);
+  const n = xs.length;
+  const at = e => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - r.left) * (r.width ? viewW / r.width : 1);
+    let b = 0;
+    for (let k = 1; k < n; k++) if (Math.abs(xs[k] - x) < Math.abs(xs[b] - x)) b = k;
+    return n ? b : null;
+  };
+  const bind = {
+    tabIndex: 0,
+    onPointerMove: e => setI(at(e)),
+    onPointerDown: e => setI(at(e)),
+    onPointerLeave: e => { if (e.pointerType === 'mouse') setI(null); },
+    onBlur: () => setI(null),
+    onKeyDown: e => {
+      const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+      if (step) { e.preventDefault(); setI(p => Math.max(0, Math.min(n - 1, p == null ? (step > 0 ? 0 : n - 1) : p + step))); }
+      else if (e.key === 'Home') { e.preventDefault(); setI(0); }
+      else if (e.key === 'End') { e.preventDefault(); setI(n - 1); }
+      else if (e.key === 'Escape') setI(null);
+    },
+  };
+  return [i != null && i < n ? i : null, bind];
+};
+
+/* Monthly AWR, every store month, 0-based y axis. Gaps in the months (the
+   2020–21 exclusion) break the line and are shaded with their own label.
+   `markers`: [{ id, month, n, kind:'method'|'elec' }] drawn as numbered
+   vertical lines (badges staggered when they would touch); `active` (a marker
+   id) is drawn stronger. */
+const CaltrainSeriesChart = ({ series, markers = [], active = null }) => {
+  const [box, width] = useCtWidth(640);
+  const height = width < 520 ? 250 : 300;
+  const pts = series.map(r => ({ ...r, k: ctMonthIdx(r.month) })).filter(r => r.k != null && typeof r.awr === 'number');
+  const pad = { l: 44, r: 12, t: 40, b: 28 };
+  const W = Math.max(10, width - pad.l - pad.r), H = height - pad.t - pad.b;
+  const k0 = pts.length ? pts[0].k : 0, k1 = pts.length ? pts[pts.length - 1].k : 1;
+  const sx = k => pad.l + ((k - k0) / Math.max(1, k1 - k0)) * W;
+  const maxV = pts.length ? Math.max(...pts.map(p => p.awr)) * 1.06 : 1;
+  const sy = v => pad.t + (1 - v / maxV) * H;
+  const [cur, bind] = useCtCursor(pts.map(p => sx(p.k)), width);
+  if (!pts.length) return <div ref={box}><ChartMessage width={width} height={height} lines={['No Caltrain months to plot.']} /></div>;
+
+  const segs = [], gaps = [];
+  pts.forEach((p, j) => {
+    if (j && p.k - pts[j - 1].k > 1) { gaps.push([pts[j - 1].k + 1, p.k - 1]); segs.push([]); }
+    if (!segs.length) segs.push([]);
+    segs[segs.length - 1].push(p);
+  });
+  const line = s => s.map((p, j) => `${j ? 'L' : 'M'}${sx(p.k).toFixed(1)},${sy(p.awr).toFixed(1)}`).join(' ');
+  const step = W / Math.max(1, k1 - k0);
+  const years = [];
+  for (let y = Math.ceil(k0 / 12); y * 12 <= k1; y++) years.push(y);
+  const every = Math.ceil(34 / (12 * step));  // a label at most every 34 px
+  // Badge rows: a badge closer than 17 px to the previous one moves up a row.
+  let lastX = -1e9, row = 0;
+  const mk = markers.map(m => ({ ...m, k: ctMonthIdx(m.month) })).filter(m => m.k != null && m.k >= k0 && m.k <= k1)
+    .sort((a, b) => a.k - b.k).map(m => {
+      const x = sx(m.k);
+      row = x - lastX < 17 ? (row + 1) % 2 : 0;
+      lastX = x;
+      return { ...m, x, row };
+    });
+  const c = cur != null ? pts[cur] : null;
+  return (
+    <div ref={box}>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} className="ct-chart" style={{ display:'block' }}
+        role="img" aria-label={`Caltrain average weekday ridership by month, ${ctYM(pts[0].month)} to ${ctYM(pts[pts.length - 1].month)}`}
+        {...bind}>
+        {ctTicks(0, maxV).map(v => (
+          <g key={v}>
+            <line x1={pad.l} x2={pad.l + W} y1={sy(v)} y2={sy(v)} stroke="var(--line)" strokeDasharray={v ? '2 4' : ''} />
+            <text x={pad.l - 6} y={sy(v) + 3.5} textAnchor="end" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{ctK(v)}</text>
+          </g>
+        ))}
+        {gaps.map(([a, b]) => {
+          const x0 = sx(a) - step / 2, x1 = sx(b) + step / 2;
+          const ya = Math.floor(a / 12), yb = Math.floor(b / 12);
+          return (
+            <g key={a}>
+              <rect x={x0} y={pad.t} width={x1 - x0} height={H} fill="var(--bg-muted)" opacity="0.9" />
+              <text x={(x0 + x1) / 2} y={pad.t + H - (x1 - x0 >= 52 ? 22 : 9)} textAnchor="middle" fontSize="10" fill="var(--ink-muted)" fontFamily="var(--mono)">{ya === yb ? ya : `${ya}–${String(yb).slice(2)}`}</text>
+              {x1 - x0 >= 52 && <text x={(x0 + x1) / 2} y={pad.t + H - 9} textAnchor="middle" fontSize="10" fill="var(--ink-muted)">not used</text>}
+            </g>
+          );
+        })}
+        {mk.map(m => {
+          const on = active === m.id, dim = active && !on;
+          const col = m.kind === 'elec' ? 'var(--accent)' : 'var(--ink-muted)';
+          const by = pad.t - 12 - m.row * 15;
+          return (
+            <g key={m.id} opacity={dim ? 0.35 : 1} className="chart-series">
+              <line x1={m.x} x2={m.x} y1={by + 7} y2={pad.t + H} stroke={col} strokeWidth={on ? 2.2 : 1.2} strokeDasharray={m.kind === 'elec' ? '' : '4 3'} />
+              <circle cx={m.x} cy={by} r="7" fill={on ? col : 'var(--bg-elev)'} stroke={col} strokeWidth="1.3" />
+              <text x={m.x} y={by + 3.5} textAnchor="middle" fontSize="9.5" fontWeight="600" fontFamily="var(--mono)" fill={on ? 'var(--bg-elev)' : col}>{m.n}</text>
+            </g>
+          );
+        })}
+        {segs.map((s, j) => <path key={j} d={line(s)} fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />)}
+        {years.filter((y, j) => j % every === 0).map(y => (
+          <text key={y} x={sx(y * 12)} y={pad.t + H + 16} textAnchor="middle" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{y}</text>
+        ))}
+        {c && (
+          <g pointerEvents="none">
+            <line x1={sx(c.k)} x2={sx(c.k)} y1={pad.t} y2={pad.t + H} stroke="var(--ink)" strokeWidth="1" opacity="0.5" />
+            <circle cx={sx(c.k)} cy={sy(c.awr)} r="4.5" fill="var(--primary)" stroke="var(--bg-elev)" strokeWidth="1.6" />
+          </g>
+        )}
+      </svg>
+      <p className="ct-readout" aria-live="polite">
+        {c ? <><b>{ctYM(c.month)}</b> · {fmtInt(c.awr)} average weekday riders (estimate) · {c.electrified ? 'electrified service' : 'before electrification'} · method of {ctYM(c.method_period)}</>
+          : 'Hover or tap the chart, or focus it and use ← →, to read a month.'}
+      </p>
+    </div>
+  );
+};
+
+/* The test-window backtest: P10–P90 band and P50 of `forecast.rows` against
+   the actuals in `series`, with the `context` months before the window. A
+   divider marks fit_through: the model saw nothing to its right. */
+const CaltrainForecastChart = ({ forecast, series, context = 12 }) => {
+  const [box, width] = useCtWidth(460);
+  const height = width < 520 ? 250 : 280;
+  const fc = (forecast && Array.isArray(forecast.rows) ? forecast.rows : [])
+    .map(r => ({ ...r, k: ctMonthIdx(r.month) }))
+    .filter(r => r.k != null && [r.p10, r.p50, r.p90].every(v => typeof v === 'number' && isFinite(v)));
+  const fk0 = fc.length ? fc[0].k : 0, fk1 = fc.length ? fc[fc.length - 1].k : 0;
+  const act = series.map(r => ({ ...r, k: ctMonthIdx(r.month) }))
+    .filter(r => r.k != null && r.k >= fk0 - context && r.k <= fk1 && typeof r.awr === 'number');
+  const ks = [...new Set([...act.map(a => a.k), ...fc.map(f => f.k)])].sort((a, b) => a - b);
+  const pad = { l: 44, r: 12, t: 36, b: 28 };
+  const W = Math.max(10, width - pad.l - pad.r), H = height - pad.t - pad.b;
+  const k0 = ks.length ? ks[0] : 0, k1 = ks.length ? ks[ks.length - 1] : 1;
+  const sx = k => pad.l + ((k - k0) / Math.max(1, k1 - k0)) * W;
+  const vals = [...act.map(a => a.awr), ...fc.flatMap(f => [f.p10, f.p90])];
+  const lo = vals.length ? Math.min(...vals) * 0.94 : 0, hi = vals.length ? Math.max(...vals) * 1.04 : 1;
+  const sy = v => pad.t + (1 - (v - lo) / (hi - lo)) * H;
+  const [cur, bind] = useCtCursor(ks.map(sx), width);
+  if (!fc.length) return <div ref={box}><ChartMessage width={width} height={height} lines={['No Caltrain forecast to plot.']} /></div>;
+
+  const aBy = {}; act.forEach(a => { aBy[a.k] = a.awr; });
+  const fBy = {}; fc.forEach(f => { fBy[f.k] = f; });
+  const path = (rows, v) => rows.map((r, j) => `${j ? 'L' : 'M'}${sx(r.k).toFixed(1)},${sy(v(r)).toFixed(1)}`).join(' ');
+  const band = `${path(fc, r => r.p90)} ${fc.slice().reverse().map(r => `L${sx(r.k).toFixed(1)},${sy(r.p10).toFixed(1)}`).join(' ')} Z`;
+  const divX = (sx(fk0) + sx(fk0 - 1)) / 2;
+  const step = W / Math.max(1, k1 - k0);
+  const labelEvery = Math.ceil(30 / step);
+  const ck = cur != null ? ks[cur] : null;
+  const cf = ck != null ? fBy[ck] : null, ca = ck != null ? aBy[ck] : null;
+  return (
+    <div ref={box}>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} className="ct-chart" style={{ display:'block' }}
+        role="img" aria-label={`${forecast.model} backtest on ${ctYM(fc[0].month)} to ${ctYM(fc[fc.length - 1].month)} against actual riders`}
+        {...bind}>
+        <defs>
+          <linearGradient id="ctBand" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.06" />
+          </linearGradient>
+        </defs>
+        {ctTicks(lo, hi).map(v => (
+          <g key={v}>
+            <line x1={pad.l} x2={pad.l + W} y1={sy(v)} y2={sy(v)} stroke="var(--line)" strokeDasharray="2 4" />
+            <text x={pad.l - 6} y={sy(v) + 3.5} textAnchor="end" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">{ctK(v)}</text>
+          </g>
+        ))}
+        <rect x={divX} y={pad.t} width={pad.l + W - divX + 4} height={H} fill="var(--primary)" opacity="0.04" />
+        <line x1={divX} x2={divX} y1={pad.t - 6} y2={pad.t + H} stroke="var(--ink-muted)" strokeDasharray="3 3" />
+        <text x={divX - 5} y={pad.t - 10} textAnchor="end" fontSize="10" fill="var(--ink-muted)">fit through {ctYM(ctIdxYM(fk0 - 1))}</text>
+        <text x={divX + 5} y={pad.t - 10} fontSize="10" fill="var(--ink-muted)">held out →</text>
+        <path d={band} fill="url(#ctBand)" />
+        <path d={path(fc, r => r.p90)} fill="none" stroke="var(--primary)" strokeWidth="1" strokeDasharray="4 3" opacity="0.55" />
+        <path d={path(fc, r => r.p10)} fill="none" stroke="var(--primary)" strokeWidth="1" strokeDasharray="4 3" opacity="0.55" />
+        <path d={path(fc, r => r.p50)} fill="none" stroke="var(--primary)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        {fc.map(r => <circle key={r.k} cx={sx(r.k)} cy={sy(r.p50)} r="3.2" fill="var(--bg-elev)" stroke="var(--primary)" strokeWidth="1.6" />)}
+        <path d={path(act, r => r.awr)} fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        {act.map(a => <circle key={a.k} cx={sx(a.k)} cy={sy(a.awr)} r="3" fill="var(--accent)" stroke="var(--bg-elev)" strokeWidth="1.1" />)}
+        {ks.filter((k, j) => (ks.length - 1 - j) % labelEvery === 0).map(k => (
+          <text key={k} x={sx(k)} y={pad.t + H + 16} textAnchor="middle" fontSize="10" fill="var(--ink-soft)" fontFamily="var(--mono)">
+            {MONTH_ABBR[k % 12]}{k % 12 === 0 || k === ks[0] ? ` ${String(Math.floor(k / 12)).slice(2)}` : ''}
+          </text>
+        ))}
+        {ck != null && (
+          <line x1={sx(ck)} x2={sx(ck)} y1={pad.t} y2={pad.t + H} stroke="var(--ink)" strokeWidth="1" opacity="0.5" pointerEvents="none" />
+        )}
+      </svg>
+      <div className="ct-legend" aria-hidden="true">
+        <span><i className="ln" style={{ background:'var(--primary)' }} />P50 {forecast.model}</span>
+        <span><i className="bx" />P10–P90 band</span>
+        <span><i className="ln" style={{ background:'var(--accent)' }} />Actual (Caltrain estimate)</span>
+      </div>
+      <p className="ct-readout" aria-live="polite">
+        {ck == null ? 'Hover or tap the chart, or focus it and use ← →, to read a month.'
+          : <><b>{ctYM(ctIdxYM(ck))}</b>{ca != null ? ` · actual ${fmtInt(ca)}` : ''}{cf ? <> · P50 {fmtInt(cf.p50)} (band {fmtInt(cf.p10)}–{fmtInt(cf.p90)}){ca != null ? ` · ${ca >= cf.p10 && ca <= cf.p90 ? 'inside' : 'outside'} the band` : ''}</> : ' · before the held-out window'}</>}
+      </p>
+    </div>
+  );
+};
+
 const HeroOrbit = () => {
   const hs = headlineStats(useSiteData('model_comparison.json'), null);
   return (
@@ -698,7 +933,7 @@ const Gauge = ({ value = 0.42 }) => {
 };
 
 Object.assign(window, {
-  ROCCurve, Calibration, ModelCompare, HeroOrbit, Gauge,
+  ROCCurve, Calibration, ModelCompare, HeroOrbit, Gauge, CaltrainSeriesChart, CaltrainForecastChart, ctMonthIdx, ctYM, ctIdxYM,
   loadSiteData, useSiteData, siteRows, siteFailed, monthSpan, yearSpan, scoredForecasts, comparisonSplit,
   FC_MODELS, FC_ORDER, useFcFiles, loadSiteJson, useSiteJson, modelKey, backtestStats, sarimaAcrossWindows, headlineStats, fmtPct, fmtInt, fmtK, shortModel, holdoutLabel,
 });
