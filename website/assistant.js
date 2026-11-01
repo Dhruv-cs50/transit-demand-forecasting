@@ -14,7 +14,7 @@
   'use strict';
 
   /* The one place the service URL lives. Empty until Task 8 deploys it. */
-  var ASSISTANT_URL = '';
+  var ASSISTANT_URL = 'https://transit-assistant-308878596074.us-west2.run.app';
   var MAX_CHARS = 500;
   var WAKING_MS = 1500;
 
