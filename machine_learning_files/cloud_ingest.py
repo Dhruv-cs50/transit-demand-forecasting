@@ -37,6 +37,16 @@ Exit codes
     3  another execution moved serving.json (or a run object) first
     When 1 or 3 and a fetch failure coincide, 1 or 3 is returned.
 
+Caltrain (docs/cloud-ingestion-design.md, "Caltrain") rides along but never blocks
+BART. If raw/caltrain/awr_monthly.csv is absent it is skipped silently. If present
+it is checked (committed months unchanged unless `revised_from`, months strictly
+increasing, none after the last closed month) and, when it passes, rebuilt with
+caltrain_store.build_caltrain_store and published as runs/<id>/caltrain_store.parquet
+before manifest.json, listed in it under "caltrain". If it fails, BART publishes
+as normal, no Caltrain object is written, manifest.json (and gate.json) record
+{"caltrain": {"status": "rejected", "reason": ...}} and an ERROR line names the
+reason. The exit code follows BART only.
+
 --dry-run does everything except write to the store (fetches are made but not
 saved; staging reads what is already in the bucket) and prints a JSON summary.
 
@@ -85,6 +95,12 @@ DEFAULT_CONFIG_PATH = REPO_ROOT / "configs" / "ingest.yaml"
 RAW_PREFIX = "raw/"
 RUNS_PREFIX = "processed/runs/"
 STORE_FILENAME = "feature_store.parquet"
+CALTRAIN_RAW = "raw/caltrain/awr_monthly.csv"
+CALTRAIN_STORE_FILENAME = "caltrain_store.parquet"
+DEFAULT_CALTRAIN = {"raw_object": CALTRAIN_RAW,
+                    "committed_csv": "data/caltrain/awr_monthly.csv",
+                    "config": "configs/caltrain.yaml"}
+MONTH_FMT_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])$")
 MONTH_RE = re.compile(r"Ridership_(\d{4})(\d{2})\.xlsx$", re.IGNORECASE)
 POINTER_KEYS = ("run_id", "store_object", "store_sha256", "input_fingerprint", "published_at")
 
@@ -325,6 +341,116 @@ def build_candidate(workdir: Path, builder: Optional[Callable[[Path], pd.DataFra
     return df
 
 
+# ── Caltrain (never blocks BART) ──────────────────────────────────────────────
+
+def _caltrain_cfg(cfg: dict) -> dict:
+    return {**DEFAULT_CALTRAIN, **(cfg.get("caltrain") or {})}
+
+
+def _check_caltrain_series(new_csv: Path, committed_csv: Path, last_closed: dt.date) -> list[str]:
+    """Why the uploaded series cannot replace the committed one; [] if it can.
+
+    1. a readable table with `month` (YYYY-MM) and a numeric `awr` on every row;
+    2. months strictly increase;
+    3. no month after the last closed month;
+    4. every committed month is present with an identical `awr`, unless the new
+       row carries `revised_from` (a deliberate revision, Task 1).
+    """
+    try:
+        new = pd.read_csv(new_csv, dtype={"month": str})
+    except Exception as e:  # noqa: BLE001 - empty, binary or ragged files all end up here
+        return [f"the CSV cannot be read ({type(e).__name__}: {e})"]
+    for col in ("month", "awr"):
+        if col not in new.columns:
+            return [f"the CSV has no {col!r} column"]
+    if new.empty:
+        return ["the CSV has no rows"]
+    bad_month = new.loc[~new["month"].fillna("").astype(str).str.match(MONTH_FMT_RE), "month"]
+    if len(bad_month):
+        return [f"month is not YYYY-MM: {bad_month.head(3).tolist()}"]
+    awr = pd.to_numeric(new["awr"], errors="coerce")
+    if awr.isna().any():
+        return ["awr is missing or not a number in month(s) " + ", ".join(new.loc[awr.isna(), "month"].head(3))]
+
+    problems: list[str] = []
+    months = new["month"].tolist()
+    for prev, cur in zip(months, months[1:]):
+        if cur <= prev:
+            problems.append(f"months are not strictly increasing: {cur} follows {prev}")
+            break
+    last_ok = f"{last_closed:%Y-%m}"
+    late = [m for m in months if m > last_ok]
+    if late:
+        problems.append(f"month(s) after the last closed month {last_ok}: {', '.join(late[:3])}")
+
+    try:
+        old = pd.read_csv(committed_csv, dtype={"month": str})
+    except Exception as e:  # noqa: BLE001
+        return problems + [f"the committed series {committed_csv} cannot be read ({type(e).__name__}: {e})"]
+    now_awr = dict(zip(new["month"], awr))
+    revised = new["revised_from"].notna() if "revised_from" in new.columns else pd.Series(False, index=new.index)
+    revised_months = set(new.loc[revised, "month"])
+    missing = [m for m in old["month"] if m not in now_awr]
+    if missing:
+        problems.append("committed month(s) missing: " + ", ".join(missing[:5]))
+    changed = [f"{m} ({int(a)} -> {now_awr[m]})" for m, a in zip(old["month"], old["awr"])
+               if m in now_awr and now_awr[m] != a and m not in revised_months]
+    if changed:
+        problems.append("committed month(s) changed without revised_from: " + ", ".join(changed[:5]))
+    return problems
+
+
+def evaluate_caltrain(workdir: Path, cfg: dict, last_closed: dt.date) -> tuple[Optional[dict], Optional[Path]]:
+    """(entry, store_path) for the staged raw/caltrain CSV; (None, None) if there is none.
+
+    The entry is {"status": "rejected", "reason"} or {"status": "accepted", "sha256", "rows",
+    "months", "input_sha256"} (the manifest says "published", with the object name, once it
+    is). Never raises: whatever goes wrong is a rejection, because
+    Caltrain must not stop BART.
+    """
+    c = _caltrain_cfg(cfg)
+    csv_path = workdir / c["raw_object"]
+    if not csv_path.is_file():
+        return None, None
+
+    def reject(reason: str) -> tuple[dict, None]:
+        log.error("caltrain rejected: %s", reason)
+        return {"status": "rejected", "reason": reason}, None
+
+    try:
+        problems = _check_caltrain_series(csv_path, _resolve_repo_path(c["committed_csv"]), last_closed)
+        if problems:
+            return reject("; ".join(problems))
+        from machine_learning_files import caltrain_store
+
+        ct_cfg = caltrain_store.load_config(_resolve_repo_path(c["config"]))
+        out = workdir / "caltrain_out" / CALTRAIN_STORE_FILENAME
+        ct_cfg["awr_csv"], ct_cfg["store_path"] = csv_path, out
+        with contextlib.redirect_stdout(io.StringIO()):     # it prints; --dry-run's stdout is JSON
+            built = caltrain_store.build_caltrain_store(ct_cfg)
+        if built is None or len(built) == 0:
+            return reject("the Caltrain rebuild produced an empty store")
+        months = sorted(pd.to_datetime(built["timestamp"]).dt.strftime("%Y-%m").unique())
+        entry = {"status": "accepted", "sha256": sha256_file(out), "rows": int(len(built)),
+                 "months": months, "input_sha256": sha256_file(csv_path)}
+        log.info("caltrain accepted: %d rows, %s to %s", len(built), months[0], months[-1])
+        return entry, out
+    except Exception as e:  # noqa: BLE001
+        return reject(f"the Caltrain rebuild failed ({type(e).__name__}: {e})")
+
+
+def _served_caltrain_sha(store, pointer: Optional[dict]) -> Optional[str]:
+    """The sha256 of the Caltrain store the served run published, if any."""
+    if not pointer:
+        return None
+    try:
+        got = store.read_bytes(f"{RUNS_PREFIX}{pointer['run_id']}/manifest.json")
+        entry = json.loads(got[0]).get("caltrain") if got else None
+        return entry.get("sha256") if entry and entry.get("status") == "published" else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 # ── pointer ───────────────────────────────────────────────────────────────────
 
 def read_pointer(store, name: str) -> tuple[Optional[dict], int]:
@@ -499,6 +625,8 @@ def _run(args, cfg, uri, builder, now, run_id, weather_client, nhl_client) -> in
         served_months = (served if served is not None else tracked)["timestamp"]
         last_closed = last_closed_month_end(today, lag)
         report = run_gate(candidate, tracked, served_months, cfg, last_closed_month=last_closed)
+        # Caltrain rides along: it can be rejected but it can never fail the run.
+        caltrain, caltrain_path = evaluate_caltrain(workdir, cfg, last_closed)
 
         run_id = run_id or f"{now.astimezone(dt.timezone.utc):%Y%m%dT%H%M%SZ}-{secrets.token_hex(3)}"
         run_dir = f"{RUNS_PREFIX}{run_id}/"
@@ -507,6 +635,8 @@ def _run(args, cfg, uri, builder, now, run_id, weather_client, nhl_client) -> in
         gate_doc = {"run_id": run_id, "git_sha": git_sha, "created_at": _iso(now),
                     "input_fingerprint": fingerprint, "last_closed_month": str(last_closed),
                     "store_sha256": candidate_sha, **report.to_dict()}
+        if caltrain is not None:       # absent: gate.json is exactly what it was before Caltrain
+            gate_doc["caltrain"] = caltrain
         if report.passed:
             log.info("gate passed (%d checks)", len(report.checks))
         else:
@@ -517,6 +647,8 @@ def _run(args, cfg, uri, builder, now, run_id, weather_client, nhl_client) -> in
                    "months": [months[0], months[-1], len(months)], "store_sha256": candidate_sha,
                    "input_fingerprint": fingerprint, "fetch": [r.to_dict() for r in fetches],
                    "checks": {c.check: (c.reason or c.status) for c in report.checks}}
+        if caltrain is not None:
+            summary["caltrain"] = caltrain
 
         try:
             store.write_bytes(run_dir + "gate.json", _json_bytes(gate_doc), if_generation_match=0)
@@ -529,7 +661,10 @@ def _run(args, cfg, uri, builder, now, run_id, weather_client, nhl_client) -> in
             return EXIT_FAILED
 
         # 6. publish ---------------------------------------------------------
-        if _same_content(candidate, candidate_sha, served_bytes, served):
+        # A new Caltrain month changes no BART byte, but must still go live.
+        caltrain_new = (caltrain is not None and caltrain["status"] == "accepted"
+                        and caltrain["sha256"] != _served_caltrain_sha(store, pointer))
+        if _same_content(candidate, candidate_sha, served_bytes, served) and not caltrain_new:
             log.info("identical to the served store (run %s); nothing to publish", pointer["run_id"])
             summary["published"] = False
             summary["reason"] = "identical to the served store"
@@ -545,10 +680,10 @@ def _run(args, cfg, uri, builder, now, run_id, weather_client, nhl_client) -> in
         try:
             published = publish(store, run_id=run_id, store_path=store_path, store_sha256=candidate_sha,
                                 pointer_name=pointer_name, pointer_generation=pointer_gen,
-                                fingerprint=fingerprint, now=now,
+                                fingerprint=fingerprint, now=now, caltrain_path=caltrain_path,
                                 manifest=_manifest(run_id, git_sha, now, fingerprint, inputs, candidate,
                                                    candidate_sha, months, report, gate_doc, fetches,
-                                                   tracked_path, last_closed))
+                                                   tracked_path, last_closed, caltrain))
         except PreconditionFailed as e:
             log.error("lost the race: %s", e)
             summary["published"] = False
@@ -568,8 +703,8 @@ def _emit(summary: dict, args) -> None:
 
 
 def _manifest(run_id, git_sha, now, fingerprint, inputs, candidate, candidate_sha, months, report,
-              gate_doc, fetches, tracked_path, last_closed) -> dict:
-    return {
+              gate_doc, fetches, tracked_path, last_closed, caltrain=None) -> dict:
+    manifest = {
         "run_id": run_id,
         "git_sha": git_sha,
         "created_at": _iso(now),
@@ -585,16 +720,35 @@ def _manifest(run_id, git_sha, now, fingerprint, inputs, candidate, candidate_sh
         "fetch": [r.to_dict() for r in fetches],
         "runtime": {"python": platform.python_version(), "pandas": pd.__version__},
     }
+    if caltrain is not None:       # absent: no key, the manifest is what it was before Caltrain
+        entry = dict(caltrain)
+        if entry["status"] == "accepted":      # becomes "published" (or "rejected") in publish()
+            entry = {**entry, "status": "published",
+                     "object": f"{RUNS_PREFIX}{run_id}/{CALTRAIN_STORE_FILENAME}"}
+        manifest["caltrain"] = entry
+    return manifest
 
 
 def publish(store, *, run_id: str, store_path: Path, store_sha256: str, manifest: dict,
             pointer_name: str, pointer_generation: int, fingerprint: str,
-            now: dt.datetime) -> dict:
-    """Write the run's store and manifest (write-once), then the pointer last,
-    under `if_generation_match`. Returns the pointer written. Raises
-    PreconditionFailed if another execution got there first."""
+            now: dt.datetime, caltrain_path: Optional[Path] = None) -> dict:
+    """Write the run's store, the Caltrain store if there is one, and the manifest
+    (write-once), then the pointer last, under `if_generation_match`. Returns the
+    pointer written. Raises PreconditionFailed if another execution got there first.
+
+    The Caltrain upload is the one write that may fail without failing the run: it
+    is recorded as rejected in the manifest and BART publishes regardless."""
     store_object = f"{RUNS_PREFIX}{run_id}/{STORE_FILENAME}"
     store.upload(store_path, store_object, if_generation_match=0)
+    if caltrain_path is not None and manifest.get("caltrain", {}).get("status") == "published":
+        try:
+            store.upload(caltrain_path, manifest["caltrain"]["object"], if_generation_match=0)
+        except PreconditionFailed:
+            raise
+        except Exception as e:  # noqa: BLE001 - Caltrain must not block BART
+            reason = f"the Caltrain store could not be uploaded ({type(e).__name__}: {e})"
+            log.error("caltrain rejected: %s", reason)
+            manifest["caltrain"] = {"status": "rejected", "reason": reason}
     store.write_bytes(f"{RUNS_PREFIX}{run_id}/manifest.json", _json_bytes(manifest),
                       if_generation_match=0)
     pointer = {"run_id": run_id, "store_object": store_object, "store_sha256": store_sha256,

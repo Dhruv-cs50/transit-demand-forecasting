@@ -62,6 +62,30 @@ Daily 03:15 America/Los_Angeles; entrypoint `python -m machine_learning_files.cl
 Exit codes: 0 published/unchanged; 1 gate/build failure; 2 a fetch failed (rest completes);
 3 another execution published first.
 
+## 2b. Caltrain rides along and never blocks BART
+
+After each Caltrain ridership report, upload the extended series by hand:
+`gcloud storage cp awr_monthly.csv gs://…/raw/caltrain/` (same columns as
+`data/caltrain/awr_monthly.csv`; revisions carry `revised_from`). The job stages it with the other
+raw objects and decides:
+
+- **Absent**: skipped silently. Nothing about the BART run changes: same objects, same
+  `manifest.json` keys, same log lines.
+- **Present and passing** the checks (every month of the committed series present with an identical
+  `awr` unless the new row carries `revised_from`; months strictly increasing; no month after the
+  last closed month): rebuilt with `build_caltrain_store` and published as
+  `runs/<id>/caltrain_store.parquet`, after `feature_store.parquet` and before `manifest.json`, which
+  lists it under `"caltrain"` (`status: published`, object, sha256, rows, months). A new Caltrain
+  month alone (BART unchanged) still publishes a run; the pointer moves with the same BART bytes.
+- **Present and failing**: BART publishes as normal; no Caltrain object; `manifest.json` and
+  `gate.json` carry `"caltrain": {"status": "rejected", "reason": …}`; an ERROR line names the reason.
+  An upload failure of the Caltrain object is handled the same way.
+
+The exit code follows BART only. The reference series for the checks is
+`data/caltrain/awr_monthly.csv` as baked into the image, so after a Caltrain month is accepted,
+commit the new CSV and rebuild the image; until then the checks still pass (a longer series
+extends the committed one).
+
 ## 3. BART stays manual
 
 bart.gov answers automated downloads with 403. Flow: download the workbook in a browser →

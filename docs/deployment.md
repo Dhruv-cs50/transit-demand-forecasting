@@ -94,8 +94,8 @@ keeps the current store.
 
 | Data | Location | Notes |
 | --- | --- | --- |
-| Raw inputs | `raw/bart/`, `raw/weather/`, `raw/events/` | The 20 inputs the committed store was built from (4 BART zips, 12 monthly 2025 workbooks, 2 weather and 2 events archives), checked against sha256s pinned in `configs/ingest.yaml`, plus objects the job fetches (2026 weather and Sharks). BART workbooks are uploaded by hand |
-| Published stores | `processed/runs/<run_id>/` | `feature_store.parquet`, `gate.json`, `manifest.json`. Written once, never overwritten |
+| Raw inputs | `raw/bart/`, `raw/weather/`, `raw/events/` | The 20 inputs the committed store was built from (4 BART zips, 12 monthly 2025 workbooks, 2 weather and 2 events archives), checked against sha256s pinned in `configs/ingest.yaml`, plus objects the job fetches (2026 weather and Sharks). BART workbooks are uploaded by hand. Optional `raw/caltrain/awr_monthly.csv` (uploaded by hand after each Caltrain report; checked, never blocks BART) |
+| Published stores | `processed/runs/<run_id>/` | `feature_store.parquet`, `gate.json`, `manifest.json`, and `caltrain_store.parquet` when a valid Caltrain series was uploaded. Written once, never overwritten |
 | Serving pointer | `processed/serving.json` | The only overwritten object: `run_id`, `store_object`, `store_sha256`, `input_fingerprint`, `published_at`. Written last, only after the gate passes |
 
 Forecasts are not stored: each `/forecast` fits SARIMA from the store.
