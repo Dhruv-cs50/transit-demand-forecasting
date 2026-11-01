@@ -1,13 +1,13 @@
 """Digest, validator and template answer for the route assistant.
 
-Every time and duration the user sees comes from Google Routes. Gemini only
-explains, so its text is checked before it is shown: any clock time or minute
-count it states must be one the options support, and vague durations ("about an
-hour") are rejected because they re-state a figure Google gave exactly. When
-Gemini fails or is rejected, ``template_explanation`` answers instead. The
-template is rendered from the digest alone, and the digest scrubs every
-free-text field it copies, so the template cannot contain a figure that the
-validator would refuse.
+Every trip time and duration the user sees comes from Google Routes. Gemini
+only explains, so its text is checked before it is shown: any clock time or
+minute count it states must be one the options support, or one that appears
+literally in the source data it was given (a 511 alert header, an event start
+time), and vague durations ("about an hour") are rejected because they
+re-state a figure given exactly. When Gemini fails or is rejected,
+``template_explanation`` answers instead. The template is rendered from the
+digest alone, so it contains only figures the validator accepts for that digest.
 
 One canonical form is shared by all three parts: a clock time is minutes since
 midnight (Pacific, ``Settings.TZ``) and a duration is whole minutes.
@@ -28,8 +28,8 @@ MAX_ALERTS = 3
 MAX_EVENTS = 3
 MAX_STATIONS = 4
 MAX_TEXT = 140
+ALERT_CHARS = 160
 
-GENERIC_ALERT = "There is a service alert on this agency; check its website for details."
 GENERIC_EVENT = "an event"
 GENERIC_PLACE = "a nearby place"
 GENERIC_STOP = "a stop"
@@ -207,10 +207,31 @@ def _span_minutes(start: datetime, end: datetime) -> int:
     return int((end - start).total_seconds() // 60)
 
 
-def _facts(options: list[TripOption], tz: str) -> tuple[set[int], set[int]]:
-    """(clock times as minutes-of-day, durations in whole minutes) the options support."""
+def _digest_texts(digest: dict[str, Any] | None) -> list[str]:
+    """The source-data strings of a digest whose figures may be repeated:
+    alert headers and event start times."""
+    if not digest:
+        return []
+    texts = [str(a.get("header", "")) for a in digest.get("alerts") or []]
+    texts += [str(e["start"]) for e in digest.get("events") or [] if e.get("start")]
+    return texts
+
+
+def _facts(
+    options: list[TripOption], tz: str, digest: dict[str, Any] | None = None
+) -> tuple[set[int], set[int]]:
+    """(clock times as minutes-of-day, durations in whole minutes) that are supported.
+
+    Supported: the options' own times and durations, and, given a ``digest``,
+    every figure the same scanner finds in its alert headers and event starts.
+    """
     clocks: set[int] = set()
     mins: set[int] = set()
+    for text in _digest_texts(digest):
+        found_clocks, found_durations = _scan(text)
+        for cands in found_clocks:
+            clocks |= cands
+        mins |= {int(v) for v in found_durations if v is not None and v == int(v)}
     for o in options:
         depart, arrive = _floor_minute(o.depart, tz), _ceil_minute(o.arrive, tz)
         clocks |= {_mod(depart), _mod(arrive)}
@@ -237,15 +258,16 @@ def _duration_forms(n: int) -> list[str]:
     return forms
 
 
-def allowed_tokens(options: list[TripOption], tz: str) -> set[str]:
+def allowed_tokens(options: list[TripOption], tz: str, digest: dict[str, Any] | None = None) -> set[str]:
     """Every clock time and minute count derivable from the options, as written.
 
     Times come in 12-hour (``"6:05 PM"``) and 24-hour (``"18:05"``) form,
     counts as ``"52 min"`` and ``"52 minutes"`` (plus ``"1 hr 12 min"`` forms
-    from an hour up). ``explanation_ok`` accepts the same facts in any other
-    spelling too (``"6:05pm"``, ``"6.05"`` excepted).
+    from an hour up). Given a ``digest``, the figures in its alert headers and
+    event start times are included too. ``explanation_ok`` accepts the same
+    facts in any other spelling too (``"6:05pm"``).
     """
-    clocks, mins = _facts(options, tz)
+    clocks, mins = _facts(options, tz, digest)
     tokens: set[str] = set()
     for value in clocks:
         h, m = divmod(value, 60)
@@ -256,9 +278,17 @@ def allowed_tokens(options: list[TripOption], tz: str) -> set[str]:
     return tokens
 
 
-def unverified_claims(text: str, options: list[TripOption], tz: str) -> list[str]:
-    """Describe each clock time or duration in ``text`` the options do not support."""
-    allowed_clocks, allowed_mins = _facts(options, tz)
+def unverified_claims(
+    text: str, options: list[TripOption], tz: str, digest: dict[str, Any] | None = None
+) -> list[str]:
+    """Describe each clock time or duration in ``text`` that nothing supports."""
+    allowed_clocks, allowed_mins = _facts(options, tz, digest)
+    text = " ".join(text.split())
+    # A verbatim quote of a source alert is source data, vague wording included.
+    headers = {str(a.get("header", "")) for a in (digest or {}).get("alerts") or []}
+    for header in sorted(headers, key=len, reverse=True):
+        if header:
+            text = text.replace(header, " ")
     clocks, durations = _scan(text)
     bad: list[str] = []
     for cands in clocks:
@@ -272,14 +302,18 @@ def unverified_claims(text: str, options: list[TripOption], tz: str) -> list[str
     return bad
 
 
-def explanation_ok(text: str, options: list[TripOption], tz: str) -> bool:
-    """True when every clock time and minute count in ``text`` is derivable.
+def explanation_ok(
+    text: str, options: list[TripOption], tz: str, digest: dict[str, Any] | None = None
+) -> bool:
+    """True when every clock time and minute count in ``text`` is supported.
 
-    Blank text is not an explanation, so it fails (the template answers).
+    Supported means derivable from the options or, when ``digest`` is given,
+    literally present in its alert headers or event start times. Blank text is
+    not an explanation, so it fails (the template answers).
     """
     if not text or not text.strip():
         return False
-    return not unverified_claims(text, options, tz)
+    return not unverified_claims(text, options, tz, digest)
 
 
 # ----------------------------------------------------------------------------------
@@ -297,6 +331,20 @@ def _scrub(text: str | None, options: list[TripOption], tz: str, fallback: str, 
         return fallback
     if len(text) > limit:
         text = text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:- ") + "…"
+    return text
+
+
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _clean(text: str | None, limit: int = ALERT_CHARS) -> str:
+    """Source text made safe to pass on: control characters and URLs removed,
+    whitespace collapsed, long text cut at a word with an ellipsis."""
+    text = _CONTROL.sub(" ", text or "")
+    text = " ".join(_URL.sub(" ", text).split())
+    if len(text) > limit:
+        text = text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:- ") + "\u2026"
     return text
 
 
@@ -363,17 +411,14 @@ def _relevance(alert: Alert, options: list[TripOption]) -> int | None:
 def _rank_alerts(alerts: tuple[Alert, ...], options: list[TripOption], tz: str) -> list[dict[str, str]]:
     """At most ``MAX_ALERTS`` headers: those naming the trip's stops or lines first,
     then other alerts for agencies on the trip. Alerts for other agencies are dropped.
-    A header that needs scrubbing sorts after one that does not."""
-    ranked: list[tuple[tuple[int, int, int, int], Alert, str]] = []
+    Headers are the source text, cleaned and truncated, not scrubbed."""
+    ranked: list[tuple[tuple[int, int, int], Alert]] = []
     for i, alert in enumerate(alerts):
         score = _relevance(alert, options)
-        if score is None:
-            continue
-        header = _scrub(alert.header, options, tz, GENERIC_ALERT)
-        key = (0 if score else 1, 1 if header == GENERIC_ALERT else 0, -score, i)
-        ranked.append((key, alert, header))
+        if score is not None and _clean(alert.header):
+            ranked.append(((0 if score else 1, -score, i), alert))
     ranked.sort(key=lambda r: r[0])
-    return [{"agency": a.agency, "header": h} for _, a, h in ranked[:MAX_ALERTS]]
+    return [{"agency": a.agency, "header": _clean(a.header)} for _, a in ranked[:MAX_ALERTS]]
 
 
 def _line_label(leg: Leg) -> str:
@@ -422,13 +467,13 @@ def _digest_option(o: TripOption, options: list[TripOption], tz: str) -> dict[st
 
 
 def _digest_events(events: tuple[Event, ...], options: list[TripOption], tz: str) -> list[dict[str, Any]]:
-    # The start time is left out: it is a clock time the options cannot support,
-    # so a sentence quoting it could never pass the validator.
+    # The start time is source data: the validator accepts it when given the digest.
     nearest = sorted(events, key=lambda e: (e.distance_km, e.start))[:MAX_EVENTS]
     return [
         {
             "name": _scrub(e.name, options, tz, GENERIC_EVENT, 80),
             "venue": _scrub(e.venue, options, tz, GENERIC_PLACE, 60),
+            "start": _label12(_floor_minute(e.start, tz)),
             "distance_km": round(e.distance_km, 1),
         }
         for e in nearest
@@ -561,7 +606,8 @@ def template_from_digest(digest: dict[str, Any]) -> str:
         rain = "rain is possible" if weather["precip_mm"] >= 0.2 else "dry"
         lines.append(f"Weather near departure: about {weather['temp_f']}°F, {rain}.")
     for event in digest.get("events") or []:
-        lines.append(f"{event['name']} at {event['venue']} may mean busier trains and stations nearby.")
+        when = f", starting {event['start']}," if event.get("start") else ""
+        lines.append(f"{event['name']} at {event['venue']}{when} may mean busier trains and stations nearby.")
     for s in (digest.get("stations") or [])[:2]:
         lines.append(
             f"Monthly context, not live crowding: {s['station']} typically sees about "

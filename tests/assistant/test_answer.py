@@ -31,6 +31,7 @@ from assistant.answer import (
     explanation_ok,
     template_explanation,
     template_from_digest,
+    unverified_claims,
 )
 from assistant.config import DISPLAY_TZ
 from assistant.routing import ROUTES_URL, plan_trips
@@ -52,7 +53,6 @@ FEED_NOW = datetime.fromtimestamp(1793499118, tz=UTC)
 TOKEN = "unit-test-token-0123456789"
 ALERTS_URL = "https://api.511.org/transit/servicealerts"
 METEO_URL = "https://api.open-meteo.com/v1/forecast"
-GENERIC = answer.GENERIC_ALERT
 
 
 def fixture(name: str) -> dict:
@@ -376,7 +376,7 @@ def test_digest_ranks_alerts_by_relevance_to_the_trip():
         assert len(d["alerts"]) == 3
         for a in d["alerts"]:
             assert a["agency"] == "VTA"
-            assert re.search(r"\b522\b", a["header"]) or a["header"] == GENERIC, a
+            assert re.search(r"\b522\b", a["header"]), a
 
 
 def test_alert_matching_a_stop_beats_agency_only_and_line_matches():
@@ -403,19 +403,50 @@ def test_alerts_for_agencies_outside_the_trip_are_dropped():
     assert d["alerts"] == []
 
 
-def test_alert_with_an_unverifiable_time_is_not_repeated_verbatim():
+def real_risky_alert() -> Alert:
     # Real 511 header: "(10PM-5AM)" is a clock time Google never gave.
-    risky = next(a for a in real_alerts() if "10PM-5AM" in a.header)
-    d = build_digest([*mixed_options()], ctx(alerts=(risky,)), TZ)
-    assert d["alerts"] == [{"agency": "VTA", "header": GENERIC}]
-    assert "10PM" not in json.dumps(d)
-    # A plain alert is passed through, and ranks ahead of the one that had to be replaced.
-    plain = Alert("VTA", "Routes 22 & 522: Reroute Due to Construction")
-    d = build_digest([*mixed_options()], ctx(alerts=(risky, plain)), TZ)
-    assert [a["header"] for a in d["alerts"]] == [plain.header, GENERIC]
+    return next(a for a in real_alerts() if "10PM-5AM" in a.header)
 
 
-def test_digest_caps_events_and_omits_clock_times_it_cannot_validate():
+def test_real_alert_header_is_kept_and_its_times_become_allowed():
+    risky = real_risky_alert()
+    options = [*mixed_options()]
+    d = build_digest(options, ctx(alerts=(risky,)), TZ)
+    assert d["alerts"] == [{"agency": "VTA", "header": risky.header}]
+    assert "(10PM-5AM)" in d["alerts"][0]["header"]
+    # Figures in the source alert are now statable; anything else still is not.
+    assert explanation_ok("The alert covers 10 PM to 5 AM.", options, TZ, digest=d)
+    assert explanation_ok("Closures run 10PM-5AM.", options, TZ, digest=d)
+    assert not explanation_ok("The alert covers 10 PM to 6 AM.", options, TZ, digest=d)
+    assert not explanation_ok("The alert covers 10 PM to 5 AM.", options, TZ)  # no digest, old rules
+    assert not explanation_ok("The alert covers 10 PM to 5 AM.", options, TZ, digest=build_digest(options, ctx(), TZ))
+    assert {"10:00 PM", "22:00", "5:00 AM", "05:00"} <= allowed_tokens(options, TZ, digest=d)
+    assert "10:00 PM" not in allowed_tokens(options, TZ)
+
+
+def test_alert_header_is_cleaned_and_truncated_but_not_scrubbed():
+    long_header = "Route 22: " + "Temporary closure notice " * 12 + "\x07 see https://example.com/a?b=1 or www.vta.org/x"
+    alerts = (Alert("VTA", long_header), Alert("VTA", "Route 22: delays of 15 min\n\texpected"))
+    d = build_digest([*mixed_options()], ctx(alerts=alerts), TZ)
+    first, second = (a["header"] for a in d["alerts"])
+    assert len(first) <= answer.ALERT_CHARS and first.endswith("\u2026")
+    assert "http" not in first and "www." not in first and "\x07" not in first
+    assert second == "Route 22: delays of 15 min expected"  # control characters become spaces, figures stay
+    assert explanation_ok("Expect delays of 15 min.", [*mixed_options()], TZ, digest=d)
+    assert not explanation_ok("Expect delays of 16 min.", [*mixed_options()], TZ, digest=d)
+
+
+def test_a_time_in_neither_the_options_nor_the_digest_fails():
+    options = [*mixed_options()]
+    c = ctx(alerts=(real_risky_alert(),), events=real_events()[:1])
+    d = build_digest(options, c, TZ)
+    for text in ("The game is at 8:30 PM.", "Alerts end at 6 AM.", "It starts at 9 PM.", "About 33 min."):
+        assert not explanation_ok(text, options, TZ, digest=d), text
+    for text in ("The game starts at 7 PM.", "Puck drop 19:00.", "Alerts end at 5 AM.", "Leaves 9:08 AM."):
+        assert explanation_ok(text, options, TZ, digest=d), text
+
+
+def test_digest_caps_events_and_shows_pacific_start_times():
     many = tuple(
         Event(f"Game {i}", "SAP Center at San Jose", datetime(2026, 11, 10, 3, 0, tzinfo=UTC), 0.1 * i)
         for i in range(5)
@@ -423,8 +454,19 @@ def test_digest_caps_events_and_omits_clock_times_it_cannot_validate():
     d = build_digest([*caltrain_options()], ctx(events=many), TZ)
     assert len(d["events"]) == 3
     assert [e["name"] for e in d["events"]] == ["Game 0", "Game 1", "Game 2"]  # nearest first
-    assert "start" not in d["events"][0]
-    assert not re.search(r"\d{1,2}:\d{2}", json.dumps(d["events"]))
+    assert d["events"][0]["start"] == "7:00 PM"  # 03:00 UTC is 7 pm PST
+
+
+def test_real_sharks_start_time_is_statable_with_the_digest():
+    options = [*caltrain_options()]
+    first_game = real_events()[0]
+    d = build_digest(options, ctx(events=(first_game,)), TZ)
+    # The NHL fixture's first home game: 2026-11-10T03:00Z.
+    assert d["events"][0]["start"] == "7:00 PM"
+    assert explanation_ok("Sharks vs New York Islanders at 7:00 PM.", options, TZ, digest=d)
+    assert not explanation_ok("Sharks vs New York Islanders at 7:00 PM.", options, TZ)
+    assert not explanation_ok("Sharks vs New York Islanders at 7:30 PM.", options, TZ, digest=d)
+    assert "7:00 PM" in allowed_tokens(options, TZ, digest=d)
 
 
 def test_digest_with_no_options_or_context_is_valid():
@@ -503,8 +545,10 @@ def test_template_answer_for_mountain_view_to_sap_center():
     print("\n" + text)
     assert "Caltrain Express" in text and "San Jose Diridon" in text
     assert "earliest arrival" in text.splitlines()[0]
+    assert "starting 7:00 PM" in text
+    assert explanation_ok(text, options, TZ, digest=build_digest(options, c, TZ))
+    assert not explanation_ok(text, options, TZ)  # the game time is source data, not an option figure
     assert "Sharks" in text and "may" in text.lower()  # an event is a possibility, not a fact
-    assert explanation_ok(text, options, TZ)
 
 
 def test_template_is_built_only_from_the_digest():
@@ -519,19 +563,55 @@ def test_template_is_built_only_from_the_digest():
     assert "SENTINEL-ALERT" not in template_from_digest(d)
 
 
-def test_template_never_contains_an_unvalidated_figure():
+def test_template_uses_real_alert_headers_and_event_start_times():
     options = [*mixed_options()]
-    c = ctx(
-        alerts=real_alerts(),
-        weather=real_weather(),
-        events=real_events(),
-        stations=(station("Powell St."), station("Lake Merritt")),
-        missing=("alerts", "events:ticketmaster"),
+    risky = real_risky_alert()
+    c = ctx(alerts=(risky,), events=real_events()[:1])
+    d = build_digest(options, c, TZ)
+    text = template_explanation(options, c, TZ)
+    assert risky.header in text and "(10PM-5AM)" in text
+    assert "7:00 PM" in text and "Sharks" in text
+    assert explanation_ok(text, options, TZ, digest=d)
+
+
+def real_cases() -> list[tuple[str, list[TripOption], Context]]:
+    """Every real fixture combination, with the real alerts, weather and events."""
+    extra_alerts = (
+        Alert("BART", "Delays of about an hour at Powell St. until 5 PM, 15 min waits"),
+        Alert("Caltrain", "Trains 20 minutes late; shuttle every half hour from 10:30 PM"),
+        Alert("VTA", "Route 22: a few minutes of delay, a couple of minutes at night, 1 hr 5 min detour"),
     )
-    assert explanation_ok(template_explanation(options, c, TZ), options, TZ)
-    risky = next(a for a in real_alerts() if "10PM-5AM" in a.header)
-    text = template_explanation(options, ctx(alerts=(risky,)), TZ)
-    assert "10PM" not in text and explanation_ok(text, options, TZ)
+    games = real_events()
+    cases = []
+    for name in ("routes_bart.json", "routes_vta.json", "routes_mv_to_sap.json", "routes_recording.json"):
+        cases.append((name, _plan(fixture(name))))
+    cases.append(("mixed", [*mixed_options()]))
+    cases.append(("no-options", []))
+    out = []
+    for name, options in cases:
+        for label, alerts in (("none", ()), ("real", real_alerts()), ("synthetic", extra_alerts),
+                              ("both", (*extra_alerts, *real_alerts()))):
+            c = ctx(
+                alerts=alerts,
+                weather=real_weather(),
+                events=games,
+                stations=(station("Powell St."), station("Lake Merritt")),
+                missing=("events:ticketmaster",),
+            )
+            out.append((f"{name}/{label}", list(options), c))
+    return out
+
+
+def test_template_always_passes_the_validator_with_its_digest():
+    # Property over all real fixtures and the real/synthetic alerts: the
+    # template never states a figure that neither the options nor the digest hold.
+    cases = real_cases()
+    assert len(cases) >= 20
+    for label, options, c in cases:
+        d = build_digest(options, c, TZ)
+        text = template_explanation(options, c, TZ)
+        assert explanation_ok(text, options, TZ, digest=d), (label, unverified_claims(text, options, TZ, digest=d))
+        assert len(json.dumps(d)) < DIGEST_LIMIT, label
 
 
 def test_template_flags_unique_best_options_without_inventing_numbers():
@@ -558,10 +638,9 @@ def test_template_lists_at_most_three_alerts_and_labels_crowding():
     assert "monthly context, not live crowding" in text.lower()
 
 
-def test_free_text_with_unverifiable_figures_is_scrubbed_before_it_reaches_the_digest():
-    # Alert headers, event names, venues, stops, lines and station names are
-    # free text from other sources; none may carry a time or minute count the
-    # options do not support, or the template (built from the digest) would fail.
+def test_other_free_text_is_still_scrubbed_but_alerts_and_event_times_are_not():
+    # Stops, lines, headsigns, event names, venues and station names are not
+    # figure sources: a time or minute count in them would be unsupported.
     ride = Leg("TRANSIT", "VTA", "Express 15 min", "Stop at 9:45 PM", "End 20 minutes away",
                pacific(9, 0), pacific(9, 30), 1800, "Via 7 PM shuttle")
     o = option(pacific(9, 0), pacific(9, 30), agency="VTA", legs=(ride,))
@@ -572,11 +651,11 @@ def test_free_text_with_unverifiable_figures_is_scrubbed_before_it_reaches_the_d
     )
     d = build_digest([o], c, TZ)
     text = template_explanation([o], c, TZ)
-    blob = json.dumps(d)
+    blob = json.dumps({k: v for k, v in d.items() if k != "alerts"})
     for bad in ("15 min", "9:45", "20 minutes", "7 PM", "7:30", "10 minutes", "5 min"):
-        assert bad not in blob and bad not in text, bad
-    assert explanation_ok(text, [o], TZ)
-    # Scrubbing is selective: ordinary names and the options' own figures stay.
+        assert bad not in blob, bad
+    assert "delays of 15 min expected" in text and "7:00 PM" in text  # alerts and the event time count
+    assert explanation_ok(text, [o], TZ, digest=d)
     assert build_digest([o], ctx(events=(Event("Sharks vs Kings", "SAP Center", pacific(19, 0), 0.1),)), TZ)[
         "events"
     ][0]["name"] == "Sharks vs Kings"
