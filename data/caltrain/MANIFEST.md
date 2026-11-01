@@ -318,119 +318,119 @@ PDFs (downloaded once, each into its own empty directory, parsed with `python -I
 
 | fiscal_year | station | avg mid-week boardings | report | PDF page | evidence line (pdftotext -layout; cells joined with /) | status |
 |---|---|---|---|---|---|---|
-| 2019 | San Francisco | 15,027 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Francisco / 13,571 / 14,769 / 15,220 / 15,666 / 15,427 / 15,027 / -2.6% / -400 | checked by hand (text) |
-| 2019 | Palo Alto | 7,384 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Palo Alto / 7,197 / 7,424 / 7,404 / 7,640 / 7,764 / 7,384 / -4.9% / -380 | checked by hand (text) |
-| 2019 | San Jose Diridon | 4,795 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Jose Diridon / 4,160 / 4,712 / 4,662 / 4,815 / 4,876 / 4,795 / -1.7% / -81 | checked by hand (text) |
-| 2019 | Mountain View | 4,560 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Mountain View / 4,570 / 4,659 / 4,585 / 4,773 / 4,810 / 4,560 / -5.2% / -251 | checked by hand (text) |
-| 2019 | Redwood City | 4,220 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Redwood City / 3,233 / 3,814 / 3,872 / 3,941 / 4,212 / 4,220 / 0.2% / 8 | checked by hand (text) |
-| 2019 | Hillsdale | 3,217 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Hillsdale / 2,706 / 2,958 / 2,959 / 3,044 / 3,229 / 3,217 / -0.4% / -12 | checked by hand (text) |
-| 2019 | Sunnyvale | 3,208 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Sunnyvale / 2,881 / 3,190 / 3,312 / 3,419 / 3,364 / 3,208 / -4.6% / -156 | checked by hand (text) |
-| 2019 | Millbrae | 3,194 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Millbrae / 3,536 / 3,606 / 3,378 / 3,441 / 3,340 / 3,194 / -4.4% / -146 | checked by hand (text) |
-| 2019 | San Mateo | 2,324 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Mateo / 2,061 / 2,179 / 2,103 / 2,141 / 2,291 / 2,324 / 1.4% / 33 | checked by hand (text) |
-| 2019 | 22nd Street | 1,872 | [1359](https://www.caltrain.com/media/1359/download) | 53 | 22nd Street / 1,629 / 1,715 / 1,696 / 1,772 / 1,977 / 1,872 / -5.3% / -106 | checked by hand (text) |
-| 2019 | Menlo Park | 1,639 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Menlo Park / 1,762 / 1,796 / 1,740 / 1,801 / 1,728 / 1,639 / -5.1% / -89 | checked by hand (text) |
-| 2019 | California Ave | 1,634 | [1359](https://www.caltrain.com/media/1359/download) | 53 | California Ave. / 1,553 / 1,628 / 1,668 / 1,758 / 1,693 / 1,634 / -3.5% / -59 | checked by hand (text) |
-| 2019 | Tamien | 1,422 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Tamien / 1,102 / 1,283 / 1,264 / 1,326 / 1,286 / 1,422 / 10.6% / 136 | checked by hand (text) |
-| 2019 | San Carlos | 1,341 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Carlos / 1,435 / 1,475 / 1,326 / 1,334 / 1,331 / 1,341 / 0.7% / 10 | checked by hand (text) |
-| 2019 | Burlingame | 1,131 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Burlingame / 998 / 1,054 / 1,061 / 1,088 / 1,104 / 1,131 / 2.5% / 28 | checked by hand (text) |
-| 2019 | Santa Clara | 1,074 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Santa Clara / 1,006 / 1,093 / 1,023 / 1,033 / 1,097 / 1,074 / -2.1% / -23 | checked by hand (text) |
-| 2019 | San Antonio | 1,017 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Antonio / 872 / 942 / 905 / 954 / 943 / 1,017 / 7.9% / 74 | checked by hand (text) |
-| 2019 | Lawrence | 1,004 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Lawrence / 856 / 901 / 906 / 967 / 949 / 1,004 / 5.8% / 55 | checked by hand (text) |
-| 2019 | San Bruno | 751 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Bruno / 682 / 717 / 704 / 682 / 695 / 751 / 8.0% / 56 | checked by hand (text) |
-| 2019 | Belmont | 718 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Belmont / 699 / 664 / 607 / 599 / 780 / 718 / -8.0% / -62 | checked by hand (text) |
-| 2019 | Hayward Park | 506 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Hayward Park / 367 / 427 / 379 / 385 / 583 / 506 / -13.2% / -77 | checked by hand (text) |
-| 2019 | South San Francisco | 453 | [1359](https://www.caltrain.com/media/1359/download) | 53 | So. San Francisco / 472 / 471 / 501 / 514 / 468 / 453 / -3.2% / -15 | checked by hand (text) |
-| 2019 | Bayshore | 260 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Bayshore / 254 / 253 / 246 / 248 / 247 / 260 / 5.5% / 14 | checked by hand (text) |
-| 2019 | Morgan Hill | 251 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Morgan Hill / 172 / 183 / 183 / 213 / 237 / 251 / 5.7% / 14 | checked by hand (text) |
-| 2019 | Gilroy | 187 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Gilroy / 153 / 178 / 173 / 205 / 252 / 187 / -26.0% / -66 | checked by hand (text) |
-| 2019 | Blossom Hill | 159 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Blossom Hill / 120 / 127 / 109 / 128 / 146 / 159 / 8.6% / 13 | checked by hand (text) |
-| 2019 | College Park | 103 | [1359](https://www.caltrain.com/media/1359/download) | 53 | College Park / 82 / 56 / 78 / 82 / 108 / 103 / -5.1% / -6 | checked by hand (text) |
-| 2019 | San Martin | 84 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Martin / 71 / 77 / 69 / 81 / 87 / 84 / -3.4% / -3 | checked by hand (text) |
-| 2019 | Capitol | 71 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Capitol / 43 / 64 / 56 / 65 / 78 / 71 / -9.6% / -8 | checked by hand (text) |
-| 2024 | San Francisco | 4,803 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Francisco / 1 / 15,027 / 1 / 4,803 / 0 | checked by hand (text) |
-| 2024 | Palo Alto | 2,889 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Palo Alto / 2 / 7,384 / 2 / 2,889 / 0 | checked by hand (text) |
-| 2024 | Mountain View | 1,703 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Mountain View / 4 / 4,560 / 3 / 1,703 / +1 | checked by hand (text) |
-| 2024 | Redwood City | 1,624 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Redwood City / 5 / 4,220 / 4 / 1,624 / +1 | checked by hand (text) |
-| 2024 | San Jose Diridon | 1,547 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Jose Diridon / 3 / 4,795 / 5 / 1,547 / -2 | checked by hand (text) |
-| 2024 | Millbrae | 1,222 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Millbrae / 8 / 3,194 / 6 / 1,222 / +2 | checked by hand (text) |
-| 2024 | Hillsdale | 1,212 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Hillsdale / 6 / 3,217 / 7 / 1,212 / -1 | checked by hand (text) |
-| 2024 | Sunnyvale | 1,140 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Sunnyvale / 7 / 3,208 / 8 / 1,140 / -1 | checked by hand (text) |
-| 2024 | San Mateo | 914 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Mateo / 9 / 2,324 / 9 / 914 / 0 | checked by hand (text) |
-| 2024 | 22nd Street | 854 | [34265](https://www.caltrain.com/media/34265/download) | 15 | 22nd Street / 10 / 1,872 / 10 / 854 / 0 | checked by hand (text) |
-| 2024 | Menlo Park | 646 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Menlo Park / 11 / 1,639 / 11 / 646 / 0 | checked by hand (text) |
-| 2024 | Santa Clara | 595 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Santa Clara / 16 / 1,074 / 12 / 595 / +4 | checked by hand (text) |
-| 2024 | Lawrence | 513 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Lawrence / 18 / 1,004 / 13 / 513 / +5 | checked by hand (text) |
-| 2024 | Burlingame | 474 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Burlingame / 15 / 1,131 / 14 / 474 / +1 | checked by hand (text) |
-| 2024 | San Carlos | 471 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Carlos / 14 / 1,341 / 15 / 471 / -1 | checked by hand (text) |
-| 2024 | California Ave | 458 | [34265](https://www.caltrain.com/media/34265/download) | 15 | California Ave / 12 / 1,634 / 16 / 458 / -4 | checked by hand (text) |
-| 2024 | Belmont | 454 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Belmont / 20 / 718 / 17 / 454 / +3 | checked by hand (text) |
-| 2024 | South San Francisco | 418 | [34265](https://www.caltrain.com/media/34265/download) | 15 | South San Francisco / 22 / 453 / 18 / 418 / +4 | checked by hand (text) |
-| 2024 | San Antonio | 414 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Antonio / 17 / 1,017 / 19 / 414 / -2 | checked by hand (text) |
-| 2024 | San Bruno | 233 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Bruno / 19 / 751 / 20 / 233 / -1 | checked by hand (text) |
-| 2024 | Hayward Park | 225 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Hayward Park / 21 / 506 / 21 / 225 / 0 | checked by hand (text) |
-| 2024 | Tamien | 211 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Tamien / 13 / 1,422 / 22 / 211 / -9 | checked by hand (text) |
-| 2024 | Morgan Hill | 100 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Morgan Hill / 24 / 251 / 23 / 100 / +1 | checked by hand (text) |
-| 2024 | Bayshore | 95 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Bayshore / 23 / 260 / 25 / 95 / -2 | checked by hand (text) |
-| 2024 | Gilroy | 95 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Gilroy / 25 / 187 / 24 / 95 / +1 | checked by hand (text) |
-| 2024 | Blossom Hill | 57 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Blossom Hill / 26 / 159 / 26 / 57 / 0 | checked by hand (text) |
-| 2024 | College Park | 43 | [34265](https://www.caltrain.com/media/34265/download) | 15 | College Park / 27 / 103 / 27 / 43 / 0 | checked by hand (text) |
-| 2024 | Capitol | 38 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Capitol / 29 / 71 / 28 / 38 / +1 | checked by hand (text) |
-| 2024 | San Martin | 29 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Martin / 28 / 84 / 29 / 29 / -1 | checked by hand (text) |
-| 2025 | San Francisco | 6,874 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Francisco / 1 / 15,027 / 1 / 4,803 / 1 / 6,874 / +43% | checked by hand (text) |
-| 2025 | Palo Alto | 3,603 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Palo Alto / 2 / 7,384 / 2 / 2,889 / 2 / 3,603 / +25% | checked by hand (text) |
-| 2025 | Mountain View | 2,288 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Mountain View / 4 / 4,560 / 3 / 1,703 / 3 / 2,288 / +34% | checked by hand (text) |
-| 2025 | San Jose Diridon | 2,136 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Jose Diridon / 3 / 4,795 / 5 / 1,547 / 4 / 2,136 / +38% | checked by hand (text) |
-| 2025 | Redwood City | 2,111 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Redwood City / 5 / 4,220 / 4 / 1,624 / 5 / 2,111 / +30% | checked by hand (text) |
-| 2025 | Sunnyvale | 1,770 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Sunnyvale / 7 / 3,208 / 8 / 1,140 / 6 / 1,770 / +55% | checked by hand (text) |
-| 2025 | Hillsdale | 1,596 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Hillsdale / 6 / 3,217 / 7 / 1,212 / 7 / 1,596 / +32% | checked by hand (text) |
-| 2025 | Millbrae | 1,489 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Millbrae / 8 / 3,194 / 6 / 1,222 / 8 / 1,489 / +22% | checked by hand (text) |
-| 2025 | San Mateo | 1,270 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Mateo / 9 / 2,324 / 9 / 914 / 9 / 1,270 / +39% | checked by hand (text) |
-| 2025 | 22nd Street | 1,261 | [35885](https://www.caltrain.com/media/35885/download) | 13 | 22nd Street / 10 / 1,872 / 10 / 854 / 10 / 1,261 / +48% | checked by hand (text) |
-| 2025 | Menlo Park | 863 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Menlo Park / 11 / 1,639 / 11 / 646 / 11 / 863 / +34% | checked by hand (text) |
-| 2025 | Santa Clara | 839 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Santa Clara / 16 / 1,074 / 12 / 595 / 12 / 839 / +41% | checked by hand (text) |
-| 2025 | California Ave | 817 | [35885](https://www.caltrain.com/media/35885/download) | 13 | California Ave / 12 / 1,634 / 16 / 458 / 13 / 817 / +78% | checked by hand (text) |
-| 2025 | South San Francisco | 692 | [35885](https://www.caltrain.com/media/35885/download) | 13 | South San Francisco / 22 / 453 / 18 / 418 / 14 / 692 / +66% | checked by hand (text) |
-| 2025 | Lawrence | 686 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Lawrence / 18 / 1,004 / 13 / 513 / 15 / 686 / +34% | checked by hand (text) |
-| 2025 | San Antonio | 655 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Antonio / 17 / 1,017 / 19 / 414 / 16 / 655 / +58% | checked by hand (text) |
-| 2025 | Belmont | 654 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Belmont / 20 / 718 / 17 / 454 / 17 / 654 / +44% | checked by hand (text) |
-| 2025 | San Carlos | 644 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Carlos / 14 / 1,341 / 15 / 471 / 18 / 644 / +37% | checked by hand (text) |
-| 2025 | Burlingame | 620 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Burlingame / 15 / 1,131 / 14 / 474 / 19 / 620 / +31% | checked by hand (text) |
-| 2025 | San Bruno | 377 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Bruno / 19 / 751 / 20 / 233 / 20 / 377 / +62% | checked by hand (text) |
-| 2025 | Hayward Park | 366 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Hayward Park / 21 / 506 / 21 / 225 / 21 / 366 / +63% | checked by hand (text) |
-| 2025 | Tamien | 243 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Tamien / 13 / 1,422 / 22 / 211 / 22 / 243 / +15% | checked by hand (text) |
-| 2025 | Bayshore | 168 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Bayshore / 23 / 260 / 25 / 95 / 23 / 168 / +77% | checked by hand (text) |
-| 2025 | Morgan Hill | 130 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Morgan Hill / 24 / 251 / 23 / 100 / 24 / 130 / +30% | checked by hand (text) |
-| 2025 | Gilroy | 110 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Gilroy / 25 / 187 / 24 / 95 / 25 / 110 / +16% | checked by hand (text) |
-| 2025 | Blossom Hill | 71 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Blossom Hill / 26 / 159 / 26 / 57 / 26 / 71 / +25% | checked by hand (text) |
-| 2025 | Capitol | 49 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Capitol / 29 / 71 / 28 / 38 / 27 / 49 / +29% | checked by hand (text) |
-| 2025 | College Park | 41 | [35885](https://www.caltrain.com/media/35885/download) | 13 | College Park / 27 / 103 / 27 / 43 / 28 / 41 / -5% | checked by hand (text) |
-| 2025 | San Martin | 25 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Martin / 28 / 84 / 29 / 29 / 29 / 25 / -14% | checked by hand (text) |
-| 2026 | San Francisco | 9,714 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Francisco / 1 / 15,027 / 1 / 6,874 / 1 / 9,714 / +41% / 65% | checked by hand (text) |
-| 2026 | Palo Alto | 4,486 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Palo Alto / 2 / 7,384 / 2 / 3,603 / 2 / 4,486 / +25% / 61% | checked by hand (text) |
-| 2026 | Mountain View | 3,048 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Mountain View / 4 / 4,560 / 3 / 2,288 / 3 / 3,048 / +33% / 67% | checked by hand (text) |
-| 2026 | San Jose Diridon | 2,936 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Jose Diridon / 3 / 4,795 / 4 / 2,136 / 4 / 2,936 / +37% / 61% | checked by hand (text) |
-| 2026 | Redwood City | 2,732 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Redwood City / 5 / 4,220 / 5 / 2,111 / 5 / 2,732 / +29% / 65% | checked by hand (text) |
-| 2026 | Sunnyvale | 2,484 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Sunnyvale / 7 / 3,208 / 6 / 1,770 / 6 / 2,484 / +40% / 77% | checked by hand (text) |
-| 2026 | Hillsdale | 2,215 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Hillsdale / 6 / 3,217 / 7 / 1,596 / 7 / 2,215 / +39% / 69% | checked by hand (text) |
-| 2026 | Millbrae | 1,921 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Millbrae / 8 / 3,194 / 8 / 1,489 / 8 / 1,921 / +29% / 60% | checked by hand (text) |
-| 2026 | 22nd Street | 1,800 | [37931](https://www.caltrain.com/media/37931/download) | 15 | 22nd Street / 10 / 1,872 / 10 / 1,261 / 9 / 1,800 / +43% / 96% | checked by hand (text) |
-| 2026 | San Mateo | 1,720 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Mateo / 9 / 2,324 / 9 / 1,270 / 10 / 1,720 / +35% / 74% | checked by hand (text) |
-| 2026 | Santa Clara | 1,215 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Santa Clara / 16 / 1,074 / 12 / 839 / 11 / 1,215 / +45% / 113% | checked by hand (text) |
-| 2026 | California Ave | 1,201 | [37931](https://www.caltrain.com/media/37931/download) | 15 | California Ave / 12 / 1,634 / 13 / 817 / 12 / 1,201 / +47% / 74% | checked by hand (text) |
-| 2026 | Menlo Park | 1,116 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Menlo Park / 11 / 1,639 / 11 / 863 / 13 / 1,116 / +29% / 68% | checked by hand (text) |
-| 2026 | South San Francisco | 1,050 | [37931](https://www.caltrain.com/media/37931/download) | 15 | South San Francisco / 22 / 453 / 14 / 692 / 14 / 1,050 / +52% / 232% | checked by hand (text) |
-| 2026 | Lawrence | 1,026 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Lawrence / 18 / 1,004 / 15 / 686 / 15 / 1,026 / +50% / 102% | checked by hand (text) |
-| 2026 | San Antonio | 954 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Antonio / 17 / 1,017 / 16 / 655 / 16 / 954 / +46% / 94% | checked by hand (text) |
-| 2026 | Burlingame | 901 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Burlingame / 15 / 1,131 / 19 / 620 / 17 / 901 / +45% / 80% | checked by hand (text) |
-| 2026 | San Carlos | 885 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Carlos / 14 / 1,341 / 18 / 644 / 18 / 885 / +37% / 66% | checked by hand (text) |
-| 2026 | Belmont | 883 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Belmont / 20 / 718 / 17 / 654 / 19 / 883 / +35% / 123% | checked by hand (text) |
-| 2026 | Hayward Park | 518 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Hayward Park / 21 / 506 / 21 / 366 / 20 / 518 / +42% / 102% | checked by hand (text) |
-| 2026 | San Bruno | 517 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Bruno / 19 / 751 / 20 / 377 / 21 / 517 / +37% / 69% | checked by hand (text) |
-| 2026 | Bayshore | 257 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Bayshore / 23 / 260 / 23 / 168 / 22 / 257 / +53% / 99% | checked by hand (text) |
-| 2026 | Morgan Hill | 155 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Morgan Hill / 24 / 251 / 24 / 130 / 23 / 155 / +19% / 62% | checked by hand (text) |
-| 2026 | Tamien | 153 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Tamien / 13 / 1,422 / 22 / 243 / 24 / 153 / -37% / 11% | checked by hand (text) |
-| 2026 | Gilroy | 139 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Gilroy / 25 / 187 / 25 / 110 / 25 / 139 / +26% / 74% | checked by hand (text) |
-| 2026 | Blossom Hill | 94 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Blossom Hill / 26 / 159 / 26 / 71 / 26 / 94 / +32% / 59% | checked by hand (text) |
-| 2026 | Capitol | 56 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Capitol / 29 / 71 / 27 / 49 / 27 / 56 / +14% / 79% | checked by hand (text) |
-| 2026 | College Park | 45 | [37931](https://www.caltrain.com/media/37931/download) | 15 | College Park / 27 / 103 / 28 / 41 / 28 / 45 / +10% / 44% | checked by hand (text) |
-| 2026 | San Martin | 41 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Martin / 28 / 84 / 29 / 25 / 29 / 41 / +64% / 49% | checked by hand (text) |
+| 2019 | San Francisco | 15,027 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Francisco / 13,571 / 14,769 / 15,220 / 15,666 / 15,427 / 15,027 / -2.6% / -400 | checked by hand (text+image) |
+| 2019 | Palo Alto | 7,384 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Palo Alto / 7,197 / 7,424 / 7,404 / 7,640 / 7,764 / 7,384 / -4.9% / -380 | checked by hand (text+image) |
+| 2019 | San Jose Diridon | 4,795 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Jose Diridon / 4,160 / 4,712 / 4,662 / 4,815 / 4,876 / 4,795 / -1.7% / -81 | checked by hand (text+image) |
+| 2019 | Mountain View | 4,560 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Mountain View / 4,570 / 4,659 / 4,585 / 4,773 / 4,810 / 4,560 / -5.2% / -251 | checked by hand (text+image) |
+| 2019 | Redwood City | 4,220 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Redwood City / 3,233 / 3,814 / 3,872 / 3,941 / 4,212 / 4,220 / 0.2% / 8 | checked by hand (text+image) |
+| 2019 | Hillsdale | 3,217 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Hillsdale / 2,706 / 2,958 / 2,959 / 3,044 / 3,229 / 3,217 / -0.4% / -12 | checked by hand (text+image) |
+| 2019 | Sunnyvale | 3,208 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Sunnyvale / 2,881 / 3,190 / 3,312 / 3,419 / 3,364 / 3,208 / -4.6% / -156 | checked by hand (text+image) |
+| 2019 | Millbrae | 3,194 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Millbrae / 3,536 / 3,606 / 3,378 / 3,441 / 3,340 / 3,194 / -4.4% / -146 | checked by hand (text+image) |
+| 2019 | San Mateo | 2,324 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Mateo / 2,061 / 2,179 / 2,103 / 2,141 / 2,291 / 2,324 / 1.4% / 33 | checked by hand (text+image) |
+| 2019 | 22nd Street | 1,872 | [1359](https://www.caltrain.com/media/1359/download) | 53 | 22nd Street / 1,629 / 1,715 / 1,696 / 1,772 / 1,977 / 1,872 / -5.3% / -106 | checked by hand (text+image) |
+| 2019 | Menlo Park | 1,639 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Menlo Park / 1,762 / 1,796 / 1,740 / 1,801 / 1,728 / 1,639 / -5.1% / -89 | checked by hand (text+image) |
+| 2019 | California Ave | 1,634 | [1359](https://www.caltrain.com/media/1359/download) | 53 | California Ave. / 1,553 / 1,628 / 1,668 / 1,758 / 1,693 / 1,634 / -3.5% / -59 | checked by hand (text+image) |
+| 2019 | Tamien | 1,422 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Tamien / 1,102 / 1,283 / 1,264 / 1,326 / 1,286 / 1,422 / 10.6% / 136 | checked by hand (text+image) |
+| 2019 | San Carlos | 1,341 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Carlos / 1,435 / 1,475 / 1,326 / 1,334 / 1,331 / 1,341 / 0.7% / 10 | checked by hand (text+image) |
+| 2019 | Burlingame | 1,131 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Burlingame / 998 / 1,054 / 1,061 / 1,088 / 1,104 / 1,131 / 2.5% / 28 | checked by hand (text+image) |
+| 2019 | Santa Clara | 1,074 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Santa Clara / 1,006 / 1,093 / 1,023 / 1,033 / 1,097 / 1,074 / -2.1% / -23 | checked by hand (text+image) |
+| 2019 | San Antonio | 1,017 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Antonio / 872 / 942 / 905 / 954 / 943 / 1,017 / 7.9% / 74 | checked by hand (text+image) |
+| 2019 | Lawrence | 1,004 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Lawrence / 856 / 901 / 906 / 967 / 949 / 1,004 / 5.8% / 55 | checked by hand (text+image) |
+| 2019 | San Bruno | 751 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Bruno / 682 / 717 / 704 / 682 / 695 / 751 / 8.0% / 56 | checked by hand (text+image) |
+| 2019 | Belmont | 718 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Belmont / 699 / 664 / 607 / 599 / 780 / 718 / -8.0% / -62 | checked by hand (text+image) |
+| 2019 | Hayward Park | 506 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Hayward Park / 367 / 427 / 379 / 385 / 583 / 506 / -13.2% / -77 | checked by hand (text+image) |
+| 2019 | South San Francisco | 453 | [1359](https://www.caltrain.com/media/1359/download) | 53 | So. San Francisco / 472 / 471 / 501 / 514 / 468 / 453 / -3.2% / -15 | checked by hand (text+image) |
+| 2019 | Bayshore | 260 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Bayshore / 254 / 253 / 246 / 248 / 247 / 260 / 5.5% / 14 | checked by hand (text+image) |
+| 2019 | Morgan Hill | 251 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Morgan Hill / 172 / 183 / 183 / 213 / 237 / 251 / 5.7% / 14 | checked by hand (text+image) |
+| 2019 | Gilroy | 187 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Gilroy / 153 / 178 / 173 / 205 / 252 / 187 / -26.0% / -66 | checked by hand (text+image) |
+| 2019 | Blossom Hill | 159 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Blossom Hill / 120 / 127 / 109 / 128 / 146 / 159 / 8.6% / 13 | checked by hand (text+image) |
+| 2019 | College Park | 103 | [1359](https://www.caltrain.com/media/1359/download) | 53 | College Park / 82 / 56 / 78 / 82 / 108 / 103 / -5.1% / -6 | checked by hand (text+image) |
+| 2019 | San Martin | 84 | [1359](https://www.caltrain.com/media/1359/download) | 53 | San Martin / 71 / 77 / 69 / 81 / 87 / 84 / -3.4% / -3 | checked by hand (text+image) |
+| 2019 | Capitol | 71 | [1359](https://www.caltrain.com/media/1359/download) | 53 | Capitol / 43 / 64 / 56 / 65 / 78 / 71 / -9.6% / -8 | checked by hand (text+image) |
+| 2024 | San Francisco | 4,803 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Francisco / 1 / 15,027 / 1 / 4,803 / 0 | checked by hand (text+image) |
+| 2024 | Palo Alto | 2,889 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Palo Alto / 2 / 7,384 / 2 / 2,889 / 0 | checked by hand (text+image) |
+| 2024 | Mountain View | 1,703 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Mountain View / 4 / 4,560 / 3 / 1,703 / +1 | checked by hand (text+image) |
+| 2024 | Redwood City | 1,624 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Redwood City / 5 / 4,220 / 4 / 1,624 / +1 | checked by hand (text+image) |
+| 2024 | San Jose Diridon | 1,547 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Jose Diridon / 3 / 4,795 / 5 / 1,547 / -2 | checked by hand (text+image) |
+| 2024 | Millbrae | 1,222 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Millbrae / 8 / 3,194 / 6 / 1,222 / +2 | checked by hand (text+image) |
+| 2024 | Hillsdale | 1,212 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Hillsdale / 6 / 3,217 / 7 / 1,212 / -1 | checked by hand (text+image) |
+| 2024 | Sunnyvale | 1,140 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Sunnyvale / 7 / 3,208 / 8 / 1,140 / -1 | checked by hand (text+image) |
+| 2024 | San Mateo | 914 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Mateo / 9 / 2,324 / 9 / 914 / 0 | checked by hand (text+image) |
+| 2024 | 22nd Street | 854 | [34265](https://www.caltrain.com/media/34265/download) | 15 | 22nd Street / 10 / 1,872 / 10 / 854 / 0 | checked by hand (text+image) |
+| 2024 | Menlo Park | 646 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Menlo Park / 11 / 1,639 / 11 / 646 / 0 | checked by hand (text+image) |
+| 2024 | Santa Clara | 595 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Santa Clara / 16 / 1,074 / 12 / 595 / +4 | checked by hand (text+image) |
+| 2024 | Lawrence | 513 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Lawrence / 18 / 1,004 / 13 / 513 / +5 | checked by hand (text+image) |
+| 2024 | Burlingame | 474 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Burlingame / 15 / 1,131 / 14 / 474 / +1 | checked by hand (text+image) |
+| 2024 | San Carlos | 471 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Carlos / 14 / 1,341 / 15 / 471 / -1 | checked by hand (text+image) |
+| 2024 | California Ave | 458 | [34265](https://www.caltrain.com/media/34265/download) | 15 | California Ave / 12 / 1,634 / 16 / 458 / -4 | checked by hand (text+image) |
+| 2024 | Belmont | 454 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Belmont / 20 / 718 / 17 / 454 / +3 | checked by hand (text+image) |
+| 2024 | South San Francisco | 418 | [34265](https://www.caltrain.com/media/34265/download) | 15 | South San Francisco / 22 / 453 / 18 / 418 / +4 | checked by hand (text+image) |
+| 2024 | San Antonio | 414 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Antonio / 17 / 1,017 / 19 / 414 / -2 | checked by hand (text+image) |
+| 2024 | San Bruno | 233 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Bruno / 19 / 751 / 20 / 233 / -1 | checked by hand (text+image) |
+| 2024 | Hayward Park | 225 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Hayward Park / 21 / 506 / 21 / 225 / 0 | checked by hand (text+image) |
+| 2024 | Tamien | 211 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Tamien / 13 / 1,422 / 22 / 211 / -9 | checked by hand (text+image) |
+| 2024 | Morgan Hill | 100 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Morgan Hill / 24 / 251 / 23 / 100 / +1 | checked by hand (text+image) |
+| 2024 | Bayshore | 95 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Bayshore / 23 / 260 / 25 / 95 / -2 | checked by hand (text+image) |
+| 2024 | Gilroy | 95 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Gilroy / 25 / 187 / 24 / 95 / +1 | checked by hand (text+image) |
+| 2024 | Blossom Hill | 57 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Blossom Hill / 26 / 159 / 26 / 57 / 0 | checked by hand (text+image) |
+| 2024 | College Park | 43 | [34265](https://www.caltrain.com/media/34265/download) | 15 | College Park / 27 / 103 / 27 / 43 / 0 | checked by hand (text+image) |
+| 2024 | Capitol | 38 | [34265](https://www.caltrain.com/media/34265/download) | 15 | Capitol / 29 / 71 / 28 / 38 / +1 | checked by hand (text+image) |
+| 2024 | San Martin | 29 | [34265](https://www.caltrain.com/media/34265/download) | 15 | San Martin / 28 / 84 / 29 / 29 / -1 | checked by hand (text+image) |
+| 2025 | San Francisco | 6,874 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Francisco / 1 / 15,027 / 1 / 4,803 / 1 / 6,874 / +43% | checked by hand (text+image) |
+| 2025 | Palo Alto | 3,603 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Palo Alto / 2 / 7,384 / 2 / 2,889 / 2 / 3,603 / +25% | checked by hand (text+image) |
+| 2025 | Mountain View | 2,288 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Mountain View / 4 / 4,560 / 3 / 1,703 / 3 / 2,288 / +34% | checked by hand (text+image) |
+| 2025 | San Jose Diridon | 2,136 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Jose Diridon / 3 / 4,795 / 5 / 1,547 / 4 / 2,136 / +38% | checked by hand (text+image) |
+| 2025 | Redwood City | 2,111 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Redwood City / 5 / 4,220 / 4 / 1,624 / 5 / 2,111 / +30% | checked by hand (text+image) |
+| 2025 | Sunnyvale | 1,770 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Sunnyvale / 7 / 3,208 / 8 / 1,140 / 6 / 1,770 / +55% | checked by hand (text+image) |
+| 2025 | Hillsdale | 1,596 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Hillsdale / 6 / 3,217 / 7 / 1,212 / 7 / 1,596 / +32% | checked by hand (text+image) |
+| 2025 | Millbrae | 1,489 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Millbrae / 8 / 3,194 / 6 / 1,222 / 8 / 1,489 / +22% | checked by hand (text+image) |
+| 2025 | San Mateo | 1,270 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Mateo / 9 / 2,324 / 9 / 914 / 9 / 1,270 / +39% | checked by hand (text+image) |
+| 2025 | 22nd Street | 1,261 | [35885](https://www.caltrain.com/media/35885/download) | 13 | 22nd Street / 10 / 1,872 / 10 / 854 / 10 / 1,261 / +48% | checked by hand (text+image) |
+| 2025 | Menlo Park | 863 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Menlo Park / 11 / 1,639 / 11 / 646 / 11 / 863 / +34% | checked by hand (text+image) |
+| 2025 | Santa Clara | 839 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Santa Clara / 16 / 1,074 / 12 / 595 / 12 / 839 / +41% | checked by hand (text+image) |
+| 2025 | California Ave | 817 | [35885](https://www.caltrain.com/media/35885/download) | 13 | California Ave / 12 / 1,634 / 16 / 458 / 13 / 817 / +78% | checked by hand (text+image) |
+| 2025 | South San Francisco | 692 | [35885](https://www.caltrain.com/media/35885/download) | 13 | South San Francisco / 22 / 453 / 18 / 418 / 14 / 692 / +66% | checked by hand (text+image) |
+| 2025 | Lawrence | 686 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Lawrence / 18 / 1,004 / 13 / 513 / 15 / 686 / +34% | checked by hand (text+image) |
+| 2025 | San Antonio | 655 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Antonio / 17 / 1,017 / 19 / 414 / 16 / 655 / +58% | checked by hand (text+image) |
+| 2025 | Belmont | 654 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Belmont / 20 / 718 / 17 / 454 / 17 / 654 / +44% | checked by hand (text+image) |
+| 2025 | San Carlos | 644 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Carlos / 14 / 1,341 / 15 / 471 / 18 / 644 / +37% | checked by hand (text+image) |
+| 2025 | Burlingame | 620 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Burlingame / 15 / 1,131 / 14 / 474 / 19 / 620 / +31% | checked by hand (text+image) |
+| 2025 | San Bruno | 377 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Bruno / 19 / 751 / 20 / 233 / 20 / 377 / +62% | checked by hand (text+image) |
+| 2025 | Hayward Park | 366 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Hayward Park / 21 / 506 / 21 / 225 / 21 / 366 / +63% | checked by hand (text+image) |
+| 2025 | Tamien | 243 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Tamien / 13 / 1,422 / 22 / 211 / 22 / 243 / +15% | checked by hand (text+image) |
+| 2025 | Bayshore | 168 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Bayshore / 23 / 260 / 25 / 95 / 23 / 168 / +77% | checked by hand (text+image) |
+| 2025 | Morgan Hill | 130 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Morgan Hill / 24 / 251 / 23 / 100 / 24 / 130 / +30% | checked by hand (text+image) |
+| 2025 | Gilroy | 110 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Gilroy / 25 / 187 / 24 / 95 / 25 / 110 / +16% | checked by hand (text+image) |
+| 2025 | Blossom Hill | 71 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Blossom Hill / 26 / 159 / 26 / 57 / 26 / 71 / +25% | checked by hand (text+image) |
+| 2025 | Capitol | 49 | [35885](https://www.caltrain.com/media/35885/download) | 13 | Capitol / 29 / 71 / 28 / 38 / 27 / 49 / +29% | checked by hand (text+image) |
+| 2025 | College Park | 41 | [35885](https://www.caltrain.com/media/35885/download) | 13 | College Park / 27 / 103 / 27 / 43 / 28 / 41 / -5% | checked by hand (text+image) |
+| 2025 | San Martin | 25 | [35885](https://www.caltrain.com/media/35885/download) | 13 | San Martin / 28 / 84 / 29 / 29 / 29 / 25 / -14% | checked by hand (text+image) |
+| 2026 | San Francisco | 9,714 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Francisco / 1 / 15,027 / 1 / 6,874 / 1 / 9,714 / +41% / 65% | checked by hand (text+image) |
+| 2026 | Palo Alto | 4,486 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Palo Alto / 2 / 7,384 / 2 / 3,603 / 2 / 4,486 / +25% / 61% | checked by hand (text+image) |
+| 2026 | Mountain View | 3,048 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Mountain View / 4 / 4,560 / 3 / 2,288 / 3 / 3,048 / +33% / 67% | checked by hand (text+image) |
+| 2026 | San Jose Diridon | 2,936 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Jose Diridon / 3 / 4,795 / 4 / 2,136 / 4 / 2,936 / +37% / 61% | checked by hand (text+image) |
+| 2026 | Redwood City | 2,732 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Redwood City / 5 / 4,220 / 5 / 2,111 / 5 / 2,732 / +29% / 65% | checked by hand (text+image) |
+| 2026 | Sunnyvale | 2,484 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Sunnyvale / 7 / 3,208 / 6 / 1,770 / 6 / 2,484 / +40% / 77% | checked by hand (text+image) |
+| 2026 | Hillsdale | 2,215 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Hillsdale / 6 / 3,217 / 7 / 1,596 / 7 / 2,215 / +39% / 69% | checked by hand (text+image) |
+| 2026 | Millbrae | 1,921 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Millbrae / 8 / 3,194 / 8 / 1,489 / 8 / 1,921 / +29% / 60% | checked by hand (text+image) |
+| 2026 | 22nd Street | 1,800 | [37931](https://www.caltrain.com/media/37931/download) | 15 | 22nd Street / 10 / 1,872 / 10 / 1,261 / 9 / 1,800 / +43% / 96% | checked by hand (text+image) |
+| 2026 | San Mateo | 1,720 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Mateo / 9 / 2,324 / 9 / 1,270 / 10 / 1,720 / +35% / 74% | checked by hand (text+image) |
+| 2026 | Santa Clara | 1,215 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Santa Clara / 16 / 1,074 / 12 / 839 / 11 / 1,215 / +45% / 113% | checked by hand (text+image) |
+| 2026 | California Ave | 1,201 | [37931](https://www.caltrain.com/media/37931/download) | 15 | California Ave / 12 / 1,634 / 13 / 817 / 12 / 1,201 / +47% / 74% | checked by hand (text+image) |
+| 2026 | Menlo Park | 1,116 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Menlo Park / 11 / 1,639 / 11 / 863 / 13 / 1,116 / +29% / 68% | checked by hand (text+image) |
+| 2026 | South San Francisco | 1,050 | [37931](https://www.caltrain.com/media/37931/download) | 15 | South San Francisco / 22 / 453 / 14 / 692 / 14 / 1,050 / +52% / 232% | checked by hand (text+image) |
+| 2026 | Lawrence | 1,026 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Lawrence / 18 / 1,004 / 15 / 686 / 15 / 1,026 / +50% / 102% | checked by hand (text+image) |
+| 2026 | San Antonio | 954 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Antonio / 17 / 1,017 / 16 / 655 / 16 / 954 / +46% / 94% | checked by hand (text+image) |
+| 2026 | Burlingame | 901 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Burlingame / 15 / 1,131 / 19 / 620 / 17 / 901 / +45% / 80% | checked by hand (text+image) |
+| 2026 | San Carlos | 885 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Carlos / 14 / 1,341 / 18 / 644 / 18 / 885 / +37% / 66% | checked by hand (text+image) |
+| 2026 | Belmont | 883 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Belmont / 20 / 718 / 17 / 654 / 19 / 883 / +35% / 123% | checked by hand (text+image) |
+| 2026 | Hayward Park | 518 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Hayward Park / 21 / 506 / 21 / 366 / 20 / 518 / +42% / 102% | checked by hand (text+image) |
+| 2026 | San Bruno | 517 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Bruno / 19 / 751 / 20 / 377 / 21 / 517 / +37% / 69% | checked by hand (text+image) |
+| 2026 | Bayshore | 257 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Bayshore / 23 / 260 / 23 / 168 / 22 / 257 / +53% / 99% | checked by hand (text+image) |
+| 2026 | Morgan Hill | 155 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Morgan Hill / 24 / 251 / 24 / 130 / 23 / 155 / +19% / 62% | checked by hand (text+image) |
+| 2026 | Tamien | 153 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Tamien / 13 / 1,422 / 22 / 243 / 24 / 153 / -37% / 11% | checked by hand (text+image) |
+| 2026 | Gilroy | 139 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Gilroy / 25 / 187 / 25 / 110 / 25 / 139 / +26% / 74% | checked by hand (text+image) |
+| 2026 | Blossom Hill | 94 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Blossom Hill / 26 / 159 / 26 / 71 / 26 / 94 / +32% / 59% | checked by hand (text+image) |
+| 2026 | Capitol | 56 | [37931](https://www.caltrain.com/media/37931/download) | 15 | Capitol / 29 / 71 / 27 / 49 / 27 / 56 / +14% / 79% | checked by hand (text+image) |
+| 2026 | College Park | 45 | [37931](https://www.caltrain.com/media/37931/download) | 15 | College Park / 27 / 103 / 28 / 41 / 28 / 45 / +10% / 44% | checked by hand (text+image) |
+| 2026 | San Martin | 41 | [37931](https://www.caltrain.com/media/37931/download) | 15 | San Martin / 28 / 84 / 29 / 25 / 29 / 41 / +64% / 49% | checked by hand (text+image) |

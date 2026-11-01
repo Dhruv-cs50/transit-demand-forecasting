@@ -29,7 +29,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-__all__ = ["build_caltrain_store", "load_config", "STATION_ID"]
+__all__ = ["build_caltrain_store", "load_config", "step_column", "STATION_ID"]
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "configs" / "caltrain.yaml"
@@ -61,6 +61,12 @@ def build_caltrain_store(cfg: dict) -> pd.DataFrame:
     sha256 printed.
     """
     awr = pd.read_csv(cfg.get("awr_csv", DEFAULT_AWR_CSV), dtype={"month": str})
+    dupes = sorted(awr.loc[awr["month"].duplicated(), "month"].unique())
+    if dupes:
+        raise ValueError(f"AWR series has duplicate months: {dupes}")
+    missing = awr.loc[awr["awr"].isna(), "month"].tolist()
+    if missing:
+        raise ValueError(f"AWR series has missing awr values for months: {missing}")
     changes = sorted(cfg["method_changes"])
     excluded = set(cfg["exclude"])
     train_start = _month_start(cfg["train_start"])

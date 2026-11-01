@@ -124,6 +124,33 @@ def test_store_written_to_configured_path_and_hash_stable(cfg, tmp_path, capsys)
     assert digest in out  # the build prints the store's sha256
 
 
+def _awr_with(tmp_path, mutate) -> Path:
+    awr = pd.read_csv(ROOT / "data" / "caltrain" / "awr_monthly.csv")
+    awr = mutate(awr)
+    path = tmp_path / "awr.csv"
+    awr.to_csv(path, index=False)
+    return path
+
+
+def test_duplicate_months_in_awr_series_are_rejected(cfg, tmp_path):
+    path = _awr_with(tmp_path, lambda d: pd.concat([d, d.iloc[[30]]], ignore_index=True))
+    out = tmp_path / "never.parquet"
+    with pytest.raises(ValueError, match="duplicate months"):
+        build_caltrain_store({**cfg, "awr_csv": str(path), "store_path": str(out)})
+    assert not out.exists()
+
+
+def test_missing_awr_value_is_rejected(cfg, tmp_path):
+    def blank(d):
+        d.loc[40, "awr"] = float("nan")
+        return d
+
+    out = tmp_path / "never.parquet"
+    with pytest.raises(ValueError, match="missing awr"):
+        build_caltrain_store({**cfg, "awr_csv": str(_awr_with(tmp_path, blank)), "store_path": str(out)})
+    assert not out.exists()
+
+
 def test_committed_store_is_the_current_build(store):
     assert COMMITTED_STORE.exists(), "data/processed/caltrain_store.parquet must be committed"
     pd.testing.assert_frame_equal(pd.read_parquet(COMMITTED_STORE), store)
