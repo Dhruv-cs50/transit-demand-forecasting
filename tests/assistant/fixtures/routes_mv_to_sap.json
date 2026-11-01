@@ -1,0 +1,543 @@
+{
+  "routes": [
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.3945505,
+              "longitude": -122.07709819999998
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.3321309,
+              "longitude": -121.90040529999999
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "2s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "33s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "10s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "4s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "62s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "840s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "San Jose Diridon"
+                  },
+                  "arrivalTime": "2026-10-30T15:20:00Z",
+                  "departureStop": {
+                    "name": "Mountain View"
+                  },
+                  "departureTime": "2026-10-30T15:06:00Z"
+                },
+                "headsign": "San Jose Diridon",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Caltrain"
+                    }
+                  ],
+                  "name": "Express"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "73s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "150s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "104s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "135s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 18155,
+      "duration": "1414s",
+      "polyline": {
+        "encodedPolyline": "}rfcFzdbhV@AKOMu@PKAIC@h@aCCAbP_j@`AwCtK{^d@kB`Ja`@jB}I~UydApDePz@sE`Tw~@jJ_a@`EaRxGyYv@cEt@aF`QexA^uEPsEj@__@DoIKsb@Igi@@eCJ}Eb@aH^kD`@cD|@gFjA_Fz@qCzPch@jNgb@|@oChTyo@v[aaAp@kCfDkKlC_Jz@_CdKaUlNk]rHaRzGgPxSeh@j@gA`A_Cr@wA`AiC^yAv@}Dp@wBv@cB`@u@r@_ApC}CjA}@dAi@bEaBdAq@l@e@rEeFrIqJ|@y@zAgA`Ae@VIr@M|@If@Ih@@jPk@?NcBiBG?uFLIMCsAcA@g@?_ABAa@U?KsFCyA"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.3945505,
+              "longitude": -122.07709819999998
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.3321309,
+              "longitude": -121.90040529999999
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "2s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "33s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "10s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "4s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "62s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "1080s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "San Jose Diridon"
+                  },
+                  "arrivalTime": "2026-10-30T15:42:00Z",
+                  "departureStop": {
+                    "name": "Mountain View"
+                  },
+                  "departureTime": "2026-10-30T15:24:00Z"
+                },
+                "headsign": "San Jose Diridon",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Caltrain"
+                    }
+                  ],
+                  "name": "Local Weekday"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "73s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "150s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "104s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "135s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 18155,
+      "duration": "1654s",
+      "polyline": {
+        "encodedPolyline": "}rfcFzdbhV@AKOMu@PKAIC@h@aCCAbP_j@`AwCtK{^d@kB`Ja`@jB}I~UydApDePz@sE`Tw~@jJ_a@`EaRxGyYv@cEt@aF`QexA^uEPsEj@__@DoIKsb@Igi@@eCJ}Eb@aH^kD`@cD|@gFjA_Fz@qCzPch@jNgb@|@oChTyo@v[aaAp@kCfDkKlC_Jz@_CdKaUlNk]rHaRzGgPxSeh@j@gA`A_Cr@wA`AiC^yAv@}Dp@wBv@cB`@u@r@_ApC}CjA}@dAi@bEaBdAq@l@e@rEeFrIqJ|@y@zAgA`Ae@VIr@M|@If@Ih@@jPk@?NcBiBG?uFLIMCsAcA@g@?_ABAa@U?KsFCyA"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.3945505,
+              "longitude": -122.07709819999998
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.3321309,
+              "longitude": -121.90040529999999
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "2s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "33s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "10s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "4s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "62s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "1140s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "San Jose Diridon"
+                  },
+                  "arrivalTime": "2026-10-30T15:58:00Z",
+                  "departureStop": {
+                    "name": "Mountain View"
+                  },
+                  "departureTime": "2026-10-30T15:39:00Z"
+                },
+                "headsign": "San Jose Diridon",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Caltrain"
+                    }
+                  ],
+                  "name": "Limited"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "73s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "150s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "104s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "135s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 18155,
+      "duration": "1714s",
+      "polyline": {
+        "encodedPolyline": "}rfcFzdbhV@AKOMu@PKAIC@h@aCCAbP_j@`AwCtK{^d@kB`Ja`@jB}I~UydApDePz@sE`Tw~@jJ_a@`EaRxGyYv@cEt@aF`QexA^uEPsEj@__@DoIKsb@Igi@@eCJ}Eb@aH^kD`@cD|@gFjA_Fz@qCzPch@jNgb@|@oChTyo@v[aaAp@kCfDkKlC_Jz@_CdKaUlNk]rHaRzGgPxSeh@j@gA`A_Cr@wA`AiC^yAv@}Dp@wBv@cB`@u@r@_ApC}CjA}@dAi@bEaBdAq@l@e@rEeFrIqJ|@y@zAgA`Ae@VIr@M|@If@Ih@@jPk@?NcBiBG?uFLIMCsAcA@g@?_ABAa@U?KsFCyA"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.3945505,
+              "longitude": -122.07709819999998
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.3321309,
+              "longitude": -121.90040529999999
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "2s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "33s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "10s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "4s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "62s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "1140s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "San Jose Diridon"
+                  },
+                  "arrivalTime": "2026-10-30T16:13:00Z",
+                  "departureStop": {
+                    "name": "Mountain View"
+                  },
+                  "departureTime": "2026-10-30T15:54:00Z"
+                },
+                "headsign": "Tamien",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Caltrain"
+                    }
+                  ],
+                  "name": "Local Weekday"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "73s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "150s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "104s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "135s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 18155,
+      "duration": "1714s",
+      "polyline": {
+        "encodedPolyline": "}rfcFzdbhV@AKOMu@PKAIC@h@aCCAbP_j@`AwCtK{^d@kB`Ja`@jB}I~UydApDePz@sE`Tw~@jJ_a@`EaRxGyYv@cEt@aF`QexA^uEPsEj@__@DoIKsb@Igi@@eCJ}Eb@aH^kD`@cD|@gFjA_Fz@qCzPch@jNgb@|@oChTyo@v[aaAp@kCfDkKlC_Jz@_CdKaUlNk]rHaRzGgPxSeh@j@gA`A_Cr@wA`AiC^yAv@}Dp@wBv@cB`@u@r@_ApC}CjA}@dAi@bEaBdAq@l@e@rEeFrIqJ|@y@zAgA`Ae@VIr@M|@If@Ih@@jPk@?NcBiBG?uFLIMCsAcA@g@?_ABAa@U?KsFCyA"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.3945505,
+              "longitude": -122.07709819999998
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.3321309,
+              "longitude": -121.90040529999999
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "2s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "33s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "10s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "4s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "62s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "840s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "San Jose Diridon"
+                  },
+                  "arrivalTime": "2026-10-30T16:20:00Z",
+                  "departureStop": {
+                    "name": "Mountain View"
+                  },
+                  "departureTime": "2026-10-30T16:06:00Z"
+                },
+                "headsign": "San Jose Diridon",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Caltrain"
+                    }
+                  ],
+                  "name": "Express"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "73s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "150s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "104s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "135s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 18155,
+      "duration": "1414s",
+      "polyline": {
+        "encodedPolyline": "}rfcFzdbhV@AKOMu@PKAIC@h@aCCAbP_j@`AwCtK{^d@kB`Ja`@jB}I~UydApDePz@sE`Tw~@jJ_a@`EaRxGyYv@cEt@aF`QexA^uEPsEj@__@DoIKsb@Igi@@eCJ}Eb@aH^kD`@cD|@gFjA_Fz@qCzPch@jNgb@|@oChTyo@v[aaAp@kCfDkKlC_Jz@_CdKaUlNk]rHaRzGgPxSeh@j@gA`A_Cr@wA`AiC^yAv@}Dp@wBv@cB`@u@r@_ApC}CjA}@dAi@bEaBdAq@l@e@rEeFrIqJ|@y@zAgA`Ae@VIr@M|@If@Ih@@jPk@?NcBiBG?uFLIMCsAcA@g@?_ABAa@U?KsFCyA"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.3943343,
+              "longitude": -122.07725699999999
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.3321309,
+              "longitude": -121.90040529999999
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "31s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "360s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "El Camino & Castro"
+                  },
+                  "arrivalTime": "2026-10-30T16:15:00Z",
+                  "departureStop": {
+                    "name": "Mountain View Transit Center"
+                  },
+                  "departureTime": "2026-10-30T16:09:00Z"
+                },
+                "headsign": "Foothill College",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "VTA"
+                    }
+                  ],
+                  "name": "Foothill Coll - Mnt View TC via El Monte",
+                  "nameShort": "52"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "49s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "8s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "56s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "101s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "2705s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "Santa Clara & Montgomery"
+                  },
+                  "arrivalTime": "2026-10-30T17:08:05Z",
+                  "departureStop": {
+                    "name": "El Camino & Castro"
+                  },
+                  "departureTime": "2026-10-30T16:23:00Z"
+                },
+                "headsign": "Rapid Eastridge",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "VTA"
+                    }
+                  ],
+                  "name": "Palo Alto TC - Eastridge Rapid",
+                  "nameShort": "Rapid 522"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "25s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "23s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "74s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 20619,
+      "duration": "3713s",
+      "polyline": {
+        "encodedPolyline": "qqfcFzebhVc@_A?E?IVFb@TUx@jDjBjAj@zFxC~DvBy@jCKJSp@KFAPFHL?FHhIjEhA^H@`DdBxC~AjIfELN{@vBKIBAr@eBGCPc@DA@Ev@ZFKJETo@FYf@gABBUQ|Ne_@|@qBrJuV\\}@jE_NfCmIlI}ZjAkEZaA|DeOdHkVt@sC|DgT`@_C|@kFfBaNFWdDkWxCaRtCaQpAqI~AiN^qBr@eCj@{Az@iBr@iAtXg^~We]dUyYvCuDjDoEj@y@`CwEjAsCj@}Bd@mCd@kFJuC?_PAsVGuPEgD?}QAeFI}CCcAAa`@Aqa@BkLCcgA@{N?oXAeY@M?aWCsKIkBQwAa@_CkKab@{@gD}A_E]oAIeABeAJs@Pg@zAmDPi@lIuR\\q@@w@U[sAeAOQlA}CR[f@eAPKN?RPhBzBB^TVjAiAt@aAj@gAjHsQd@w@^a@^[f@W|@Ul@EbABv@P`B~@lEjCr@Tl@BdAEp@Un@m@Xe@`@aBJe@CYpCmNpBoJZaBFOLMvByJ`@eBn@kAfA{Ah]yb@~Vc\\nHqJBmAUaJk@w^]oRP?C@?q@o@DGeE"
+      }
+    }
+  ]
+}
