@@ -1,6 +1,6 @@
 # Sprint board
 
-## Sprint 11 — All four models on all three windows; site polish (opened 2026-10-28)  |  Deadline: 2026-11-03  |  Status: On track
+## Sprint 11 — All four models on all three windows; site polish (opened 2026-10-28)  |  Deadline: 2026-11-03  |  Status: Closed 2026-10-29 (PR #160, both hosts live)
 
 **Goal.** The site shows every model's forecasts (not only SARIMA and Chronos-1) and a tracked
 backtest of all four models on three half-year windows, so "SARIMA was best" rests on more than
@@ -31,7 +31,7 @@ worse than before (fonts, sizes, Method section) — audit first, fixes approved
 | S11-03 | Export `forecasts_prophet.json`, `forecasts_seasonal_naive.json`, `backtest_windows.json` (all-or-nothing, checked against leaderboard) | lane B | 1h | S11-02 | Existing 6 JSONs byte-identical; new files match the contract; tests | done (24cae18, merged a5ec0c4) |
 | S11-04 | Site: four-way model switch in the forecast chart and BART table; "Why SARIMA" panel; three-window table | lane C | 2×1h | S11-01b, S11-03 (fixtures meanwhile) | Data-derived text only; JSX parses; browser check desktop + 375 px | done (8db8b6d, merged c84d5b9; browser-checked on localhost after a5ec0c4) |
 | S11-06 | Interactive blocks (user-approved 2026-10-28): Method step rail with scroll-spy + smooth details + step↔pipeline highlight; stat-tile explainers; hover/tap split bars; page-wide model highlight + sortable tables; expandable recommendation cards; tuned-window caveat on 2024-H2 | lane C | 3h (one dispatch) | S11-04 | Keyboard + touch + mouse; `prefers-reduced-motion` respected; no new libraries; no new numbers (all from `website/data`); JSX parses; browser check 1440 + 375 px, no overflow | done (1ba2d0c, merged a53e1d2; review fixes b6b6218: derived month counts, guarded REC 02 link, tuned tag 6.3:1 light / 8.2:1 dark) |
-| S11-05 | Gate, PR to `main`, deploy both hosts (map links carry `?v=` to beat App Engine's edge cache) | orchestrator | 1h | S11-02..04, S11-06 | S7-13 gate set + new files; live hosts = `main` without cache-busting queries | in progress — gate green on a53e1d2 (store 6cde32d4, leaderboard d0d66f03, results 8f708b71, LaTeX 849f1672, 9 site JSONs byte-identical, two runs identical but for Chronos `generated_at`; 536 + 84 tests; JSX parses) |
+| S11-05 | Gate, PR to `main`, deploy both hosts (map links carry `?v=` to beat App Engine's edge cache) | orchestrator | 1h | S11-02..04, S11-06 | S7-13 gate set + new files; live hosts = `main` without cache-busting queries | in progress — gate green on a53e1d2 (store 6cde32d4, leaderboard d0d66f03, results 8f708b71, LaTeX 849f1672, 9 site JSONs byte-identical, two runs identical but for Chronos `generated_at`; 536 + 84 tests; JSX parses). PR #160 merged (81f67fc; tree = deployed 4f43eb6). Firebase deployed and verified byte-identical without cache-busting, browser-checked (no console errors). App Engine deployed after re-auth (2026-10-29): 9 files byte-identical to the export, map links `?v=26`, browser-checked, no console errors. **done** |
 
 
 ## Sprint 8 — Ship the gated numbers, harden, design cloud ingestion (opened 2026-10-28)  |  Deadline: 2026-11-03  |  Status: At risk (blocked on user: gcloud auth, deploy yes, Maps billing)
