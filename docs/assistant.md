@@ -134,13 +134,20 @@ Routes call and no Gemini call 2. Code decides; Gemini never writes the reply:
     Routes reaches it by VINE buses that connect to BART.
 - **The box guard** checks every option's resolved `origin_latlng` and
   `dest_latlng` after routing (cached routes too). An end outside the box is
-  answered as `out_of_area` and no options are shown. The box is
-  lat 36.9 to 38.9, lng -123.6 to -121.2 (edges inclusive): the nine counties
-  plus Caltrain and VTA to Gilroy (`assistant/scope.py`, `BAY_AREA_BOUNDS`).
-  It is a rectangle, so Sacramento, Stockton, Davis and Santa Cruz fall inside
-  it. For those, Gemini's `out_of_area` is the check. It also catches named
-  places before routing: the `, San Francisco Bay Area, CA` suffix once pulled
-  "Los Angeles" into SF, so the box alone did not catch that question.
+  answered as `out_of_area` and no options are shown. The area is three
+  rectangles, edges inclusive (`BAY_AREA_BOXES` in `assistant/scope.py`). They
+  cover the nine counties and every BART, Caltrain and VTA stop down to Gilroy,
+  and leave out Sacramento, Stockton, Davis and Santa Cruz.
+
+  | Box | Latitude | Longitude | Covers |
+  | --- | --- | --- | --- |
+  | core | 37.1 to 38.5 | -123.6 to -121.55 | the bulk of the nine counties, Antioch, Brentwood and Dixon in; Sacramento and Stockton east of it |
+  | north | 38.5 to 38.9 | -123.6 to -122.0 | Sonoma and Napa up to Cloverdale; Davis east of it |
+  | south | 36.9 to 37.1 | -121.75 to -121.4 | San Martin and Gilroy; Santa Cruz and Watsonville west of it |
+
+  Geocoding can still land the wrong place inside the area: the
+  `, San Francisco Bay Area, CA` suffix once pulled "Los Angeles" into SF. The
+  deny-list and Gemini catch such named places before routing.
 - **The words** come from a hand-written pool in `assistant/scope.py`, five
   to six variants per reason, picked with `random.choice`. Out-of-area
   variants may name the rider's place, cleaned and cut to 40 characters.

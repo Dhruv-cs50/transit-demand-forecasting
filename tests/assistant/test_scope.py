@@ -15,7 +15,7 @@ import pytest
 
 from assistant import scope
 from assistant.scope import (
-    BAY_AREA_BOUNDS,
+    BAY_AREA_BOXES,
     EXAMPLE_QUESTION,
     MAX_PLACE_CHARS,
     REASONS,
@@ -128,21 +128,32 @@ def test_in_pool_rejects_other_text():
 # --- the Bay Area box ------------------------------------------------------------------
 
 
-def test_bounds_are_the_documented_box():
-    assert BAY_AREA_BOUNDS == {"lat_min": 36.9, "lat_max": 38.9, "lng_min": -123.6, "lng_max": -121.2}
+def test_bounds_are_the_documented_boxes():
+    assert BAY_AREA_BOXES == (
+        {"name": "core", "lat_min": 37.1, "lat_max": 38.5, "lng_min": -123.6, "lng_max": -121.55},
+        {"name": "north", "lat_min": 38.5, "lat_max": 38.9, "lng_min": -123.6, "lng_max": -122.0},
+        {"name": "south", "lat_min": 36.9, "lat_max": 37.1, "lng_min": -121.75, "lng_max": -121.4},
+    )
 
 
-MID_LAT, MID_LNG = 37.8, -122.4
 EPS = 0.01
 
 
 @pytest.mark.parametrize(
     "point,inside",
     [
-        ((36.9 + EPS, MID_LNG), True), ((36.9 - EPS, MID_LNG), False),  # south edge (Gilroy is 37.0)
-        ((38.9 - EPS, MID_LNG), True), ((38.9 + EPS, MID_LNG), False),  # north edge (Cloverdale 38.8)
-        ((MID_LAT, -123.6 + EPS), True), ((MID_LAT, -123.6 - EPS), False),  # west edge (the coast)
-        ((MID_LAT, -121.2 - EPS), True), ((MID_LAT, -121.2 + EPS), False),  # east edge (Santa Clara Co.)
+        # core: the nine counties' bulk, east edge west of Sacramento and Stockton
+        ((37.1 + EPS, -122.0), True), ((37.1 - EPS, -122.0), False),  # south edge (Santa Cruz side)
+        ((38.5 - EPS, -121.8), True), ((38.5 + EPS, -121.8), False),  # north edge east of Napa (Davis side)
+        ((38.0, -123.6 + EPS), True), ((38.0, -123.6 - EPS), False),  # west edge (the coast)
+        ((37.8, -121.55 - EPS), True), ((37.8, -121.55 + EPS), False),  # east edge (Contra Costa line)
+        # north: Sonoma and Napa
+        ((38.9 - EPS, -122.8), True), ((38.9 + EPS, -122.8), False),  # north edge (Cloverdale 38.8)
+        ((38.7, -122.0 - EPS), True), ((38.7, -122.0 + EPS), False),  # east edge (Napa / Yolo line)
+        # south: Morgan Hill to Gilroy
+        ((36.9 + EPS, -121.6), True), ((36.9 - EPS, -121.6), False),  # south edge (Gilroy is 37.0)
+        ((37.0, -121.75 + EPS), True), ((37.0, -121.75 - EPS), False),  # west edge (Watsonville side)
+        ((37.0, -121.4 - EPS), True), ((37.0, -121.4 + EPS), False),  # east edge
     ],
 )
 def test_box_both_sides_of_each_edge(point, inside):
@@ -153,9 +164,19 @@ def test_box_both_sides_of_each_edge(point, inside):
     "name,point",
     [
         ("Gilroy Caltrain", (37.0040, -121.5665)),
-        ("Santa Rosa", (38.4404, -122.7141)),
-        ("SFO", (37.6213, -122.3790)),
+        ("San Martin Caltrain", (37.0855, -121.6105)),
+        ("Morgan Hill Caltrain", (37.1293, -121.6505)),
         ("Antioch BART", (37.9955, -121.7804)),
+        ("Dublin/Pleasanton BART", (37.7017, -121.8992)),
+        ("Richmond BART", (37.9369, -122.3533)),
+        ("SFO", (37.6213, -122.3790)),
+        ("Santa Rosa", (38.4404, -122.7141)),
+        ("Cloverdale", (38.8055, -123.0172)),
+        ("Napa", (38.2975, -122.2869)),
+        ("Dixon", (38.4455, -121.8233)),
+        ("Brentwood", (37.9319, -121.6958)),
+        ("Livermore", (37.6819, -121.7680)),
+        ("Pescadero", (37.2552, -122.3830)),
     ],
 )
 def test_box_contains_the_edges_of_the_service_area(name, point):
@@ -165,6 +186,13 @@ def test_box_contains_the_edges_of_the_service_area(name, point):
 @pytest.mark.parametrize(
     "name,point",
     [
+        ("Sacramento", (38.5816, -121.4944)),
+        ("Stockton", (37.9577, -121.2908)),
+        ("Davis", (38.5449, -121.7405)),
+        ("Santa Cruz", (36.9741, -122.0308)),
+        ("Scotts Valley", (37.0511, -122.0147)),
+        ("Watsonville", (36.9102, -121.7569)),
+        ("Tracy", (37.7397, -121.4252)),
         ("Los Angeles", (34.0522, -118.2437)),
         ("San Diego", (32.7157, -117.1611)),
         ("Monterey", (36.6002, -121.8947)),
@@ -190,7 +218,7 @@ def test_every_recorded_route_endpoint_is_inside_the_box():
 
 
 def test_bad_coordinates_are_outside():
-    assert not in_bay_area((float("nan"), MID_LNG))
+    assert not in_bay_area((float("nan"), -122.4))
     assert not in_bay_area(None)  # type: ignore[arg-type]
 
 

@@ -80,12 +80,21 @@ PLACE_VARIANTS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-# The Bay Area box: the nine counties (San Francisco, San Mateo, Santa Clara, Alameda, Contra
-# Costa, Marin, Napa, Solano, Sonoma) plus Caltrain and VTA down to Gilroy. Edges are inclusive.
-# A rectangle is coarse: Sacramento, Stockton, Davis and Santa Cruz fall inside it, so this
-# guard catches gross mis-geocodes (Los Angeles, San Diego, Reno, Monterey) and Gemini's
-# ``out_of_area`` is the main check for places beyond the counties but inside the box.
-BAY_AREA_BOUNDS = {"lat_min": 36.9, "lat_max": 38.9, "lng_min": -123.6, "lng_max": -121.2}
+# The Bay Area: three rectangles (edges inclusive) covering the nine counties (San Francisco,
+# San Mateo, Santa Clara, Alameda, Contra Costa, Marin, Napa, Solano, Sonoma) and every BART,
+# Caltrain and VTA stop down to Gilroy, while leaving out Sacramento, Stockton, Davis and Santa Cruz.
+#   core:  lat 37.1-38.5, lng -123.6 to -121.55. East edge west of Sacramento (-121.49) and
+#          Stockton (-121.29), east of Antioch, Brentwood and Dixon; south edge above Santa Cruz
+#          (36.97) and Scotts Valley (37.05), below Morgan Hill (37.13) and Pescadero (37.26).
+#   north: lat 38.5-38.9, lng -123.6 to -122.0. Sonoma and Napa up to Cloverdale; Davis (-121.74)
+#          is east of it and north of the core.
+#   south: lat 36.9-37.1, lng -121.75 to -121.4. San Martin and Gilroy; Santa Cruz and
+#          Watsonville (-121.76) are west of it.
+BAY_AREA_BOXES = (
+    {"name": "core", "lat_min": 37.1, "lat_max": 38.5, "lng_min": -123.6, "lng_max": -121.55},
+    {"name": "north", "lat_min": 38.5, "lat_max": 38.9, "lng_min": -123.6, "lng_max": -122.0},
+    {"name": "south", "lat_min": 36.9, "lat_max": 37.1, "lng_min": -121.75, "lng_max": -121.4},
+)
 
 Choice = Callable[[Sequence[str]], str]
 
@@ -136,15 +145,16 @@ def outside_place_named(place: str | None) -> str | None:
 
 
 def in_bay_area(latlng: tuple[float, float]) -> bool:
-    """Whether a (lat, lng) lies inside ``BAY_AREA_BOUNDS``; anything unreadable is outside."""
+    """Whether a (lat, lng) lies inside one of ``BAY_AREA_BOXES``; anything unreadable is outside."""
     try:
         lat, lng = float(latlng[0]), float(latlng[1])
     except (TypeError, ValueError, IndexError):
         return False
     if math.isnan(lat) or math.isnan(lng):
         return False
-    b = BAY_AREA_BOUNDS
-    return b["lat_min"] <= lat <= b["lat_max"] and b["lng_min"] <= lng <= b["lng_max"]
+    return any(
+        b["lat_min"] <= lat <= b["lat_max"] and b["lng_min"] <= lng <= b["lng_max"] for b in BAY_AREA_BOXES
+    )
 
 
 def clean_place(text: str | None) -> str | None:
