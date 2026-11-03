@@ -885,3 +885,36 @@ def test_deny_list_lets_bay_area_names_through(origin, destination):
     kinds = types_of(events(rig.chat({"message": f"{origin} to {destination}"})))
     assert kinds[0] == "options" and "scope" not in kinds
     assert rig.routing.calls == 1
+
+
+# --- the deny-list on a trip with only one end known ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "message,origin,destination,follow_up,named",
+    [
+        ("to San Diego", None, "San Diego", "Where are you starting from?", "San Diego"),
+        ("from Sacramento", "Sacramento", None, "Where would you like to go?", "Sacramento"),
+        ("get me to Lake Tahoe", None, "Lake Tahoe", "Where are you starting from?", "Lake Tahoe"),
+        ("from LA", "LA", None, None, "LA"),  # no question either: still a refusal, not the form
+    ],
+)
+def test_deny_list_refuses_a_one_ended_trip(message, origin, destination, follow_up, named, monkeypatch):
+    monkeypatch.setattr(scope_mod.random, "choice", lambda seq: seq[0])
+    rig = GeminiRig(model_json(scope="trip", origin=origin, destination=destination, follow_up=follow_up))
+    evs = events(rig.chat({"message": message}))
+    assert types_of(evs) == ["scope", "done"]
+    assert evs[0]["reason"] == "out_of_area" and scope_mod.in_pool("out_of_area", evs[0]["text"])
+    assert named in evs[0]["text"]
+    assert rig.routing.calls == 0 and rig.gemini_calls == ["generate"]
+
+
+@pytest.mark.parametrize(
+    "origin,destination",
+    [(None, "SFO"), (None, "Sacramento St"), ("Monterey Blvd", None), (None, "Los Altos")],
+)
+def test_one_ended_bay_area_trip_still_asks(origin, destination):
+    question = "Where are you starting from?" if origin is None else "Where would you like to go?"
+    rig = GeminiRig(model_json(scope="trip", origin=origin, destination=destination, follow_up=question))
+    evs = events(rig.chat({"message": "trip"}))
+    assert evs == [{"type": "follow_up", "question": question}]

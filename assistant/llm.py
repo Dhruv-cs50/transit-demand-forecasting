@@ -29,6 +29,7 @@ from google.genai import types
 
 from assistant.config import DISPLAY_TZ, Settings
 from assistant.prompts import EXPLAIN_SYSTEM, EXTRACT_SYSTEM
+from assistant.scope import outside_place_named
 from assistant.station_names import normalise_place
 from assistant.types import FollowUp, OutOfScope, TripQuery
 
@@ -229,6 +230,11 @@ def _to_query(raw: str | None, now: datetime, tz: ZoneInfo) -> TripQuery | Follo
     question = data.get("follow_up")
     question = question.strip() if isinstance(question, str) and question.strip() else None
     if origin is None or destination is None:
+        # One end is known: a well-known place outside the area is refused now ("to San Diego"),
+        # rather than asked about. The service runs the same deny-list once both ends are known.
+        named = outside_place_named(destination) or outside_place_named(origin)
+        if named is not None:
+            return OutOfScope("out_of_area", named)
         # A place is missing (or unusable): ask, or fall back to the form when there is no question.
         return FollowUp(question) if question else None
 

@@ -122,7 +122,8 @@ Routes call and no Gemini call 2. Code decides; Gemini never writes the reply:
   if it is the trip's own origin or destination.
 - **The deny-list** (`OUTSIDE_PLACES` in `assistant/scope.py`) is deterministic.
   It checks the extracted origin and destination before routing, so before the
-  area suffix is added, even when Gemini said `trip`. It covers well-known
+  area suffix is added, even when Gemini said `trip`. It runs on whichever end
+  is known, so "to San Diego" is refused rather than asked about. It covers well-known
   places outside the area: Los Angeles/LA, San Diego, Sacramento, Fresno,
   Bakersfield, Stockton, Modesto, Santa Cruz, Monterey, Reno, Lake Tahoe, Las
   Vegas, Portland, Seattle, New York/NYC, Chicago and Yosemite.
