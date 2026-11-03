@@ -12,8 +12,10 @@ the first ``options`` event and to ``done``, and checks:
 * the expected agencies appear in the options, and so do any stop-name
   expectations (``dest_stop_contains`` / ``dest_stop_excludes``) and a relative
   departure window (``depart_offset_min``);
-* out-of-area and nonsense questions get a ``follow_up`` or ``form``, never an
-  ``options`` event.
+* out-of-bounds questions (``kind: scope``: out of area, another mode, nonsense)
+  get a ``scope`` event with the expected ``reason`` whose text is one of the
+  hand-written variants in ``assistant.scope`` (with any place name filled in),
+  never an ``options`` event; ``kind: refuse`` still accepts ``follow_up`` or ``form``.
 
 Exit status: 0 when every check passes and the aggregate latency targets are
 met (warm, warm-up excluded); 1 when something failed; 2 when the question set
@@ -44,6 +46,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from assistant.answer import unverified_claims  # noqa: E402
 from assistant.config import DISPLAY_TZ  # noqa: E402
+from assistant.scope import in_pool  # noqa: E402
 from assistant.types import Leg, TripOption  # noqa: E402
 
 SLEEP_FLAG_S = 2.0  # wall clock minus timing clock above this marks a sample as possibly slept through
@@ -118,10 +121,13 @@ def summarize(timed: list[tuple[float, dict[str, Any]]], malformed: int = 0) -> 
     done = next((t for t, e in timed if e.get("type") == "done"), None)
     options_event = next((e for e in events if e.get("type") == "options"), None)
     options = list((options_event or {}).get("options") or [])
+    scope_event = next((e for e in events if e.get("type") == "scope"), None)
     if options:
         outcome = "options"
     elif options_event is not None:
         outcome = "no_routes"
+    elif scope_event is not None:
+        outcome = "scope"
     elif "follow_up" in kinds:
         outcome = "follow_up"
     elif "form" in kinds:
@@ -146,6 +152,8 @@ def summarize(timed: list[tuple[float, dict[str, Any]]], malformed: int = 0) -> 
         "server_latency_ms": done_event.get("latency_ms") or {},
         "caveats": {"missing": caveats.get("missing", []), "notes": caveats.get("notes", [])},
         "question": follow_up.get("question"),
+        "scope_reason": (scope_event or {}).get("reason"),
+        "scope_text": (scope_event or {}).get("text"),
         "malformed_lines": malformed,
     }
 
@@ -269,6 +277,17 @@ def check_question(
     """The named checks for one question; every one must be ``ok`` for the question to pass."""
     if q.get("kind") == "refuse":
         return {"scope": _check(s["outcome"] in ("follow_up", "form"), s["outcome"])}
+    if q.get("kind") == "scope":
+        reason = q.get("reason")
+        good = (
+            s["outcome"] == "scope"
+            and s.get("scope_reason") == reason
+            and in_pool(str(reason), s.get("scope_text") or "")
+        )
+        return {
+            "scope": _check(good, s["outcome"], reason=s.get("scope_reason"), expected=reason),
+            "done": _check(s["done_s"] is not None, s["kinds"][-1] if s["kinds"] else None),
+        }
 
     checks: dict[str, dict[str, Any]] = {}
     has_options = s["outcome"] == "options"
@@ -401,7 +420,8 @@ def _compact(q: dict[str, Any], s: dict[str, Any], checks: dict[str, dict[str, A
     ]
     keep = (
         "outcome", "status", "retry_after", "error", "first_options_s", "done_s", "end_s", "agencies",
-        "kinds", "replaced", "server_latency_ms", "caveats", "question", "malformed_lines", "text",
+        "kinds", "replaced", "server_latency_ms", "caveats", "question", "scope_reason", "scope_text",
+        "malformed_lines", "text",
         "attribution", "requested_at", "suspended_s", "suspect_sleep",
     )
     return {

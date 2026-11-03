@@ -3,9 +3,10 @@
 Exactly two calls are made for an answered question, both on the Flash tier:
 
 1. ``Gemini.extract``: the rider's message becomes a ``TripQuery`` (or a
-   ``FollowUp``, or ``None`` when the output is unusable so the service shows
-   the origin/destination form). JSON with a response schema, <= 120 output
-   tokens.
+   ``FollowUp``, an ``OutOfScope`` when the schema's ``scope`` says the question
+   is out of bounds, or ``None`` when the output is unusable so the service
+   shows the origin/destination form). JSON with a response schema, <= 120
+   output tokens. The model only classifies: it never writes the refusal.
 2. ``Gemini.explain_stream``: the digest becomes a short explanation, streamed,
    <= 250 output tokens, temperature 0.2. The service checks the text with
    ``explanation_ok`` before showing it.
@@ -28,7 +29,7 @@ from google.genai import types
 
 from assistant.config import DISPLAY_TZ, Settings
 from assistant.prompts import EXPLAIN_SYSTEM, EXTRACT_SYSTEM
-from assistant.types import FollowUp, TripQuery
+from assistant.types import FollowUp, OutOfScope, TripQuery
 
 EXTRACT_MAX_TOKENS = 120
 EXPLAIN_MAX_TOKENS = 250
@@ -40,11 +41,30 @@ PAST_GRACE_S = 120
 WARMUP_CONTENTS = "ping"
 WARMUP_MAX_TOKENS = 1
 
-_FIELDS = ("origin", "destination", "depart_at", "follow_up")
-# JSON schema for call 1. Every key is required but may be null, so the reply always has all four.
+_FIELDS = ("scope", "scope_reason", "outside_place", "origin", "destination", "depart_at", "follow_up")
+SCOPES = ("trip", "out_of_scope")
+SCOPE_REASONS = ("out_of_area", "other_mode", "off_topic")
+# JSON schema for call 1. Every key is required; all but ``scope`` may be null, so the reply
+# always has all seven. ``scope`` comes first so the model decides it before the places.
 EXTRACT_SCHEMA = types.Schema(
     type=types.Type.OBJECT,
     properties={
+        "scope": types.Schema(
+            type=types.Type.STRING,
+            enum=list(SCOPES),
+            description="trip for a Bay Area public-transit trip request, else out_of_scope",
+        ),
+        "scope_reason": types.Schema(
+            type=types.Type.STRING,
+            enum=list(SCOPE_REASONS),
+            nullable=True,
+            description="Why it is out of scope, or null for a trip",
+        ),
+        "outside_place": types.Schema(
+            type=types.Type.STRING,
+            nullable=True,
+            description="For out_of_area: the origin or destination outside the Bay Area, as written",
+        ),
         "origin": types.Schema(type=types.Type.STRING, nullable=True, description="Origin place as written, or null"),
         "destination": types.Schema(
             type=types.Type.STRING, nullable=True, description="Destination place as written, or null"
@@ -132,7 +152,7 @@ class Gemini:
         )
         await self._client.aio.models.generate_content(model=self._model, contents=WARMUP_CONTENTS, config=config)
 
-    async def extract(self, message: str, now: datetime) -> TripQuery | FollowUp | None:
+    async def extract(self, message: str, now: datetime) -> TripQuery | FollowUp | OutOfScope | None:
         """Call 1. ``None`` when the model's output does not parse against the schema."""
         tz = ZoneInfo(DISPLAY_TZ)
         now = now.astimezone(tz) if now.tzinfo else now.replace(tzinfo=tz)
@@ -168,7 +188,22 @@ class Gemini:
                 yield text
 
 
-def _to_query(raw: str | None, now: datetime, tz: ZoneInfo) -> TripQuery | FollowUp | None:
+def _outside_place(data: dict[str, Any]) -> str | None:
+    """The out-of-area place, only when it is (part of) the trip's own origin or destination.
+
+    So whatever else the model writes in ``outside_place`` never reaches the reply.
+    """
+    outside = _place(data.get("outside_place"))
+    if outside is None:
+        return None
+    o = outside.casefold()
+    for end in (_place(data.get("origin")), _place(data.get("destination"))):
+        if end is not None and (o == end.casefold() or o in end.casefold()):
+            return outside
+    return None
+
+
+def _to_query(raw: str | None, now: datetime, tz: ZoneInfo) -> TripQuery | FollowUp | OutOfScope | None:
     if not raw:
         return None
     try:
@@ -176,6 +211,17 @@ def _to_query(raw: str | None, now: datetime, tz: ZoneInfo) -> TripQuery | Follo
     except ValueError:
         return None
     if not isinstance(data, dict):
+        return None
+
+    # Scope first: an out-of-bounds question is declined even when it names no places.
+    scope = data.get("scope")
+    if scope == "out_of_scope":
+        reason = data.get("scope_reason")
+        if reason not in SCOPE_REASONS:
+            reason = "off_topic"
+        place = _outside_place(data) if reason == "out_of_area" else None
+        return OutOfScope(reason, place)
+    if scope != "trip":
         return None
 
     origin, destination = _place(data.get("origin")), _place(data.get("destination"))

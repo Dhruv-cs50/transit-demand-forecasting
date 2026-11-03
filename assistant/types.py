@@ -26,6 +26,20 @@ class FollowUp:
     question: str
 
 
+ScopeReason = Literal["out_of_area", "other_mode", "off_topic"]
+
+
+@dataclass(frozen=True)
+class OutOfScope:
+    """A question the assistant does not answer. The reply text comes from ``assistant.scope``.
+
+    ``place`` is the out-of-area place as the rider wrote it (``out_of_area`` only), or ``None``.
+    """
+
+    reason: ScopeReason
+    place: str | None = None
+
+
 @dataclass(frozen=True)
 class Leg:
     mode: Literal["TRANSIT", "WALK"]

@@ -20,7 +20,7 @@ from assistant import llm, prompts
 from assistant.answer import build_digest
 from assistant.config import DISPLAY_TZ, Settings
 from assistant.llm import Gemini
-from assistant.types import Context, Event, FollowUp, TripQuery
+from assistant.types import Context, Event, FollowUp, OutOfScope, TripQuery
 
 # Fixtures and builders shared with the answer tests (pytest puts this directory on sys.path).
 from test_answer import (  # noqa: E402
@@ -76,7 +76,15 @@ def extract(payload, message: str = "mountain view to sap center", now: datetime
 
 
 def reply(**kw):
-    base = {"origin": "Mountain View Caltrain", "destination": "SAP Center", "depart_at": None, "follow_up": None}
+    base = {
+        "scope": "trip",
+        "scope_reason": None,
+        "outside_place": None,
+        "origin": "Mountain View Caltrain",
+        "destination": "SAP Center",
+        "depart_at": None,
+        "follow_up": None,
+    }
     base.update(kw)
     return base
 
@@ -104,9 +112,16 @@ def test_extract_request_config_has_schema_and_token_cap():
     assert cfg.system_instruction == prompts.EXTRACT_SYSTEM
     schema = cfg.response_schema
     assert isinstance(schema, types.Schema) and schema.type == types.Type.OBJECT
-    assert set(schema.properties) == {"origin", "destination", "depart_at", "follow_up"}
-    assert all(p.type == types.Type.STRING and p.nullable for p in schema.properties.values())
-    assert set(schema.required) == {"origin", "destination", "depart_at", "follow_up"}
+    fields = {"scope", "scope_reason", "outside_place", "origin", "destination", "depart_at", "follow_up"}
+    assert set(schema.properties) == fields
+    assert set(schema.required) == fields
+    assert all(p.type == types.Type.STRING for p in schema.properties.values())
+    scope = schema.properties["scope"]
+    assert scope.enum == ["trip", "out_of_scope"] and not scope.nullable  # always decided
+    reason = schema.properties["scope_reason"]
+    assert reason.enum == ["out_of_area", "other_mode", "off_topic"] and reason.nullable
+    assert all(schema.properties[f].nullable for f in fields - {"scope"})
+    assert schema.property_ordering[0] == "scope"
     assert cfg.thinking_config.thinking_budget == 0  # thinking tokens would eat the 120 cap
 
 
@@ -166,6 +181,9 @@ def test_extract_missing_place_without_a_question_returns_form():
         json.dumps(reply(depart_at="next tuesday-ish")),
         json.dumps(reply(depart_at=1730000000)),
         json.dumps(reply(origin=None, destination=None, follow_up="  ")),
+        json.dumps({k: v for k, v in reply().items() if k != "scope"}),  # scope is required
+        json.dumps(reply(scope="maybe")),
+        json.dumps(reply(scope=None)),
     ],
 )
 def test_extract_invalid_json_returns_form(bad):
@@ -395,3 +413,78 @@ def test_warm_makes_one_tiny_fixed_call():
     assert call["contents"] == llm.WARMUP_CONTENTS  # fixed text, never a rider's
     assert call["config"].max_output_tokens <= 8
     assert call["config"].thinking_config.thinking_budget == 0
+
+
+
+# ----------------------------------------------------------------------------------
+# Scope: out-of-bounds questions
+# ----------------------------------------------------------------------------------
+
+
+def out(reason, outside=None, origin=None, destination=None):
+    return reply(scope="out_of_scope", scope_reason=reason, outside_place=outside, origin=origin,
+                 destination=destination)
+
+
+def test_out_of_area_names_the_place_outside():
+    r, _ = extract(out("out_of_area", "San Diego", "Los Angeles", "San Diego"), message="Los Angeles to San Diego")
+    assert r == OutOfScope("out_of_area", "San Diego")
+    # "from SF to LA": the outside end is the destination, never the in-area origin
+    r, _ = extract(out("out_of_area", "LA", "SF", "LA"))
+    assert r == OutOfScope("out_of_area", "LA")
+    r, _ = extract(out("out_of_area", "New York", "New York", "SFO"))
+    assert r == OutOfScope("out_of_area", "New York")
+
+
+def test_out_of_area_place_must_be_one_of_the_trip_ends():
+    # anything else the model writes there is dropped, so it cannot add words to the reply
+    r, _ = extract(out("out_of_area", "take I-5 south for five hours", "Los Angeles", "San Diego"))
+    assert r == OutOfScope("out_of_area", None)
+    r, _ = extract(out("out_of_area", None, None, "San Diego"))  # "to San Diego": out of area, not a follow-up
+    assert r == OutOfScope("out_of_area", None)
+
+
+def test_out_of_scope_without_places_is_not_a_follow_up():
+    r, _ = extract(reply(scope="out_of_scope", scope_reason="off_topic", origin=None, destination=None,
+                         follow_up="Where are you starting from?"))
+    assert r == OutOfScope("off_topic", None)
+
+
+@pytest.mark.parametrize("reason", [None, "", "weird", 7])
+def test_out_of_scope_with_an_unknown_reason_is_off_topic(reason):
+    r, _ = extract(out(reason))
+    assert r == OutOfScope("off_topic", None)
+
+
+def test_other_mode_and_off_topic_never_carry_a_place():
+    r, _ = extract(out("other_mode", "Palo Alto", "Palo Alto", "San Jose"))
+    assert r == OutOfScope("other_mode", None)
+    r, _ = extract(out("off_topic", "Mars"))
+    assert r == OutOfScope("off_topic", None)
+
+
+def test_in_area_trip_with_a_missing_end_is_still_a_follow_up():
+    f, _ = extract(reply(origin=None, destination="SFO", follow_up="Where are you starting from?"), message="to SFO")
+    assert f == FollowUp("Where are you starting from?")
+
+
+def test_trip_ignores_a_stray_reason():
+    q, _ = extract(reply(scope_reason="out_of_area", outside_place="SAP Center"))
+    assert isinstance(q, TripQuery)
+
+
+def test_call_one_prompt_defines_scope():
+    p = prompts.EXTRACT_SYSTEM
+    for word in ('"trip"', '"out_of_scope"', '"out_of_area"', '"other_mode"', '"off_topic"', "outside_place"):
+        assert word in p
+    low = p.lower()
+    # named places beyond the Bay Area, including inside the coarse box, are out of area
+    for place in ("los angeles", "san diego", "sacramento", "stockton"):
+        assert place in low
+    # edges of the service area are trips, so the prompt does not over-refuse
+    for place in ("gilroy", "sfo", "livermore"):
+        assert place in low
+    for word in ("weather", "joke", "homework", "drive", "fly", "uber"):
+        assert word in low
+    assert "injection" in low or "ignore these instructions" in low
+    assert "to sfo" in low  # the follow-up example stays

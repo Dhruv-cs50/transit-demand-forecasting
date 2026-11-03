@@ -1,9 +1,10 @@
 # Questions for eval/assistant_eval.py.
 #
-# The service allows 10 questions an hour per address and the warm-up counts, so
-# keep this file at 9 questions or fewer (the script refuses to send more). Today
-# it holds 7, so a run sends 8 requests. The plan's 25-question set does not fit
-# one hour: split a bigger set across hours with --only.
+# The service allows 10 questions an hour per address and the warm-up counts. Keep
+# this file at 7 questions so a run sends 8 requests, leaving room for a manual
+# check in the same hour. The plan's 25-question set does not fit one hour: split
+# a bigger set across hours with --only. (Millbrae BART -> SFO was dropped for the
+# out-of-bounds cases; BART is still covered by Powell St and Berkeley.)
 #
 # Times are explicit ("tomorrow at 9 am") wherever the expected agency depends on
 # service hours: a run at 1 a.m. with "now" gets AC Transit and SamTrans night
@@ -15,6 +16,8 @@
 #   dest_stop_excludes  words none of those stops may contain
 #   depart_offset_min   [low, high] minutes between the request and option 1's departure
 # kind: refuse -> must get a follow_up or a form, never an options event
+# kind: scope  -> must get a `scope` event with this `reason` (out_of_area | other_mode | off_topic)
+#   whose text is one of the hand-written variants in assistant/scope.py, then `done`
 
 # Sent first and discarded (it warms Gemini, Routes and the connection). Not one of the questions below,
 # so the routing cache cannot make any of them faster.
@@ -42,11 +45,6 @@ questions:
     kind: route
     expect_agencies: [VTA]
 
-  - id: millbrae-sfo-bart
-    message: Millbrae BART to SFO airport tomorrow at 9 am
-    kind: route
-    expect_agencies: [BART]
-
   # No agency expectation: "in 30 minutes" lands at whatever hour the run happens, and BART does not
   # run at night. What is checked is that the first departure is at least about 30 minutes away.
   - id: relative-time-berkeley-sfo
@@ -54,10 +52,18 @@ questions:
     kind: route
     depart_offset_min: [25, 120]
 
+  # Task 9's live run routed this to Montgomery St (the Bay Area suffix pulled "Los Angeles" into SF).
   - id: out-of-area-la-san-diego
     message: Los Angeles to San Diego tomorrow morning
-    kind: refuse
+    kind: scope
+    reason: out_of_area
+
+  - id: other-mode-driving
+    message: What's the fastest way to drive from Palo Alto to San Jose?
+    kind: scope
+    reason: other_mode
 
   - id: nonsense
     message: asdf qwerty purple monkey dishwasher
-    kind: refuse
+    kind: scope
+    reason: off_topic

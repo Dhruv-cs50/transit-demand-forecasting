@@ -92,8 +92,9 @@ curl -sN -H 'content-type: application/json' \
 
 Expect, one JSON object per line: `options` first (with the route options and
 `"attribution":"Routes by Google"`), several `text` events (or one `replace`),
-`caveats`, then `done` with `latency_ms` per stage. A nonsense message gives
-`follow_up` or `form` and nothing else. Smoke test on 2026-11-01 (warm,
+`caveats`, then `done` with `latency_ms` per stage. An out-of-bounds message
+(below) gives `scope` then `done`; an in-area trip with a missing end ("to SFO")
+gives `follow_up`. Smoke test on 2026-11-01 (warm,
 revision `00004`, image `e7825ae`):
 
 | Question | First `options` | `done` | Notes |
@@ -106,6 +107,34 @@ revision `00004`, image `e7825ae`):
 The first request after a scale-from-zero start took 2.3 s to `options` and
 6.3 s to `done` (`explain` 3.4 s); warm requests are in the table. A repeated
 question inside 10 minutes skips the Routes call (routing cache).
+
+## Out-of-bounds questions
+
+The assistant answers only public-transit trips inside the Bay Area. Anything
+else gets `{"type":"scope","reason":...,"text":...}` and then `done`, with no
+Routes call and no Gemini call 2. Code decides; Gemini never writes the reply:
+
+- **Gemini call 1** classifies. The extract schema has a required `scope`
+  (`trip` | `out_of_scope`) and `scope_reason`: `out_of_area` (an end outside
+  the Bay Area), `other_mode` (driving, flying, rideshare) or `off_topic`
+  (weather, jokes, homework, chit-chat, nonsense, and prompt-injection
+  attempts). `outside_place` names the end outside the area; it is used only
+  if it is the trip's own origin or destination.
+- **The box guard** checks every option's resolved `origin_latlng` and
+  `dest_latlng` after routing (cached routes too). An end outside the box is
+  answered as `out_of_area` and no options are shown. The box is
+  lat 36.9 to 38.9, lng -123.6 to -121.2 (edges inclusive): the nine counties
+  plus Caltrain and VTA to Gilroy (`assistant/scope.py`, `BAY_AREA_BOUNDS`).
+  It is a rectangle, so Sacramento, Stockton, Davis and Santa Cruz fall inside
+  it. For those, Gemini's `out_of_area` is the check. It also catches named
+  places before routing: the `, San Francisco Bay Area, CA` suffix once pulled
+  "Los Angeles" into SF, so the box alone did not catch that question.
+- **The words** come from a hand-written pool in `assistant/scope.py`, five
+  to six variants per reason, picked with `random.choice`. Out-of-area
+  variants may name the rider's place, cleaned and cut to 40 characters.
+  Every variant points the rider back at what the bot can do, and none
+  contains times, numbers (other than in the example question), modes or
+  routes. Tests check the whole pool.
 
 ## Client address and the rate limit
 

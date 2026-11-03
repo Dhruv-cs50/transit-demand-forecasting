@@ -9,6 +9,8 @@ Fake-mode triggers, matched on the rider's place names or message:
   * a place containing "error": Google Routes fails;
   * "invent" anywhere in the message: the fake model states a time Google never
     gave, so the template replacement can be seen;
+  * "los angeles", "san diego" or "las vegas": out of area; "drive" or "uber":
+    another mode; "weather" or "joke": off topic (a ``scope`` reply);
   * no "from X to Y": the model asks a follow-up question.
 """
 
@@ -22,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 from assistant.config import DISPLAY_TZ
 from assistant.routing import RoutingError
-from assistant.types import Context, FollowUp, Leg, TripOption, TripQuery, Weather
+from assistant.types import Context, FollowUp, Leg, OutOfScope, TripOption, TripQuery, Weather
 
 PT = ZoneInfo(DISPLAY_TZ)
 _UNSET: Any = object()
@@ -133,7 +135,7 @@ class FakeGemini:
         self.stream_closed = False  # set when the explain stream is closed, however it ended
         self._invent = False
 
-    async def extract(self, message: str, now: datetime) -> TripQuery | FollowUp | None:
+    async def extract(self, message: str, now: datetime) -> TripQuery | FollowUp | OutOfScope | None:
         self.extract_calls += 1
         if self.extract_delay_s:
             await asyncio.sleep(self.extract_delay_s)
@@ -142,6 +144,14 @@ class FakeGemini:
         self._invent = "invent" in message.lower()
         if self.query is not _UNSET:
             return self.query
+        low = message.lower()
+        for word in ("los angeles", "san diego", "las vegas"):
+            if word in low:
+                return OutOfScope("out_of_area", word.title())
+        if "drive" in low or "uber" in low:
+            return OutOfScope("other_mode")
+        if "weather" in low or "joke" in low:
+            return OutOfScope("off_topic")
         found = _FROM_TO.search(message.strip())
         if not found:
             return FollowUp("Where are you starting from, and where would you like to go?")

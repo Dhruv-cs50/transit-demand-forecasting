@@ -9,7 +9,7 @@
               path is [[lat, lng], ...] decoded from Google's encoded polyline
               (a straight origin -> destination line when there is none).
 
-   POST {apiBase}/chat streams NDJSON: follow_up | form | options, text*,
+   POST {apiBase}/chat streams NDJSON: follow_up | form | scope + done | options, text*,
    replace?, caveats, done. Options paint first; text deltas follow into an
    aria-live region. Rider text and service text are set with textContent only. */
 (function () {
@@ -191,6 +191,7 @@
         case 'caveats': renderCaveats(ev); break;
         case 'follow_up': note(ev.question || 'Could you tell me more about the trip?', 'ask'); input.focus(); break;
         case 'form': renderForm(); break;
+        case 'scope': note(ev.text || '', ''); input.focus(); break; /* out of bounds: plain text, set with textContent */
         default: break; /* done, and anything newer */
       }
     }

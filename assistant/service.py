@@ -7,8 +7,15 @@ Gemini call 2 (explain), streamed and checked a sentence at a time -> ``caveats`
 template answer; a time Google did not give is never shown.
 
 Events, one JSON object per line: ``follow_up`` | ``form`` (then the stream
-ends), or ``options`` (with ``maps_link`` and no options when there is no route
-or Routing failed), ``text``*, ``replace``?, ``caveats``, ``done``.
+ends), ``scope`` then ``done`` for an out-of-bounds question, or ``options``
+(with ``maps_link`` and no options when there is no route or Routing failed),
+``text``*, ``replace``?, ``caveats``, ``done``.
+
+Out of bounds (another region, another mode, not a trip, an injection attempt):
+Gemini call 1 says so in ``scope``/``scope_reason``, or an end Google resolved
+lies outside the Bay Area box; either way the reply is a hand-written variant
+from ``assistant.scope``, with no Routes call (box: no options shown) and no
+Gemini call 2.
 
 Logging: one structured line per request with latencies and event counts and
 nothing the rider typed. CORS: the panel calls the service cross-origin from
@@ -41,7 +48,8 @@ from assistant.answer import build_digest, explanation_ok, template_explanation
 from assistant.config import DISPLAY_TZ, Settings, load_settings
 from assistant.context_tools import gather_context
 from assistant.routing import AREA_SUFFIX, RoutingError, plan_trips, same_place
-from assistant.types import Context, FollowUp, TripOption, TripQuery
+from assistant.scope import in_bay_area, scope_text
+from assistant.types import Context, FollowUp, OutOfScope, TripOption, TripQuery
 
 log = logging.getLogger("assistant.service")
 
@@ -202,6 +210,24 @@ def options_event(options: list[TripOption]) -> dict[str, Any]:
     }
 
 
+def scope_event(reason: str, place: str | None = None) -> dict[str, Any]:
+    """The reply to an out-of-bounds question: a hand-written variant from ``assistant.scope``."""
+    return {"type": "scope", "reason": reason, "text": scope_text(reason, place)}
+
+
+def outside_end(options: list[TripOption], q: TripQuery) -> str | None:
+    """The rider's name for an end Google resolved outside the Bay Area box, or ``None``.
+
+    Every option is checked, origin first.
+    """
+    for o in options:
+        if not in_bay_area(o.origin_latlng):
+            return q.origin
+        if not in_bay_area(o.dest_latlng):
+            return q.destination
+    return None
+
+
 # Sentence = text up to . ! ? (plus closing quotes) followed by whitespace, or a newline.
 _SENTENCE = re.compile(r".*?(?:[.!?]+[\"')\]]*\s+|\n\s*)", re.S)
 
@@ -294,7 +320,9 @@ async def stream_chat(rt: "_Runtime", message: str) -> AsyncIterator[bytes]:
     t0 = time.perf_counter()
     latency = {"extract": 0, "routing": 0, "context": 0, "explain": 0}
     counts: Counter[str] = Counter()
-    info: dict[str, Any] = {"outcome": "error", "options": 0, "route_cache": None, "template": False}
+    info: dict[str, Any] = {
+        "outcome": "error", "options": 0, "route_cache": None, "template": False, "scope": None,
+    }
     services, settings = rt.services, rt.settings
     context_task: asyncio.Task[Context] | None = None
     explainer: AsyncIterator[dict[str, Any]] | None = None
@@ -314,6 +342,11 @@ async def stream_chat(rt: "_Runtime", message: str) -> AsyncIterator[bytes]:
             log.warning("extract failed: %s", type(exc).__name__)
             parsed = None
         latency["extract"] = _ms(t)
+        if isinstance(parsed, OutOfScope):
+            info["outcome"], info["scope"] = "scope", parsed.reason
+            yield out(scope_event(parsed.reason, parsed.place))
+            yield out({"type": "done", "latency_ms": {**latency, "total": _ms(t0)}})
+            return
         if isinstance(parsed, FollowUp):
             info["outcome"] = "follow_up"
             yield out({"type": "follow_up", "question": parsed.question})
@@ -354,6 +387,12 @@ async def stream_chat(rt: "_Runtime", message: str) -> AsyncIterator[bytes]:
             latency_total = {**latency, "total": _ms(t0)}
             yield out({"type": "done", "latency_ms": latency_total})
             return
+        outside = outside_end(options, q)
+        if outside is not None:  # Google resolved an end beyond the Bay Area: decline, show nothing
+            info["outcome"], info["scope"] = "scope", "out_of_area"
+            yield out(scope_event("out_of_area", outside))
+            yield out({"type": "done", "latency_ms": {**latency, "total": _ms(t0)}})
+            return
         if same_place(options):  # Google resolved both ends to one spot
             info["outcome"] = "same_place"
             yield out({"type": "follow_up", "question": SAME_PLACE_QUESTION})
@@ -392,7 +431,7 @@ async def stream_chat(rt: "_Runtime", message: str) -> AsyncIterator[bytes]:
         info["outcome"] = "answered"
     except Exception as exc:  # noqa: BLE001  a bug must not leave the panel hanging
         log.error("chat failed: %s", type(exc).__name__)
-        if not counts["options"] and not counts["follow_up"] and not counts["form"]:
+        if not counts["options"] and not counts["follow_up"] and not counts["form"] and not counts["scope"]:
             yield out({"type": "form"})
         elif not counts["done"]:
             yield out({"type": "done", "latency_ms": {**latency, "total": _ms(t0)}})

@@ -275,15 +275,17 @@ def test_question_file_is_within_the_rate_limit_and_covers_the_required_cases():
     pytest.importorskip("yaml")
     warmup, questions = ev.load_questions(ROOT / "eval" / "assistant_questions.yaml")
     assert warmup
-    assert 1 + len(questions) <= ev.RATE_LIMIT_PER_HOUR
+    assert 1 + len(questions) <= 8  # a live run stays well inside the 10-an-hour limit
     ids = [q["id"] for q in questions]
     assert len(ids) == len(set(ids))
-    assert {q["kind"] for q in questions} == {"route", "refuse"}
+    assert {q["kind"] for q in questions} <= {"route", "refuse", "scope"}
     expected = {a for q in questions for a in q.get("expect_agencies", [])}
     assert expected == {"BART", "VTA", "Caltrain"}
     assert any(q.get("dest_stop_excludes") for q in questions)  # the 12th St check
     assert any(q.get("depart_offset_min") for q in questions)  # the relative time
-    assert sum(q["kind"] == "refuse" for q in questions) >= 2  # out of area and nonsense
+    # out of area, another mode and nonsense: one of each reason
+    assert {q["reason"] for q in questions if q["kind"] == "scope"} == set(scope_mod.REASONS)
+    assert any("los angeles" in q["message"].lower() for q in questions if q["kind"] == "scope")
     assert all(len(q["message"]) <= 500 for q in questions)
 
 
@@ -417,3 +419,38 @@ def test_ask_flags_a_sample_the_computer_slept_through():
 def test_pyyaml_is_pinned_so_the_question_file_tests_run_in_ci():
     pins = (ROOT / "assistant" / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
     assert any(line.strip().lower().startswith("pyyaml==") for line in pins)
+
+
+# --- out-of-bounds questions (kind: scope) ---------------------------------------------------
+
+from assistant import scope as scope_mod  # noqa: E402
+
+
+def scope_q(reason: str = "out_of_area") -> dict:
+    return {"id": "s", "message": "Los Angeles to San Diego", "kind": "scope", "reason": reason}
+
+
+def test_summary_of_a_scope_reply():
+    s = summary("scope")
+    assert s["outcome"] == "scope"
+    assert s["scope_reason"] == "out_of_area"
+    assert scope_mod.in_pool("out_of_area", s["scope_text"])
+    assert s["first_options_s"] is None and s["done_s"] is not None
+
+
+def test_scope_question_needs_a_pool_reply_for_its_reason():
+    s = summary("scope")
+    assert failed(ev.check_question(scope_q(), s)) == set()
+    assert "scope" in failed(ev.check_question(scope_q("off_topic"), s))  # wrong reason
+    made_up = copy.deepcopy(s)
+    made_up["scope_text"] = "Take I-5 south; it is about five hours."
+    assert "scope" in failed(ev.check_question(scope_q(), made_up))  # Gemini-ish text is not the pool
+    for name in ("route_ok", "no_routes", "follow_up"):
+        assert "scope" in failed(ev.check_question(scope_q(), summary(name)))
+
+
+def test_compact_record_keeps_the_scope_reply():
+    s = {**summary("scope"), "status": 200}
+    record = ev._compact(scope_q(), s, ev.check_question(scope_q(), s))
+    assert record["scope_reason"] == "out_of_area" and record["scope_text"] == s["scope_text"]
+    assert record["ok"] is True
