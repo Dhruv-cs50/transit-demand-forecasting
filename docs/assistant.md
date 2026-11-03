@@ -120,6 +120,18 @@ Routes call and no Gemini call 2. Code decides; Gemini never writes the reply:
   (weather, jokes, homework, chit-chat, nonsense, and prompt-injection
   attempts). `outside_place` names the end outside the area; it is used only
   if it is the trip's own origin or destination.
+- **The deny-list** (`OUTSIDE_PLACES` in `assistant/scope.py`) is deterministic.
+  It checks the extracted origin and destination before routing, so before the
+  area suffix is added, even when Gemini said `trip`. It covers well-known
+  places outside the area: Los Angeles/LA, San Diego, Sacramento, Fresno,
+  Bakersfield, Stockton, Modesto, Santa Cruz, Monterey, Reno, Lake Tahoe, Las
+  Vegas, Portland, Seattle, New York/NYC, Chicago and Yosemite.
+  - Matching is case-insensitive and on whole words. "LA" matches in capitals
+    only, so "La Honda" is not caught.
+  - A name followed by a street word ("Sacramento St", "Monterey Blvd") or
+    inside an intersection ("Powell & Stockton") is not caught.
+  - Napa is left off on purpose: it is one of the nine counties, and Google
+    Routes reaches it by VINE buses that connect to BART.
 - **The box guard** checks every option's resolved `origin_latlng` and
   `dest_latlng` after routing (cached routes too). An end outside the box is
   answered as `out_of_area` and no options are shown. The box is

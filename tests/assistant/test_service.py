@@ -809,12 +809,12 @@ def test_box_guard_turns_an_outside_endpoint_into_a_scope_reply(which, monkeypat
         options[0] = replace(options[0], dest_latlng=SAN_DIEGO)
     else:
         options[-1] = replace(options[-1], dest_latlng=SAN_DIEGO)
-    q = TripQuery("Los Angeles Union Station", "San Diego Old Town", NOW)
+    q = TripQuery("Union Station", "Old Town", NOW)
     rig = Rig(gemini=FakeGemini(query=q), routing=FakeRouting(options=options))
     evs = events(rig.chat())
     assert types_of(evs) == ["scope", "done"]
     assert evs[0]["reason"] == "out_of_area" and scope_mod.in_pool("out_of_area", evs[0]["text"])
-    expected = "Los Angeles Union Station" if which == "origin" else "San Diego Old Town"
+    expected = "Union Station" if which == "origin" else "Old Town"
     assert expected in evs[0]["text"]
     assert rig.routing.calls == 1 and rig.context.calls == 0 and rig.gemini.explain_calls == 0
 
@@ -846,3 +846,42 @@ def test_fake_mode_shows_a_scope_reply(monkeypatch):
         assert types_of(evs) == ["scope", "done"] and evs[0]["reason"] == "off_topic"
         evs = events(client.post("/chat", json={"message": "drive me from Palo Alto to San Jose"}))
         assert evs[0]["reason"] == "other_mode"
+
+
+# --- the deny-list layer: named places outside the area, before routing ---------------------
+
+
+@pytest.mark.parametrize(
+    "origin,destination,named",
+    [
+        ("LA", "San Diego", "San Diego"),  # the destination is named when both ends are outside
+        ("Los Angeles", "San Diego", "San Diego"),
+        ("SFO", "Sacramento", "Sacramento"),
+        ("Reno", "Berkeley", "Reno"),
+        ("Powell St BART", "Lake Tahoe", "Lake Tahoe"),
+    ],
+)
+def test_deny_list_refuses_even_when_gemini_says_trip(origin, destination, named, monkeypatch):
+    monkeypatch.setattr(scope_mod.random, "choice", lambda seq: seq[0])
+    rig = GeminiRig(model_json(scope="trip", origin=origin, destination=destination))
+    evs = events(rig.chat({"message": f"{origin} to {destination}"}))
+    assert types_of(evs) == ["scope", "done"]
+    assert evs[0]["reason"] == "out_of_area" and scope_mod.in_pool("out_of_area", evs[0]["text"])
+    assert named in evs[0]["text"]
+    # caught before routing: no Routes call, no context, no Gemini call 2
+    assert rig.routing.calls == 0 and rig.context.calls == 0 and rig.gemini_calls == ["generate"]
+
+
+@pytest.mark.parametrize(
+    "origin,destination",
+    [
+        ("Los Altos", "San Jose"),
+        ("Sacramento St and Polk", "Monterey Blvd"),
+        ("Stockton St", "Napa"),
+    ],
+)
+def test_deny_list_lets_bay_area_names_through(origin, destination):
+    rig = GeminiRig(model_json(scope="trip", origin=origin, destination=destination))
+    kinds = types_of(events(rig.chat({"message": f"{origin} to {destination}"})))
+    assert kinds[0] == "options" and "scope" not in kinds
+    assert rig.routing.calls == 1

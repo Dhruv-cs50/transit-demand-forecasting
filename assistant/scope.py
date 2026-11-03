@@ -89,6 +89,51 @@ BAY_AREA_BOUNDS = {"lat_min": 36.9, "lat_max": 38.9, "lng_min": -123.6, "lng_max
 
 Choice = Callable[[Sequence[str]], str]
 
+# Well-known places outside the area, matched against the rider's origin and destination
+# before routing (so before the Bay Area suffix can pull "Los Angeles" into San Francisco).
+# Case-insensitive, whole words, longest first. "LA" is matched in capitals only ("L.A." too),
+# so "La Honda" and "Calle de la Playa" are not caught. Napa is deliberately absent: it is one
+# of the nine counties, and Google Routes reaches it by VINE buses that connect to BART.
+OUTSIDE_PLACES = (
+    "Los Angeles", "San Diego", "Sacramento", "Fresno", "Bakersfield", "Stockton", "Modesto",
+    "Santa Cruz", "Monterey", "Reno", "Lake Tahoe", "Tahoe", "Las Vegas", "Vegas",
+    "Portland", "Seattle", "New York City", "New York", "NYC", "Chicago", "Yosemite",
+)
+# Many of those names are also Bay Area streets or districts (Sacramento St, Stockton St,
+# Monterey Blvd, Santa Cruz Ave): a name followed by one of these words is not the place,
+_STREET_WORDS = (
+    "st", "street", "ave", "av", "avenue", "blvd", "boulevard", "rd", "road", "dr", "drive", "way", "ln",
+    "lane", "pl", "place", "ct", "court", "ter", "terrace", "hwy", "highway", "expy", "expressway", "pkwy",
+    "parkway", "cir", "circle", "sq", "square", "heights", "alley", "row", "walk",
+)
+# and neither is a name inside an intersection ("Powell & Stockton", "Stockton and Sutter").
+_INTERSECTION = re.compile(r"&|@|/|\band\b|\bat\b", re.I)
+_NAMES_RE = re.compile(
+    r"(?<![\w.])(?:"
+    + "|".join(re.escape(n).replace(r"\ ", r"\s+") for n in sorted(OUTSIDE_PLACES, key=len, reverse=True))
+    + r")(?!\w)",
+    re.I,
+)
+_LA_RE = re.compile(r"(?<![\w.])(?:L\.A\.|LA)(?!\w)")  # case-sensitive on purpose
+_STREET_AFTER = re.compile(r"\.?\s+(?:" + "|".join(_STREET_WORDS) + r")\b", re.I)
+
+
+def outside_place_named(place: str | None) -> str | None:
+    """The well-known out-of-area place named in ``place`` (as written), or ``None``.
+
+    ``None`` too when the name is a street ("Sacramento St") or part of an intersection.
+    """
+    if not isinstance(place, str) or not place.strip():
+        return None
+    if _INTERSECTION.search(place):
+        return None
+    for match in _NAMES_RE.finditer(place):
+        if _STREET_AFTER.match(place, match.end()):
+            continue
+        return " ".join(match.group(0).split())
+    found = _LA_RE.search(place)
+    return found.group(0) if found else None
+
 
 def in_bay_area(latlng: tuple[float, float]) -> bool:
     """Whether a (lat, lng) lies inside ``BAY_AREA_BOUNDS``; anything unreadable is outside."""

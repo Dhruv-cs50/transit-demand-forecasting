@@ -192,3 +192,81 @@ def test_every_recorded_route_endpoint_is_inside_the_box():
 def test_bad_coordinates_are_outside():
     assert not in_bay_area((float("nan"), MID_LNG))
     assert not in_bay_area(None)  # type: ignore[arg-type]
+
+
+# --- the deny-list: well-known places outside the area, checked before routing -------------
+
+from assistant.scope import outside_place_named  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "written,named",
+    [
+        ("Los Angeles", "Los Angeles"),
+        ("los angeles union station", "los angeles"),
+        ("LA", "LA"),
+        ("L.A.", "L.A."),
+        ("downtown LA", "LA"),
+        ("San Diego", "San Diego"),
+        ("Sacramento", "Sacramento"),
+        ("Sacramento Amtrak station", "Sacramento"),
+        ("Fresno", "Fresno"),
+        ("Bakersfield", "Bakersfield"),
+        ("Stockton", "Stockton"),
+        ("Modesto", "Modesto"),
+        ("Santa Cruz", "Santa Cruz"),
+        ("Santa Cruz Boardwalk", "Santa Cruz"),
+        ("Monterey", "Monterey"),
+        ("Monterey Bay Aquarium", "Monterey"),
+        ("Reno", "Reno"),
+        ("Lake Tahoe", "Lake Tahoe"),
+        ("South Lake Tahoe", "Lake Tahoe"),
+        ("Tahoe", "Tahoe"),
+        ("Las Vegas", "Las Vegas"),
+        ("Vegas", "Vegas"),
+        ("Portland", "Portland"),
+        ("Seattle", "Seattle"),
+        ("New York", "New York"),
+        ("NYC", "NYC"),
+        ("Chicago", "Chicago"),
+        ("Yosemite", "Yosemite"),
+        ("Yosemite Valley", "Yosemite"),
+    ],
+)
+def test_deny_list_names_places_outside_the_area(written, named):
+    assert outside_place_named(written) == named
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        "Los Altos",
+        "San Jose",
+        "Sacramento St",
+        "Sacramento St.",
+        "Sacramento Street",
+        "1500 Sacramento Street, San Francisco",
+        "Stockton St",
+        "Stockton Street and Sutter",
+        "Powell & Stockton",
+        "Monterey Blvd",
+        "Monterey Boulevard",
+        "Monterey Heights",
+        "Santa Cruz Ave, Menlo Park",
+        "Chicago Way",
+        "Portland Ave",
+        "Yosemite Ave",
+        "Fresno St",
+        "La Honda",
+        "Calle de la Playa",
+        "Los Gatos",
+        "Napa",  # one of the nine counties; VINE buses connect it to BART
+        "Napa Valley",
+        "Lorenzo",
+        "Moreno Ave",
+        "SAP Center",
+        "Mountain View Caltrain",
+    ],
+)
+def test_deny_list_leaves_bay_area_names_alone(written):
+    assert outside_place_named(written) is None

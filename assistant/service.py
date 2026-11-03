@@ -48,7 +48,7 @@ from assistant.answer import build_digest, explanation_ok, template_explanation
 from assistant.config import DISPLAY_TZ, Settings, load_settings
 from assistant.context_tools import gather_context
 from assistant.routing import AREA_SUFFIX, RoutingError, plan_trips, same_place
-from assistant.scope import in_bay_area, scope_text
+from assistant.scope import in_bay_area, outside_place_named, scope_text
 from assistant.types import Context, FollowUp, OutOfScope, TripOption, TripQuery
 
 log = logging.getLogger("assistant.service")
@@ -356,6 +356,14 @@ async def stream_chat(rt: "_Runtime", message: str) -> AsyncIterator[bytes]:
             yield out({"type": "form"})
             return
         q = parsed
+        # Layer 3, deterministic: a well-known place outside the area, named as written, before
+        # routing (the Bay Area suffix once pulled "Los Angeles" into SF, past the box guard).
+        named = outside_place_named(q.destination) or outside_place_named(q.origin)
+        if named is not None:
+            info["outcome"], info["scope"] = "scope", "out_of_area"
+            yield out(scope_event("out_of_area", named))
+            yield out({"type": "done", "latency_ms": {**latency, "total": _ms(t0)}})
+            return
         if same_place(q):
             info["outcome"] = "same_place"
             yield out({"type": "follow_up", "question": SAME_PLACE_QUESTION})
