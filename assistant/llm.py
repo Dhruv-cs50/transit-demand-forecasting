@@ -29,6 +29,7 @@ from google.genai import types
 
 from assistant.config import DISPLAY_TZ, Settings
 from assistant.prompts import EXPLAIN_SYSTEM, EXTRACT_SYSTEM
+from assistant.station_names import normalise_place
 from assistant.types import FollowUp, OutOfScope, TripQuery
 
 EXTRACT_MAX_TOKENS = 120
@@ -230,6 +231,9 @@ def _to_query(raw: str | None, now: datetime, tz: ZoneInfo) -> TripQuery | Follo
     if origin is None or destination is None:
         # A place is missing (or unusable): ask, or fall back to the form when there is no question.
         return FollowUp(question) if question else None
+
+    # "Winchester" -> "Winchester VTA station": only bare names on the station allowlist.
+    origin, destination = normalise_place(origin), normalise_place(destination)
 
     depart = _parse_time(data.get("depart_at"), tz, now)
     if depart is _UNUSABLE:
