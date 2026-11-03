@@ -3,8 +3,8 @@
 Everything here runs offline. The NDJSON fixtures in ``fixtures/streams/`` are
 recorded from the real service code (``ASSISTANT_FAKE=1``), so they have the
 event shapes ``POST /chat`` sends; the live run itself is not tested here.
-PyYAML is not pinned in ``assistant/requirements*.txt``, so the one test that
-loads the question file skips without it.
+PyYAML is pinned in ``assistant/requirements-dev.txt`` so the question-file tests
+run in CI (they still skip, rather than fail, where it is not installed).
 """
 
 from __future__ import annotations
@@ -412,3 +412,8 @@ def test_ask_flags_a_sample_the_computer_slept_through():
     mono, wall = [0.0], [1000.0]
     r = ev.ask(_Stub(nap), "x", clock=lambda: mono[0], wall=lambda: wall[0])
     assert r["suspect_sleep"] is True and r["suspended_s"] > 100
+
+
+def test_pyyaml_is_pinned_so_the_question_file_tests_run_in_ci():
+    pins = (ROOT / "assistant" / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
+    assert any(line.strip().lower().startswith("pyyaml==") for line in pins)
