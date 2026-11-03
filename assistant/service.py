@@ -47,7 +47,8 @@ log = logging.getLogger("assistant.service")
 
 TZ = DISPLAY_TZ
 ATTRIBUTION = "Routes by Google"
-EXTRACT_TIMEOUT_S = 2.5
+# Start-up warm-up of the Gemini client: best effort, and readiness waits at most this long for it.
+WARMUP_TIMEOUT_S = 3.0
 # plan_trips has its own 2.5 s HTTP timeout; this outer bound catches anything that hangs past it.
 ROUTING_DEADLINE_S = 3.0
 ROUTING_CACHE_TTL_S = 600
@@ -308,7 +309,7 @@ async def stream_chat(rt: "_Runtime", message: str) -> AsyncIterator[bytes]:
         # 1. Gemini call 1.
         t = time.perf_counter()
         try:
-            parsed = await asyncio.wait_for(services.gemini.extract(message, now), EXTRACT_TIMEOUT_S)
+            parsed = await asyncio.wait_for(services.gemini.extract(message, now), settings.EXTRACT_TIMEOUT_S)
         except Exception as exc:  # noqa: BLE001  raise or timeout: show the form
             log.warning("extract failed: %s", type(exc).__name__)
             parsed = None
@@ -432,6 +433,23 @@ def _configure_logging() -> None:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
+async def warm_up(services: Services) -> None:
+    """Warm Gemini once at start-up so a fresh instance's first extract is not cold.
+
+    Best effort: bounded by ``WARMUP_TIMEOUT_S`` and on any failure it only logs,
+    so the service still becomes ready. Services without a ``warm`` are skipped.
+    """
+    warm = getattr(services.gemini, "warm", None)
+    if warm is None:
+        return
+    t = time.perf_counter()
+    try:
+        await asyncio.wait_for(warm(), WARMUP_TIMEOUT_S)
+        log.info(json.dumps({"event": "warm", "ok": True, "ms": _ms(t)}, separators=(",", ":")))
+    except Exception as exc:  # noqa: BLE001  includes the timeout; never stop the service starting
+        log.warning("gemini warm-up failed: %s", type(exc).__name__)
+
+
 def create_app(
     settings: Settings | None = None,
     services: Services | None = None,
@@ -466,6 +484,7 @@ def create_app(
             s = load_settings()
             owned = http_client or httpx.AsyncClient(timeout=httpx.Timeout(5.0))
             app.state.rt = build(s, real_services(s, owned))
+        await warm_up(app.state.rt.services)
         try:
             yield
         finally:

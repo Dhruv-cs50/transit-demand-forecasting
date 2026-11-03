@@ -36,6 +36,9 @@ EXPLAIN_TEMPERATURE = 0.2
 MAX_PLACE_CHARS = 200
 # The model rounds "now" to the minute; anything within this window of ``now`` is "now", not the past.
 PAST_GRACE_S = 120
+# The start-up warm-up: a fixed text and a one-token cap, so it costs almost nothing.
+WARMUP_CONTENTS = "ping"
+WARMUP_MAX_TOKENS = 1
 
 _FIELDS = ("origin", "destination", "depart_at", "follow_up")
 # JSON schema for call 1. Every key is required but may be null, so the reply always has all four.
@@ -116,6 +119,18 @@ class Gemini:
         self._client = client or genai.Client(
             vertexai=True, project=settings.GCP_PROJECT, location=settings.VERTEX_REGION
         )
+
+    async def warm(self) -> None:
+        """Open the connection and fetch credentials before the first rider asks.
+
+        A one-token call on a fixed text to the same model, so the first real
+        extract on a fresh instance does not pay for TLS, the token exchange and
+        the model's first-request latency. Raises on failure; the caller only logs.
+        """
+        config = types.GenerateContentConfig(
+            max_output_tokens=WARMUP_MAX_TOKENS, temperature=0.0, thinking_config=_no_thinking()
+        )
+        await self._client.aio.models.generate_content(model=self._model, contents=WARMUP_CONTENTS, config=config)
 
     async def extract(self, message: str, now: datetime) -> TripQuery | FollowUp | None:
         """Call 1. ``None`` when the model's output does not parse against the schema."""

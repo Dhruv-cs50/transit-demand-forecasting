@@ -29,6 +29,7 @@ ENV_KEYS = [
     "TICKETMASTER_KEY",
     "TOOL_TIMEOUT_S",
     "EXPLAIN_TIMEOUT_S",
+    "EXTRACT_TIMEOUT_S",
     "RATE_LIMIT_PER_HOUR",
     "MAX_MESSAGE_CHARS",
     "TZ",
@@ -64,6 +65,7 @@ def test_settings_defaults(monkeypatch):
     s = load_settings()
     assert s.VERTEX_REGION == "us-west1"
     assert s.EXPLAIN_TIMEOUT_S == 4.0
+    assert s.EXTRACT_TIMEOUT_S == 4.0  # a cold first extract took over 2.5 s
     assert s.RATE_LIMIT_PER_HOUR == 10
     assert s.TZ == "America/Los_Angeles"
     assert s.TICKETMASTER_KEY is None
@@ -81,6 +83,7 @@ def test_settings_read_env_overrides(monkeypatch):
     monkeypatch.setenv("TICKETMASTER_KEY", "tm")
     monkeypatch.setenv("TOOL_TIMEOUT_S", "0.5")
     monkeypatch.setenv("EXPLAIN_TIMEOUT_S", "2")
+    monkeypatch.setenv("EXTRACT_TIMEOUT_S", "3.5")
     monkeypatch.setenv("RATE_LIMIT_PER_HOUR", "3")
     monkeypatch.setenv("MAX_MESSAGE_CHARS", "100")
     s = load_settings()
@@ -88,6 +91,7 @@ def test_settings_read_env_overrides(monkeypatch):
     assert (s.ROUTES_API_KEY, s.TOKEN_511, s.TICKETMASTER_KEY) == ("rk", "t511", "tm")
     assert s.TOOL_TIMEOUT_S == 0.5
     assert s.EXPLAIN_TIMEOUT_S == 2.0
+    assert s.EXTRACT_TIMEOUT_S == 3.5
     assert s.RATE_LIMIT_PER_HOUR == 3
     assert s.MAX_MESSAGE_CHARS == 100
 

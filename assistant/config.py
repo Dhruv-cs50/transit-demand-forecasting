@@ -24,6 +24,9 @@ class Settings:
     TICKETMASTER_KEY: str | None = field(default=None, repr=False)
     TOOL_TIMEOUT_S: float = 1.5
     EXPLAIN_TIMEOUT_S: float = 4.0
+    # Gemini call 1. 4 s, not 2.5: the first extract on a fresh instance took longer than 2.5 s
+    # (connection, auth and model warm-up), which sent the rider the form.
+    EXTRACT_TIMEOUT_S: float = 4.0
     RATE_LIMIT_PER_HOUR: int = 10
     MAX_MESSAGE_CHARS: int = 500
     # Fixed, not read from the environment: the process-wide TZ variable is
@@ -54,6 +57,7 @@ def load_settings() -> Settings:
         TICKETMASTER_KEY=env.get("TICKETMASTER_KEY") or None,
         TOOL_TIMEOUT_S=float(env.get("TOOL_TIMEOUT_S", "1.5")),
         EXPLAIN_TIMEOUT_S=float(env.get("EXPLAIN_TIMEOUT_S", "4.0")),
+        EXTRACT_TIMEOUT_S=float(env.get("EXTRACT_TIMEOUT_S", "4.0")),
         RATE_LIMIT_PER_HOUR=int(env.get("RATE_LIMIT_PER_HOUR", "10")),
         MAX_MESSAGE_CHARS=int(env.get("MAX_MESSAGE_CHARS", "500")),
     )

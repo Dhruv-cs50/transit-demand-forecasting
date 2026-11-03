@@ -182,9 +182,8 @@ def test_chat_extract_exception_returns_form():
     assert rig.routing.calls == 0
 
 
-def test_chat_extract_timeout_returns_form(monkeypatch):
-    monkeypatch.setattr(svc, "EXTRACT_TIMEOUT_S", 0.05)
-    rig = Rig(gemini=FakeGemini(extract_delay_s=1.0))
+def test_chat_extract_timeout_returns_form():
+    rig = Rig(gemini=FakeGemini(extract_delay_s=1.0), settings=replace(SETTINGS, EXTRACT_TIMEOUT_S=0.05))
     assert events(rig.chat()) == [{"type": "form"}]
     assert rig.routing.calls == 0
 
@@ -588,3 +587,63 @@ def test_cors_exposes_retry_after_on_429():
     assert last.status_code == 429
     assert last.headers["access-control-allow-origin"] == SITE
     assert "retry-after" in last.headers["access-control-expose-headers"].lower()
+
+
+# --- start-up warm-up --------------------------------------------------------------
+
+
+class WarmGemini(FakeGemini):
+    def __init__(self, warm_error=None, warm_delay_s=0.0, **kw):
+        super().__init__(**kw)
+        self.warm_error, self.warm_delay_s, self.warm_calls = warm_error, warm_delay_s, 0
+
+    async def warm(self):
+        self.warm_calls += 1
+        if self.warm_delay_s:
+            import asyncio
+
+            await asyncio.sleep(self.warm_delay_s)
+        if self.warm_error is not None:
+            raise self.warm_error
+
+
+def test_extract_waits_up_to_the_configured_timeout():
+    rig = Rig(gemini=FakeGemini(extract_delay_s=0.2), settings=replace(SETTINGS, EXTRACT_TIMEOUT_S=1.0))
+    assert types_of(events(rig.chat()))[0] == "options"
+
+
+def test_startup_warms_gemini_once():
+    gemini = WarmGemini()
+    rig = Rig(gemini=gemini)
+    with TestClient(rig.app) as client:
+        assert client.get("/health").json()["status"] == "ok"
+        client.post("/chat", json=BODY)
+    assert gemini.warm_calls == 1
+
+
+def test_startup_warm_failure_only_logs(caplog):
+    gemini = WarmGemini(warm_error=RuntimeError("vertex cold"))
+    rig = Rig(gemini=gemini)
+    with caplog.at_level(logging.WARNING, logger="assistant.service"):
+        with TestClient(rig.app) as client:
+            assert client.get("/health").json()["status"] == "ok"
+            assert types_of(events(client.post("/chat", json=BODY)))[0] == "options"
+    assert gemini.warm_calls == 1
+    assert any("warm" in r.getMessage() for r in caplog.records)
+
+
+def test_startup_warm_never_blocks_readiness_for_long(monkeypatch):
+    import time
+
+    monkeypatch.setattr(svc, "WARMUP_TIMEOUT_S", 0.1)
+    gemini = WarmGemini(warm_delay_s=5.0)
+    rig = Rig(gemini=gemini)
+    t0 = time.perf_counter()
+    with TestClient(rig.app) as client:
+        assert client.get("/health").json()["status"] == "ok"
+    assert time.perf_counter() - t0 < 2.0
+    assert gemini.warm_calls == 1
+
+
+def test_startup_warm_bound_is_a_few_seconds():
+    assert 0 < svc.WARMUP_TIMEOUT_S <= 5

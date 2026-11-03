@@ -385,3 +385,13 @@ def test_spring_forward_a_past_time_is_replaced():
     q, _ = extract(reply(depart_at="2026-03-08T01:50:00-08:00"), now=now)  # 15 min ago
     assert q.past_time_replaced is True
     assert _utc(q.depart_at) == _utc(now)
+
+
+def test_warm_makes_one_tiny_fixed_call():
+    client = FakeClient(text="ok")
+    run(Gemini(SETTINGS, client=client).warm())
+    (call,) = client.models.calls
+    assert call["kind"] == "generate" and call["model"] == "gemini-test-flash"
+    assert call["contents"] == llm.WARMUP_CONTENTS  # fixed text, never a rider's
+    assert call["config"].max_output_tokens <= 8
+    assert call["config"].thinking_config.thinking_budget == 0
