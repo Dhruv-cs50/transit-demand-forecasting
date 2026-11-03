@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -207,3 +207,53 @@ async def test_malformed_body_raises_routing_error():
         async with httpx.AsyncClient() as client:
             with pytest.raises(RoutingError):
                 await plan_trips(query(), client, "test-key")
+
+
+@pytest.mark.asyncio
+async def test_trip_times_are_right_across_the_fall_back_hour():
+    """Walking time is added in real time, so a trip spanning 01:00-02:00 on 2026-11-01 is not off by an hour."""
+    data = fixture("routes_bart.json")
+    route = data["routes"][0]
+    steps = route["legs"][0]["steps"]
+    transit = [s for s in steps if "transitDetails" in s]
+    # One ride, 08:50 UTC (01:50 PDT) -> 09:20 UTC (01:20 PST): 30 minutes, wall clock goes backwards.
+    for s in transit[1:]:
+        steps.remove(s)
+    stops = transit[0]["transitDetails"]["stopDetails"]
+    stops["departureTime"], stops["arrivalTime"] = "2026-11-01T08:50:00Z", "2026-11-01T09:20:00Z"
+    data["routes"] = [route]
+    lead = sum(int(s["staticDuration"].rstrip("s")) for s in steps[: steps.index(transit[0])])
+    trail = sum(int(s["staticDuration"].rstrip("s")) for s in steps[steps.index(transit[0]) + 1 :])
+
+    q = TripQuery("Powell St BART", "12th St Oakland", datetime(2026, 11, 1, 8, 30, tzinfo=timezone.utc))
+    with respx.mock:
+        respx.post(ROUTES_URL).mock(return_value=httpx.Response(200, json=data))
+        async with httpx.AsyncClient() as client:
+            (option,) = await plan_trips(q, client, "test-key")
+
+    utc = timezone.utc
+    assert option.depart.astimezone(utc) == datetime(2026, 11, 1, 8, 50, tzinfo=utc) - timedelta(seconds=lead)
+    assert option.arrive.astimezone(utc) == datetime(2026, 11, 1, 9, 20, tzinfo=utc) + timedelta(seconds=trail)
+    assert option.duration_s == 30 * 60 + lead + trail
+
+
+@pytest.mark.asyncio
+async def test_rank_by_real_arrival_across_the_fall_back_hour():
+    """01:20 PST is after 01:50 PDT, though its wall clock is earlier."""
+    data = fixture("routes_bart.json")
+    routes = data["routes"][:2]
+    for route, (dep, arr) in zip(routes, [("2026-11-01T09:00:00Z", "2026-11-01T09:20:00Z"),
+                                          ("2026-11-01T08:30:00Z", "2026-11-01T08:50:00Z")]):
+        steps = route["legs"][0]["steps"]
+        transit = [s for s in steps if "transitDetails" in s]
+        for s in transit[1:]:
+            steps.remove(s)
+        stops = transit[0]["transitDetails"]["stopDetails"]
+        stops["departureTime"], stops["arrivalTime"] = dep, arr
+    data["routes"] = routes
+    q = TripQuery("Powell St BART", "12th St Oakland", datetime(2026, 11, 1, 8, 0, tzinfo=timezone.utc))
+    with respx.mock:
+        respx.post(ROUTES_URL).mock(return_value=httpx.Response(200, json=data))
+        async with httpx.AsyncClient() as client:
+            first, second = await plan_trips(q, client, "test-key")
+    assert first.arrive.timestamp() < second.arrive.timestamp()

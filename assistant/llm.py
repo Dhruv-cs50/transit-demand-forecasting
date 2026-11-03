@@ -19,7 +19,7 @@ token caps are fixed, so a message cannot change them.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 from zoneinfo import ZoneInfo
 
@@ -75,7 +75,23 @@ def _place(value: Any) -> str | None:
     return value if value and len(value) <= MAX_PLACE_CHARS else None
 
 
-def _parse_time(value: Any, tz: ZoneInfo) -> Any:
+def _pacific(naive: datetime, tz: ZoneInfo, now: datetime) -> datetime:
+    """A wall-clock time read as Pacific, as a real instant.
+
+    An ambiguous time (the repeated 01:00-01:59 when clocks fall back) has two
+    readings, ``fold`` 0 (PDT) and 1 (PST): the first one that is not in the past
+    is taken, as that is the one the rider can still catch. A time in the
+    spring-forward gap does not exist: it is read with the offset in force before
+    the change (``fold`` 0), so 02:15 becomes 03:15 PDT. Either way the result is
+    normalised through UTC, so its wall time and offset are real.
+    """
+    readings = [naive.replace(tzinfo=tz, fold=f).astimezone(timezone.utc) for f in (0, 1)]
+    floor = now.astimezone(timezone.utc).timestamp() - PAST_GRACE_S
+    chosen = next((r for r in readings if r.timestamp() >= floor), readings[0])
+    return chosen.astimezone(tz)
+
+
+def _parse_time(value: Any, tz: ZoneInfo, now: datetime) -> Any:
     """A tz-aware time, ``None`` for no time, or ``_UNUSABLE`` when it does not parse."""
     if value is None:
         return None
@@ -87,7 +103,9 @@ def _parse_time(value: Any, tz: ZoneInfo) -> Any:
         parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
     except ValueError:
         return _UNUSABLE
-    return parsed.replace(tzinfo=tz) if parsed.tzinfo is None else parsed.astimezone(tz)
+    if parsed.tzinfo is None:
+        return _pacific(parsed, tz, now)
+    return parsed.astimezone(timezone.utc).astimezone(tz)
 
 
 class Gemini:
@@ -152,14 +170,19 @@ def _to_query(raw: str | None, now: datetime, tz: ZoneInfo) -> TripQuery | Follo
         # A place is missing (or unusable): ask, or fall back to the form when there is no question.
         return FollowUp(question) if question else None
 
-    depart = _parse_time(data.get("depart_at"), tz)
+    depart = _parse_time(data.get("depart_at"), tz, now)
     if depart is _UNUSABLE:
         return None
     replaced = False
+    # Compare instants, never Pacific wall clocks: two datetimes sharing one tzinfo
+    # subtract and compare by wall time and ignore ``fold``, which is an hour wrong
+    # around the fall-back hour.
     if depart is None:
         depart = now
-    elif (now - depart).total_seconds() > PAST_GRACE_S:
-        depart, replaced = now, True
-    elif depart < now:
-        depart = now
+    else:
+        ago_s = now.timestamp() - depart.timestamp()  # timestamp() honours fold
+        if ago_s > PAST_GRACE_S:
+            depart, replaced = now, True
+        elif ago_s > 0:
+            depart = now
     return TripQuery(origin=origin, destination=destination, depart_at=depart, past_time_replaced=replaced)

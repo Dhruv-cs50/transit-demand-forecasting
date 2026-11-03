@@ -298,3 +298,90 @@ def test_call_two_prompt_leaves_room_for_a_digest_at_its_limit():
     from assistant.answer import DIGEST_LIMIT
 
     assert len(prompts.EXPLAIN_SYSTEM) + DIGEST_LIMIT < 8000
+
+
+# ----------------------------------------------------------------------------------
+# Daylight saving time. Same-zone datetimes compare and subtract by wall clock and
+# ignore ``fold``, so every assertion here compares UTC instants, never ``==`` in Pacific.
+# ----------------------------------------------------------------------------------
+
+UTC = timezone.utc
+
+
+def _utc(dt: datetime) -> datetime:
+    return dt.astimezone(UTC)
+
+
+# 2026-11-01 fall back: 01:00-01:59 happens twice (PDT -07:00, then PST -08:00).
+FALL_FIRST = datetime(2026, 11, 1, 8, 40, tzinfo=UTC).astimezone(PT)  # 01:40 PDT (fold 0)
+FALL_SECOND = datetime(2026, 11, 1, 9, 40, tzinfo=UTC).astimezone(PT)  # 01:40 PST (fold 1)
+# 2026-03-08 spring forward: 02:00-02:59 does not exist.
+SPRING_BEFORE = datetime(2026, 3, 8, 9, 45, tzinfo=UTC).astimezone(PT)  # 01:45 PST
+
+
+@pytest.mark.parametrize(
+    "depart_at",
+    [
+        "2026-11-01T01:10:00-08:00",  # correct: 01:40 PDT + 30 min is 01:10 PST
+        "2026-11-01T02:10:00-07:00",  # same instant, written with the PDT offset
+        "2026-11-01T09:10:00Z",  # same instant in UTC
+        "2026-11-01T01:10:00",  # naive and ambiguous: the reading that is not in the past
+    ],
+)
+def test_fall_back_in_30_minutes_is_not_in_the_past(depart_at):
+    q, _ = extract(reply(depart_at=depart_at), now=FALL_FIRST)
+    assert isinstance(q, TripQuery)
+    assert q.past_time_replaced is False
+    assert _utc(q.depart_at) == datetime(2026, 11, 1, 9, 10, tzinfo=UTC)
+    assert q.depart_at.utcoffset() == timedelta(hours=-8)  # shown as 1:10 AM PST
+
+
+def test_fall_back_naive_ambiguous_time_during_the_second_hour():
+    # At 01:40 PST, "1:50" means 01:50 PST (ten minutes away), not 01:50 PDT (fifty minutes ago).
+    q, _ = extract(reply(depart_at="2026-11-01T01:50:00"), now=FALL_SECOND)
+    assert q.past_time_replaced is False
+    assert _utc(q.depart_at) == datetime(2026, 11, 1, 9, 50, tzinfo=UTC)
+
+
+def test_fall_back_a_time_in_the_first_hour_is_past_during_the_second():
+    q, _ = extract(reply(depart_at="2026-11-01T01:20:00-07:00"), now=FALL_SECOND)  # 80 min ago
+    assert q.past_time_replaced is True
+    assert _utc(q.depart_at) == _utc(FALL_SECOND)
+
+
+def test_fall_back_rounding_now_down_is_not_past():
+    now = datetime(2026, 11, 1, 9, 0, 30, tzinfo=UTC).astimezone(PT)  # 01:00:30 PST
+    q, _ = extract(reply(depart_at="2026-11-01T01:59:00-07:00"), now=now)  # 90 s ago, in PDT
+    assert q.past_time_replaced is False
+    assert _utc(q.depart_at) == _utc(now)  # never a departure in the past
+
+
+@pytest.mark.parametrize(
+    "depart_at",
+    [
+        "2026-03-08T03:15:00-07:00",
+        "2026-03-08T02:15:00-08:00",  # same instant, written with the PST offset
+        "2026-03-08T02:15:00",  # naive time in the gap: read with the offset before the change
+    ],
+)
+def test_spring_forward_in_30_minutes(depart_at):
+    q, _ = extract(reply(depart_at=depart_at), now=SPRING_BEFORE)
+    assert q.past_time_replaced is False
+    assert _utc(q.depart_at) == datetime(2026, 3, 8, 10, 15, tzinfo=UTC)
+    # a real Pacific wall time: 3:15 AM PDT, never the nonexistent 2:15
+    assert (q.depart_at.hour, q.depart_at.minute) == (3, 15)
+    assert q.depart_at.utcoffset() == timedelta(hours=-7)
+
+
+def test_spring_forward_rounding_now_down_is_not_past():
+    now = datetime(2026, 3, 8, 10, 0, 30, tzinfo=UTC).astimezone(PT)  # 03:00:30 PDT
+    q, _ = extract(reply(depart_at="2026-03-08T01:59:00-08:00"), now=now)  # 90 s ago
+    assert q.past_time_replaced is False
+    assert _utc(q.depart_at) == _utc(now)
+
+
+def test_spring_forward_a_past_time_is_replaced():
+    now = datetime(2026, 3, 8, 10, 5, tzinfo=UTC).astimezone(PT)  # 03:05 PDT
+    q, _ = extract(reply(depart_at="2026-03-08T01:50:00-08:00"), now=now)  # 15 min ago
+    assert q.past_time_replaced is True
+    assert _utc(q.depart_at) == _utc(now)

@@ -134,8 +134,10 @@ def _parse_route(route: dict[str, Any], q: TripQuery, tz: ZoneInfo) -> TripOptio
         return None
     lead = legs[0].duration_s if legs[0].mode == "WALK" else 0
     trail = legs[-1].duration_s if legs[-1].mode == "WALK" else 0
-    depart = transit[0].depart - timedelta(seconds=lead)
-    arrive = transit[-1].arrive + timedelta(seconds=trail)
+    # In UTC, then back to Pacific: timedelta arithmetic on a Pacific datetime moves the
+    # wall clock, which is an hour out when the walk crosses a daylight-saving change.
+    depart = (transit[0].depart.astimezone(timezone.utc) - timedelta(seconds=lead)).astimezone(tz)
+    arrive = (transit[-1].arrive.astimezone(timezone.utc) + timedelta(seconds=trail)).astimezone(tz)
     agencies_seen: list[str] = []
     for leg in transit:
         if leg.agency not in agencies_seen:
@@ -144,7 +146,7 @@ def _parse_route(route: dict[str, Any], q: TripQuery, tz: ZoneInfo) -> TripOptio
         rank=0,
         depart=depart,
         arrive=arrive,
-        duration_s=int((arrive - depart).total_seconds()),
+        duration_s=int(arrive.timestamp() - depart.timestamp()),  # real seconds, across DST too
         transfers=len(transit) - 1,
         walk_s=walk_total,
         agencies=tuple(agencies_seen),
@@ -196,8 +198,9 @@ async def plan_trips(
         raise RoutingError("Google Routes response had an unexpected shape") from exc
 
     # Rank by arrival time: Google's own "duration" leaves out the wait for the
-    # vehicle, so a quick trip that leaves much later is not the better answer.
-    parsed.sort(key=lambda o: (o.arrive, o.duration_s))
+    # vehicle, so a quick trip that leaves much later is not the better answer. timestamp(), not the
+    # Pacific datetime: same-zone datetimes compare by wall clock, wrong across the fall-back hour.
+    parsed.sort(key=lambda o: (o.arrive.timestamp(), o.duration_s))
     return [
         TripOption(**{**o.__dict__, "rank": i}) for i, o in enumerate(parsed[:MAX_OPTIONS], start=1)
     ]
