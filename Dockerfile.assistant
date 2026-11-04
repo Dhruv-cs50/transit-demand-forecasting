@@ -1,6 +1,7 @@
 # ── Route assistant image ────────────────────────────────────────────────────
 # FastAPI service behind POST /chat (NDJSON stream) and GET /health: a rider's
-# question -> Gemini on Vertex AI -> Google Routes -> short, checked explanation.
+# question -> LLM (Claude on the Anthropic API, or Gemini on Vertex AI, by
+# LLM_PROVIDER) -> Google Routes -> short, checked explanation.
 # Target: Google Cloud Run (linux/amd64). Runbook: docs/assistant.md
 #
 # Build & push (Apple Silicon: use Cloud Build, not a local docker build):
@@ -37,8 +38,9 @@ COPY website/data/forecasts_sarima.json ./website/data/forecasts_sarima.json
 RUN useradd --system --uid 10001 --no-create-home app
 USER app
 
-# Cloud Run injects PORT; default 8080. GEMINI_MODEL, GCP_PROJECT, VERTEX_REGION and
-# the secrets are set at deploy time (docs/assistant.md); GEMINI_MODEL has no default.
+# Cloud Run injects PORT; default 8080. LLM_PROVIDER, ANTHROPIC_MODEL, GEMINI_MODEL,
+# GCP_PROJECT, VERTEX_REGION and the secrets (ANTHROPIC_API_KEY among them) are set at
+# deploy time (docs/assistant.md); model ids and the API key have no default.
 ENV PORT=8080
 EXPOSE 8080
 

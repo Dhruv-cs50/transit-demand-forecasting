@@ -1,11 +1,18 @@
 # Route assistant: deploy and operate
 
 The route assistant answers a rider's question ("Mountain View Caltrain to SAP
-Center tonight") for BART, VTA and Caltrain. One `POST /chat` runs Gemini call 1
+Center tonight") for BART, VTA and Caltrain. One `POST /chat` runs LLM call 1
 (question to origin, destination, time), one Google Routes call, four context
-tools (alerts, weather, events, station context), then Gemini call 2 (a short
+tools (alerts, weather, events, station context), then LLM call 2 (a short
 explanation, checked sentence by sentence). The reply streams as NDJSON. Code:
 [`assistant/`](../assistant/). Design: [the plan](superpowers/plans/2026-11-04-route-assistant.md).
+
+The LLM is picked by the `LLM_PROVIDER` env var: `anthropic` runs both calls on
+Claude Haiku 5.5 through the Anthropic API (`assistant/llm_claude.py`), and
+`gemini` runs them on Gemini through Vertex AI (`assistant/llm.py`). Both send
+the same prompts and read call 1 with the same parser. Unset means `gemini`, so
+a revision deployed before the switch keeps working. Changing the variable is
+both the switch and the rollback; no code changes.
 
 It is a separate Cloud Run service. It shares nothing with `transit-api`, the
 ingest job, App Engine or Firebase, and none of them need to change to run it.
@@ -18,17 +25,35 @@ ingest job, App Engine or Firebase, and none of them need to change to run it.
 | Service | Cloud Run `transit-assistant`, URL `https://transit-assistant-308878596074.us-west2.run.app` |
 | Image | `us-west2-docker.pkg.dev/cs-163-final-project-tra-f1136/transit-repo/transit-assistant:<commit>`, deployed by digest |
 | Build | `cloudbuild.assistant.yaml` builds `Dockerfile.assistant` (`python:3.11-slim`, `linux/amd64`, non-root, `assistant/requirements.txt`). Push only |
-| Service account | `transit-assistant@cs-163-final-project-tra-f1136.iam.gserviceaccount.com`: `roles/aiplatform.user` (project) and `roles/secretmanager.secretAccessor` on `routes-api-key` and `token-511` only |
+| Service account | `transit-assistant@cs-163-final-project-tra-f1136.iam.gserviceaccount.com`: `roles/aiplatform.user` (project, for the Gemini rollback) and `roles/secretmanager.secretAccessor` on `routes-api-key`, `token-511` and `anthropic-api-key` only |
 | Scaling | `--min-instances 0 --max-instances 2 --cpu-boost`, 1 vCPU, 512 MiB, concurrency 80 |
 | Access | `--allow-unauthenticated` (a public page calls it); abuse is bounded by the rate limit and the instance cap |
-| Env vars | `GCP_PROJECT`, `VERTEX_REGION=global`, `GEMINI_MODEL=gemini-3-flash-preview` |
-| Secrets | `ROUTES_API_KEY` from `routes-api-key`, `TOKEN_511` from `token-511`. There is no Ticketmaster key, so Sharks games come from the NHL schedule only |
+| Env vars | `LLM_PROVIDER=anthropic`, `ANTHROPIC_MODEL=claude-haiku-5-5`; kept for the rollback: `GCP_PROJECT`, `VERTEX_REGION=global`, `GEMINI_MODEL=gemini-3-flash-preview` |
+| Secrets | `ANTHROPIC_API_KEY` from `anthropic-api-key`, `ROUTES_API_KEY` from `routes-api-key`, `TOKEN_511` from `token-511`. There is no Ticketmaster key, so Sharks games come from the NHL schedule only |
 
-**Why `gemini-3-flash-preview` at `global`.** On 2026-11-01 it was the only
+Until the switch below has been deployed, the live revision has no
+`LLM_PROVIDER` and runs Gemini; `/health` says which model is live.
+
+**Claude Haiku 5.5 (`LLM_PROVIDER=anthropic`).** `ANTHROPIC_MODEL` and
+`ANTHROPIC_API_KEY` have no default: the service refuses to start without them.
+The model id is `claude-haiku-5-5`, exactly, with no date suffix. Every request
+leaves out `temperature`, `top_p` and `top_k` (Haiku 5.5 rejects them with a
+400), turns thinking off at effort `low`, and caps output at 200 tokens (call 1)
+and 350 (call 2). The caps are above Gemini's because Haiku's tokenizer counts
+about 30% more tokens for the same text. Call 1 uses structured output against
+the same seven-field schema. A refusal (`stop_reason: "refusal"`) is handled
+like any other failure: call 1 gives the form, and call 2 gives the template.
+The SDK client has a 5 s timeout and no retries, so the service's own 4 s
+deadlines decide.
+
+**Gemini (`LLM_PROVIDER=gemini`, the rollback).** It is reached with the service
+account, so it needs no key.
+
+*Why `gemini-3-flash-preview` at `global`.* On 2026-11-01 it was the only
 Gemini model this project could call, and only at location `global`;
 `gemini-2.5-flash`, `gemini-2.5-flash-lite` and `gemini-3-flash` answered 404.
-`GEMINI_MODEL` has no default on purpose (the service refuses to start without
-it), so changing the model is an env-var change, not a code change. A preview
+`GEMINI_MODEL` has no default on purpose (on `gemini`, the service refuses to start
+without it), so changing the model is an env-var change, not a code change. A preview
 model can be withdrawn: if `/chat` starts returning the origin/destination form
 for every question, check the Cloud Run logs for `extract failed` and re-run the
 availability check below.
@@ -53,12 +78,56 @@ DIGEST=$(gcloud artifacts docker images describe $IMG:$(git rev-parse --short HE
 gcloud run deploy transit-assistant --region us-west2 --image $IMG@$DIGEST \
   --service-account transit-assistant@$P.iam.gserviceaccount.com \
   --max-instances 2 --min-instances 0 --cpu-boost --allow-unauthenticated \
-  --set-env-vars GCP_PROJECT=$P,VERTEX_REGION=global,GEMINI_MODEL=gemini-3-flash-preview \
-  --set-secrets ROUTES_API_KEY=routes-api-key:latest,TOKEN_511=token-511:latest
+  --set-env-vars LLM_PROVIDER=anthropic,ANTHROPIC_MODEL=claude-haiku-5-5,GCP_PROJECT=$P,VERTEX_REGION=global,GEMINI_MODEL=gemini-3-flash-preview \
+  --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest,ROUTES_API_KEY=routes-api-key:latest,TOKEN_511=token-511:latest
 ```
 
-Later deploys that change only the image can drop the flags after `--image`:
-the service keeps its env vars, secrets and scaling.
+That full form is only for a first deploy, or to restate the whole config on
+purpose. `--set-env-vars` and `--set-secrets` **replace** the whole set: a
+`--set-secrets` that lists only the Anthropic key drops `ROUTES_API_KEY` and
+`TOKEN_511`. On a running service, pass only the image (it keeps its env vars,
+secrets and scaling), and change single values with `--update-env-vars` and
+`--update-secrets`. Never use `--set-*` on a running service.
+
+### Switching the LLM to Claude (one time)
+
+```bash
+# 1. The secret, without putting the key in your shell history. Create the key in
+#    the Claude Console (API keys), copy it, then:
+gcloud secrets create anthropic-api-key --replication-policy=automatic
+pbpaste | tr -d '\n' | gcloud secrets versions add anthropic-api-key --data-file=-
+
+# 2. Let the service account read it. Cloud Run refuses a revision whose service
+#    account cannot read a referenced secret.
+gcloud secrets add-iam-policy-binding anthropic-api-key \
+  --member=serviceAccount:transit-assistant@$P.iam.gserviceaccount.com \
+  --role=roles/secretmanager.secretAccessor
+
+# 3. Deploy an image that contains assistant/llm_claude.py (steps 1-2 above), then
+#    flip the provider. --update-* adds to the existing set and keeps
+#    ROUTES_API_KEY, TOKEN_511 and the Gemini values.
+gcloud run deploy transit-assistant --region us-west2 --image $IMG@$DIGEST \
+  --update-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest \
+  --update-env-vars LLM_PROVIDER=anthropic,ANTHROPIC_MODEL=claude-haiku-5-5
+
+# 4. Check: /health names the Claude model, and a /chat question streams options and text.
+curl -s https://transit-assistant-308878596074.us-west2.run.app/health
+# {"status":"ok","model":"claude-haiku-5-5"}
+```
+
+To try it first without taking traffic, add `--no-traffic --tag claude` to step 3
+(see below).
+
+**Rollback to Gemini** is one env change on the same image. The Gemini values
+and the Vertex AI role stay in place for it:
+
+```bash
+gcloud run services update transit-assistant --region us-west2 \
+  --update-env-vars LLM_PROVIDER=gemini
+# /health: {"status":"ok","model":"gemini-3-flash-preview"}
+```
+
+Going back to Claude is `--update-env-vars LLM_PROVIDER=anthropic`.
 
 Confirm what is live:
 
@@ -66,7 +135,7 @@ Confirm what is live:
 gcloud run services describe transit-assistant --region us-west2 \
   --format='value(spec.template.spec.containers[0].image)'
 curl -s https://transit-assistant-308878596074.us-west2.run.app/health
-# {"status":"ok","model":"gemini-3-flash-preview"}
+# {"status":"ok","model":"claude-haiku-5-5"}   (or "gemini-3-flash-preview" on the rollback)
 ```
 
 The site panel (Task 7) should be pointed at the service URL after a deploy
@@ -112,9 +181,9 @@ question inside 10 minutes skips the Routes call (routing cache).
 
 The assistant answers only public-transit trips inside the Bay Area. Anything
 else gets `{"type":"scope","reason":...,"text":...}` and then `done`, with no
-Routes call and no Gemini call 2. Code decides; Gemini never writes the reply:
+Routes call and no LLM call 2. Code decides; the LLM never writes the reply:
 
-- **Gemini call 1** classifies. The extract schema has a required `scope`
+- **LLM call 1** classifies. The extract schema has a required `scope`
   (`trip` | `out_of_scope`) and `scope_reason`: `out_of_area` (an end outside
   the Bay Area), `other_mode` (driving, flying, rideshare) or `off_topic`
   (weather, jokes, homework, chit-chat, nonsense, and prompt-injection
@@ -122,7 +191,7 @@ Routes call and no Gemini call 2. Code decides; Gemini never writes the reply:
   if it is the trip's own origin or destination.
 - **The deny-list** (`OUTSIDE_PLACES` in `assistant/scope.py`) is deterministic.
   It checks the extracted origin and destination before routing, so before the
-  area suffix is added, even when Gemini said `trip`. It runs on whichever end
+  area suffix is added, even when the LLM said `trip`. It runs on whichever end
   is known, so "to San Diego" is refused rather than asked about. It covers well-known
   places outside the area: Los Angeles/LA, San Diego, Sacramento, Fresno,
   Bakersfield, Stockton, Modesto, Santa Cruz, Monterey, Reno, Lake Tahoe, Las
@@ -148,7 +217,7 @@ Routes call and no Gemini call 2. Code decides; Gemini never writes the reply:
 
   Geocoding can still land the wrong place inside the area: the
   `, San Francisco Bay Area, CA` suffix once pulled "Los Angeles" into SF. The
-  deny-list and Gemini catch such named places before routing.
+  deny-list and the LLM catch such named places before routing.
 - **The words** come from a hand-written pool in `assistant/scope.py`, five
   to six variants per reason, picked with `random.choice`. Out-of-area
   variants may name the rider's place, cleaned and cut to 40 characters.
@@ -189,8 +258,12 @@ and nothing the rider typed. Verified on 2026-11-01 over 4 answered questions
 and 1 follow-up: no question text, no place names, and neither secret value
 appears in any log line (checked by searching every line for the exact secret
 strings). The 511 `api_key` in the HTTP client's request log is rewritten to
-`REDACTED` by `assistant/context_tools.py`. If you add logging, keep it that way:
-do not log `message`, `ROUTES_API_KEY` or `TOKEN_511`.
+`REDACTED` by `assistant/context_tools.py`. The Anthropic key travels in a
+request header, never in a URL, so the SDK's request log carries no secret. If
+you add logging, keep it that way: do not log `message`, `ROUTES_API_KEY`,
+`TOKEN_511` or `ANTHROPIC_API_KEY`. A failed LLM call logs only the exception
+type (`extract failed: ...`, `explain stream failed: ...`; a Claude refusal on
+call 2 is `ClaudeRefusal`).
 
 ## Rotate a secret
 
@@ -205,11 +278,15 @@ pbpaste | tr -d '\n' | gcloud secrets versions add routes-api-key --data-file=-
 # 511 token: request a new one at https://511.org/open-data/token, then:
 pbpaste | tr -d '\n' | gcloud secrets versions add token-511 --data-file=-
 
+# Anthropic key: create a new key in the Claude Console, then:
+pbpaste | tr -d '\n' | gcloud secrets versions add anthropic-api-key --data-file=-
+
 # New revision picks up :latest.
 gcloud run services update transit-assistant --region us-west2 \
   --update-env-vars ROTATED=$(date +%Y%m%d)
 
-# After /chat works with the new values, disable the old version and delete the old key.
+# After /chat works with the new values, disable the old version and delete the old key
+# (for the Anthropic key, delete it in the Claude Console).
 gcloud secrets versions list routes-api-key
 gcloud secrets versions disable <old-version> --secret=routes-api-key
 ```
@@ -224,8 +301,16 @@ Cost per question is small and scales with questions asked, not with time: with
 
 - **Cloud Run:** billed only while a request is being handled; the free tier
   covers a course project. `--max-instances 2` caps the spend.
-- **Gemini (Vertex AI):** two Flash calls per answered question (at most 120 and
-  250 output tokens, thinking off). A follow-up or form costs one call.
+- **Claude Haiku 5.5 (Anthropic API, `anthropic`):** two calls per answered
+  question (at most 200 and 350 output tokens, thinking off). A follow-up or
+  form costs one call. The input is the system prompt plus the message (call 1)
+  or the digest (call 2), well under 100K tokens, so the lower rate card applies
+  ($0.10 in / $0.50 out per million tokens at the time of writing; check the
+  Anthropic pricing page). The Anthropic bill is separate from the GCP billing
+  account and its budget alert: set a spend limit in the Claude Console.
+- **Gemini (Vertex AI, `gemini`, the rollback):** two Flash calls per answered
+  question (at most 120 and 250 output tokens, thinking off). A follow-up or
+  form costs one call.
 - **Google Routes:** one transit `computeRoutes` call per new question (cached
   10 minutes). Routes is billed per request; check the current SKU price and
   free monthly allowance on the Google Maps Platform pricing page.
