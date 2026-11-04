@@ -24,6 +24,9 @@ ENV_KEYS = [
     "GCP_PROJECT",
     "VERTEX_REGION",
     "GEMINI_MODEL",
+    "LLM_PROVIDER",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_API_KEY",
     "ROUTES_API_KEY",
     "TOKEN_511",
     "TICKETMASTER_KEY",
@@ -110,6 +113,69 @@ def test_settings_do_not_repr_secrets(monkeypatch):
     monkeypatch.setenv("TICKETMASTER_KEY", "super-secret-tm")
     text = repr(load_settings())
     assert "super-secret" not in text
+
+
+def test_settings_provider_defaults_to_gemini(monkeypatch):
+    """The deployed service sets only GEMINI_MODEL: it must keep starting on Gemini."""
+    monkeypatch.setenv("GEMINI_MODEL", "m")
+    s = load_settings()
+    assert s.LLM_PROVIDER == "gemini"
+    assert s.active_model == "m"
+
+
+def test_settings_anthropic_provider(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", " Anthropic ")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-haiku-5-5")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-not-a-key")
+    s = load_settings()  # GEMINI_MODEL is not needed on this provider
+    assert s.LLM_PROVIDER == "anthropic"
+    assert s.ANTHROPIC_MODEL == "claude-haiku-5-5"
+    assert s.ANTHROPIC_API_KEY == "test-not-a-key"
+    assert s.active_model == "claude-haiku-5-5"
+
+
+@pytest.mark.parametrize("missing", ["ANTHROPIC_MODEL", "ANTHROPIC_API_KEY"])
+def test_settings_anthropic_requires_model_and_key(monkeypatch, missing):
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("GEMINI_MODEL", "m")  # the rollback model being set does not help
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-haiku-5-5")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-not-a-key")
+    monkeypatch.setenv(missing, "   ")
+    with pytest.raises(RuntimeError, match=missing):
+        load_settings()
+    monkeypatch.delenv(missing)
+    with pytest.raises(RuntimeError, match=missing):
+        load_settings()
+
+
+def test_settings_gemini_provider_still_requires_its_model(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-haiku-5-5")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-not-a-key")
+    with pytest.raises(RuntimeError, match="GEMINI_MODEL"):
+        load_settings()
+
+
+def test_settings_unknown_provider_fails_at_startup(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("GEMINI_MODEL", "m")
+    with pytest.raises(RuntimeError, match="LLM_PROVIDER"):
+        load_settings()
+
+
+def test_settings_do_not_repr_the_anthropic_key(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-haiku-5-5")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "super-secret-anthropic")
+    assert "super-secret" not in repr(load_settings())
+
+
+def test_settings_missing_key_error_does_not_echo_values(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "super-secret-anthropic")
+    with pytest.raises(RuntimeError) as err:
+        load_settings()
+    assert "super-secret" not in str(err.value)
 
 
 def test_settings_frozen(monkeypatch):
