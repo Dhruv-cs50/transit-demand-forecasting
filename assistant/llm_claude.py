@@ -9,8 +9,8 @@ The same contract as ``assistant.llm.Gemini`` (``extract``, ``explain_stream``,
    A refusal, a reply cut off at the token cap, or no text block is ``None``,
    so the service shows the origin/destination form.
 2. ``Claude.explain_stream``: the explanation as text deltas, <= ``EXPLAIN_MAX_TOKENS``.
-   A refusal raises ``ClaudeRefusal`` once the stream ends, so the service
-   replaces whatever was shown with the template.
+   A refusal or a reply cut off at the token cap raises ``ClaudeRefusal`` once
+   the stream ends, so the service replaces whatever was shown with the template.
 
 Request shape, fixed for every call (Claude Haiku 5.5):
 
@@ -62,7 +62,7 @@ _UNUSABLE_STOPS = ("refusal", "max_tokens")
 
 
 class ClaudeRefusal(RuntimeError):
-    """Claude declined to write the explanation (``stop_reason == "refusal"``)."""
+    """The explanation is unusable: Claude declined (``refusal``) or hit the cap (``max_tokens``)."""
 
 
 def _json_schema(schema: types.Schema) -> dict[str, Any]:
@@ -174,5 +174,7 @@ class Claude:
                 if text:
                     yield text
             final = await stream.get_final_message()
-        if getattr(final, "stop_reason", None) == "refusal":
-            raise ClaudeRefusal("explanation refused")
+        stop = getattr(final, "stop_reason", None)
+        if stop in _UNUSABLE_STOPS:
+            # A refusal, or a reply cut off at the cap: the last sentence may be a fragment.
+            raise ClaudeRefusal(f"explanation unusable: stop_reason={stop}")

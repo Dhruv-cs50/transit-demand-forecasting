@@ -74,7 +74,16 @@ gcloud builds submit --config=cloudbuild.assistant.yaml \
 DIGEST=$(gcloud artifacts docker images describe $IMG:$(git rev-parse --short HEAD) \
   --format='value(image_summary.digest)')
 
-# 3. Deploy by digest (a tag can move; a digest cannot).
+# 3. Deploy by digest (a tag can move; a digest cannot). Image only: the running
+#    service keeps its env vars (including LLM_PROVIDER), secrets and scaling.
+gcloud run deploy transit-assistant --region us-west2 --image $IMG@$DIGEST
+```
+
+**First deploy only** (or to restate the whole config on purpose). This form
+sets `LLM_PROVIDER=anthropic`, so running it on a service that was rolled back
+to Gemini undoes the rollback:
+
+```bash
 gcloud run deploy transit-assistant --region us-west2 --image $IMG@$DIGEST \
   --service-account transit-assistant@$P.iam.gserviceaccount.com \
   --max-instances 2 --min-instances 0 --cpu-boost --allow-unauthenticated \
@@ -124,8 +133,16 @@ and the Vertex AI role stay in place for it:
 ```bash
 gcloud run services update transit-assistant --region us-west2 \
   --update-env-vars LLM_PROVIDER=gemini
+# A --no-traffic test deploy pins traffic to one revision; send it to the new one.
+gcloud run services update-traffic transit-assistant --region us-west2 --to-latest
+gcloud run services describe transit-assistant --region us-west2 --format='value(status.traffic)'
 # /health: {"status":"ok","model":"gemini-3-flash-preview"}
 ```
+
+If the rollback is because the Anthropic key leaked and its secret version was
+disabled, also pass `--remove-secrets ANTHROPIC_API_KEY` to the `services update`:
+a revision that references a disabled secret version does not start. Going back
+to Claude then needs `--update-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest` again.
 
 Going back to Claude is `--update-env-vars LLM_PROVIDER=anthropic`.
 
@@ -305,8 +322,8 @@ Cost per question is small and scales with questions asked, not with time: with
   question (at most 200 and 350 output tokens, thinking off). A follow-up or
   form costs one call. The input is the system prompt plus the message (call 1)
   or the digest (call 2), well under 100K tokens, so the lower rate card applies
-  ($0.10 in / $0.50 out per million tokens at the time of writing; check the
-  Anthropic pricing page). The Anthropic bill is separate from the GCP billing
+  ($0.10 in / $0.50 out per million tokens as of November 2026; check
+  <https://www.anthropic.com/pricing> before budgeting on it). The Anthropic bill is separate from the GCP billing
   account and its budget alert: set a spend limit in the Claude Console.
 - **Gemini (Vertex AI, `gemini`, the rollback):** two Flash calls per answered
   question (at most 120 and 250 output tokens, thinking off). A follow-up or

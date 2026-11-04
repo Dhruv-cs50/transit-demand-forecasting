@@ -93,7 +93,8 @@ class Services:
 def make_llm(settings: Settings) -> Any:
     """The client for ``settings.LLM_PROVIDER``: Claude on the Anthropic API, or Gemini on Vertex AI.
 
-    Imported lazily, so only the active provider's SDK is loaded.
+    Imported lazily. Both SDKs are installed either way: the Claude client reuses
+    the extract schema and helpers in ``assistant.llm``, which imports ``google-genai``.
     """
     if settings.LLM_PROVIDER == "anthropic":
         from assistant.llm_claude import Claude

@@ -329,6 +329,18 @@ def test_explain_stream_refusal_raises_so_the_service_replaces_the_text():
     assert client.messages.exited == 1
 
 
+def test_explain_stream_cut_off_at_the_cap_raises_so_the_service_replaces_the_text():
+    client = FakeClient(chunks=["Option 1 leaves at 9:52 PM and "], stop_reason="max_tokens")
+
+    async def go():
+        async for _ in Claude(SETTINGS, client=client).explain_stream({"options": []}):
+            pass
+
+    with pytest.raises(ClaudeRefusal):
+        run(go())
+    assert client.messages.exited == 1
+
+
 def test_explain_stream_errors_propagate():
     class Boom(FakeMessages):
         def stream(self, **kwargs):
