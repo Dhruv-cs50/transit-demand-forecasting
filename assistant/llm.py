@@ -1,6 +1,12 @@
-"""The route assistant's two Gemini calls, on Vertex AI.
+"""The route assistant's two LLM calls: the Gemini client, plus the parsing every provider shares.
 
-Exactly two calls are made for an answered question, both on the Flash tier:
+``LLM_PROVIDER`` picks the client (``assistant.service.make_llm``): ``Claude`` in
+``assistant.llm_claude`` (Anthropic API), or ``Gemini`` here (Vertex AI), which
+is the rollback. Both send the same system prompts and user turns
+(``_extract_input``, ``_explain_input``) and read call 1 with the same
+``_to_query``, against the same seven fields (``EXTRACT_SCHEMA``).
+
+Exactly two calls are made for an answered question; on Gemini, both on the Flash tier:
 
 1. ``Gemini.extract``: the rider's message becomes a ``TripQuery`` (or a
    ``FollowUp``, an ``OutOfScope`` when the schema's ``scope`` says the question
@@ -133,8 +139,21 @@ def _parse_time(value: Any, tz: ZoneInfo, now: datetime) -> Any:
     return parsed.astimezone(timezone.utc).astimezone(tz)
 
 
+def _extract_input(message: str, now: datetime) -> tuple[datetime, ZoneInfo, str]:
+    """Call 1's user turn, shared by every provider: ``now`` in Pacific time, then the message as data."""
+    tz = ZoneInfo(DISPLAY_TZ)
+    now = now.astimezone(tz) if now.tzinfo else now.replace(tzinfo=tz)
+    contents = f"now: {now.isoformat(timespec='seconds')} ({DISPLAY_TZ})\nrider message:\n{message}"
+    return now, tz, contents
+
+
+def _explain_input(digest: dict[str, Any]) -> str:
+    """Call 2's user turn, shared by every provider: the digest is the only payload."""
+    return "digest:\n" + json.dumps(digest, separators=(",", ":"))
+
+
 class Gemini:
-    """The two calls. ``client`` is injectable so tests never touch the network."""
+    """The two calls on Gemini. ``client`` is injectable so tests never touch the network."""
 
     def __init__(self, settings: Settings, client: Any = None):
         self._model = settings.GEMINI_MODEL
@@ -156,8 +175,7 @@ class Gemini:
 
     async def extract(self, message: str, now: datetime) -> TripQuery | FollowUp | OutOfScope | None:
         """Call 1. ``None`` when the model's output does not parse against the schema."""
-        tz = ZoneInfo(DISPLAY_TZ)
-        now = now.astimezone(tz) if now.tzinfo else now.replace(tzinfo=tz)
+        now, tz, contents = _extract_input(message, now)
         config = types.GenerateContentConfig(
             system_instruction=EXTRACT_SYSTEM,
             response_mime_type="application/json",
@@ -166,7 +184,6 @@ class Gemini:
             temperature=0.0,
             thinking_config=_no_thinking(),
         )
-        contents = f"now: {now.isoformat(timespec='seconds')} ({DISPLAY_TZ})\nrider message:\n{message}"
         response = await self._client.aio.models.generate_content(
             model=self._model, contents=contents, config=config
         )
@@ -180,9 +197,8 @@ class Gemini:
             temperature=EXPLAIN_TEMPERATURE,
             thinking_config=_no_thinking(),
         )
-        contents = "digest:\n" + json.dumps(digest, separators=(",", ":"))
         stream = await self._client.aio.models.generate_content_stream(
-            model=self._model, contents=contents, config=config
+            model=self._model, contents=_explain_input(digest), config=config
         )
         async for chunk in stream:
             text = getattr(chunk, "text", None)
