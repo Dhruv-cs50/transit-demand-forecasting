@@ -1,8 +1,8 @@
 """What the assistant says when a question is out of bounds, and the Bay Area box.
 
-Code decides that a question is out of scope (Gemini call 1's ``scope`` and
+Code decides that a question is out of scope (LLM call 1's ``scope`` and
 ``scope_reason``, or the box below applied to the endpoints Google resolved),
-and the words come from the hand-written pool here, picked at random. Gemini
+and the words come from the hand-written pool here, picked at random. The LLM
 never writes a refusal, so one can never slip in directions for the trip it
 declines. The only rider-derived text in a reply is the out-of-area place name,
 cleaned and cut to ``MAX_PLACE_CHARS``.

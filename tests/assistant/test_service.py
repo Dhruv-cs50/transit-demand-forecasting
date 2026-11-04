@@ -44,7 +44,7 @@ class Rig:
         self.gemini = gemini or FakeGemini()
         self.routing = routing or FakeRouting()
         self.context = context or FakeContext()
-        services = Services(gemini=self.gemini, plan=self.routing.plan, gather=self.context.gather)
+        services = Services(llm=self.gemini, plan=self.routing.plan, gather=self.context.gather)
         self.now = now
         self.app = create_app(settings=settings, services=services, now_fn=lambda: self.now, **kw)
         self.client = TestClient(self.app)
@@ -918,3 +918,126 @@ def test_one_ended_bay_area_trip_still_asks(origin, destination):
     rig = GeminiRig(model_json(scope="trip", origin=origin, destination=destination, follow_up=question))
     evs = events(rig.chat({"message": "trip"}))
     assert evs == [{"type": "follow_up", "question": question}]
+
+
+# --- the provider switch (LLM_PROVIDER) ------------------------------------------------
+#
+# ``Claude`` over the recording fake Anthropic client from test_llm_claude, through the real
+# service: the same events as on Gemini for a trip, a refusal, a rejected sentence and a failure.
+
+import anthropic  # noqa: E402
+
+from assistant import llm as llm_mod  # noqa: E402
+from assistant import llm_claude  # noqa: E402
+from assistant.llm_claude import Claude  # noqa: E402
+
+from test_llm_claude import FakeClient as AnthropicFakeClient  # noqa: E402
+from test_llm_claude import message as anthropic_message  # noqa: E402
+
+CLAUDE_SETTINGS = replace(
+    SETTINGS, LLM_PROVIDER="anthropic", ANTHROPIC_MODEL="claude-haiku-5-5", ANTHROPIC_API_KEY="test-not-a-key"
+)
+TRIP_JSON = json.dumps({"scope": "trip", "scope_reason": None, "outside_place": None,
+                        "origin": "Mountain View", "destination": "SAP Center", "depart_at": None,
+                        "follow_up": None})
+
+
+class ClaudeRig(Rig):
+    """A rig whose LLM is ``llm_claude.Claude`` over a fake Anthropic client."""
+
+    def __init__(self, response=None, chunks=None, stop_reason="end_turn", **kw):
+        self.fake_client = AnthropicFakeClient(
+            response=response if response is not None else anthropic_message(TRIP_JSON),
+            chunks=[good_sentence(1), good_sentence(2)] if chunks is None else chunks,
+            stop_reason=stop_reason,
+        )
+        kw.setdefault("settings", CLAUDE_SETTINGS)
+        super().__init__(gemini=Claude(CLAUDE_SETTINGS, client=self.fake_client), **kw)
+
+
+def test_health_reports_the_active_model():
+    assert ClaudeRig().client.get("/health").json() == {"status": "ok", "model": "claude-haiku-5-5"}
+    assert Rig().client.get("/health").json() == {"status": "ok", "model": "gemini-test-flash"}
+
+
+def test_claude_answers_a_trip_through_the_service():
+    rig = ClaudeRig()
+    evs = events(rig.chat())
+    assert types_of(evs) == ["options", "text", "text", "caveats", "done"]
+    assert [c[0] for c in rig.fake_client.messages.calls] == ["create", "stream"]  # exactly two calls
+    assert rig.fake_client.messages.exited == 1
+
+
+def test_claude_rejected_sentence_closes_the_stream_and_replaces():
+    rig = ClaudeRig(chunks=[good_sentence(1), "The next one is only 33 min away. ", "More text. "])
+    evs = events(rig.chat())
+    assert types_of(evs) == ["options", "text", "replace", "caveats", "done"]
+    assert evs[2]["text"] == default_template()
+    assert rig.fake_client.messages.exited == 1
+
+
+def test_claude_refusal_mid_stream_replaces_what_was_shown():
+    rig = ClaudeRig(chunks=[good_sentence(1)], stop_reason="refusal")
+    evs = events(rig.chat())
+    assert types_of(evs) == ["options", "text", "replace", "caveats", "done"]
+    assert evs[2]["text"] == default_template()
+
+
+def test_claude_extract_refusal_or_error_shows_the_form():
+    assert events(ClaudeRig(response=anthropic_message(TRIP_JSON, stop_reason="refusal")).chat()) == [{"type": "form"}]
+    rig = ClaudeRig()
+    rig.fake_client.messages.error = anthropic.APIConnectionError(request=None)  # type: ignore[arg-type]
+    assert events(rig.chat()) == [{"type": "form"}]
+    assert rig.routing.calls == 0
+
+
+def test_make_llm_picks_the_client_by_provider(monkeypatch):
+    built: list[tuple[str, dict]] = []
+
+    def recorder(name):
+        class Recorder:
+            def __init__(self, **kw):
+                built.append((name, kw))
+
+        return Recorder
+
+    monkeypatch.setattr(llm_claude.anthropic, "AsyncAnthropic", recorder("anthropic"))
+    monkeypatch.setattr(llm_mod.genai, "Client", recorder("vertex"))
+
+    assert isinstance(svc.make_llm(CLAUDE_SETTINGS), Claude)
+    assert isinstance(svc.make_llm(SETTINGS), Gemini)  # LLM_PROVIDER unset means gemini
+    assert [name for name, _ in built] == ["anthropic", "vertex"]
+    assert built[0][1]["api_key"] == "test-not-a-key"
+
+    with pytest.raises(ValueError, match="LLM_PROVIDER"):
+        svc.make_llm(replace(SETTINGS, LLM_PROVIDER="openai"))
+
+
+def test_real_services_builds_the_configured_llm(monkeypatch):
+    monkeypatch.setattr(llm_claude.anthropic, "AsyncAnthropic", lambda **kw: object())
+    services = real_services(CLAUDE_SETTINGS, httpx.AsyncClient())
+    assert isinstance(services.llm, Claude)
+
+
+def test_startup_from_the_environment_on_anthropic(monkeypatch):
+    """The deployed path: settings from env, the Claude client built, warmed, /health names it."""
+    warmed: list[dict] = []
+
+    class Client:
+        def __init__(self, **kw):
+            self.messages = self
+
+        async def create(self, **kw):
+            warmed.append(kw)
+            return anthropic_message("ok", thinking=False)
+
+    monkeypatch.delenv("ASSISTANT_FAKE", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-haiku-5-5")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-not-a-key")
+    monkeypatch.setattr(llm_claude.anthropic, "AsyncAnthropic", Client)
+    with TestClient(create_app()) as client:
+        assert client.get("/health").json() == {"status": "ok", "model": "claude-haiku-5-5"}
+    (warm,) = warmed
+    assert warm["max_tokens"] <= 8 and warm["thinking"] == {"type": "disabled"}

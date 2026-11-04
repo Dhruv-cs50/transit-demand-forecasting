@@ -1,11 +1,11 @@
 """Digest, validator and template answer for the route assistant.
 
-Every trip time and duration the user sees comes from Google Routes. Gemini
+Every trip time and duration the user sees comes from Google Routes. The LLM
 only explains, so its text is checked before it is shown: any clock time or
 minute count it states must be one the options support, or one that appears
 literally in the source data it was given (a 511 alert header, an event start
 time), and vague durations ("about an hour") are rejected because they
-re-state a figure given exactly. When Gemini fails or is rejected,
+re-state a figure given exactly. When the LLM fails or is rejected,
 ``template_explanation`` answers instead. The template is rendered from the
 digest alone, so it contains only figures the validator accepts for that digest.
 
@@ -621,5 +621,5 @@ def template_from_digest(digest: dict[str, Any]) -> str:
 
 
 def template_explanation(options: list[TripOption], ctx: Context, tz: str) -> str:
-    """Deterministic answer used when Gemini fails or ``explanation_ok`` is False."""
+    """Deterministic answer used when the LLM fails or ``explanation_ok`` is False."""
     return template_from_digest(build_digest(options, ctx, tz))

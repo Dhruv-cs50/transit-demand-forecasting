@@ -1,4 +1,4 @@
-"""System prompts for the route assistant's two Gemini calls.
+"""System prompts for the route assistant's two LLM calls (the same for Claude and Gemini).
 
 Kept as module constants: they are part of the contract the tests pin, and the
 service never builds a prompt from user text. The user's message reaches the

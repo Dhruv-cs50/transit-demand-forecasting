@@ -1,4 +1,4 @@
-"""Offline stand-ins for Gemini, Google Routes and the context tools.
+"""Offline stand-ins for the LLM (Claude or Gemini), Google Routes and the context tools.
 
 ``ASSISTANT_FAKE=1`` wires these into the app so the chat panel can be built
 without keys, and the service tests use the same classes (configured per test),
@@ -107,7 +107,7 @@ def canned_text(digest: dict[str, Any], invent: bool = False) -> str:
 
 
 class FakeGemini:
-    """Stands in for ``llm.Gemini``. Both methods count calls.
+    """Stands in for the LLM client (``llm_claude.Claude`` or ``llm.Gemini``). Both methods count calls.
 
     ``query`` fixes call 1's answer (``None`` = unusable output, so the form);
     left unset, the message is read for "from X to Y". ``chunks`` fixes call 2's

@@ -1,10 +1,11 @@
 """The route assistant's HTTP service: ``POST /chat`` streams NDJSON events.
 
-One question runs: Gemini call 1 (extract) -> one Google Routes call -> the
+One question runs: LLM call 1 (extract) -> one Google Routes call -> the
 ``options`` event, sent as soon as routing returns -> the four context tools ->
-Gemini call 2 (explain), streamed and checked a sentence at a time -> ``caveats``
+LLM call 2 (explain), streamed and checked a sentence at a time -> ``caveats``
 -> ``done``. Anything that cannot be trusted is replaced by the deterministic
-template answer; a time Google did not give is never shown.
+template answer; a time Google did not give is never shown. The LLM is Claude
+(Anthropic API) or Gemini (Vertex AI), picked by ``LLM_PROVIDER`` (``make_llm``).
 
 Events, one JSON object per line: ``follow_up`` | ``form`` (then the stream
 ends), ``scope`` then ``done`` for an out-of-bounds question, or ``options``
@@ -12,10 +13,10 @@ ends), ``scope`` then ``done`` for an out-of-bounds question, or ``options``
 ``text``*, ``replace``?, ``caveats``, ``done``.
 
 Out of bounds (another region, another mode, not a trip, an injection attempt):
-Gemini call 1 says so in ``scope``/``scope_reason``, or an end Google resolved
+LLM call 1 says so in ``scope``/``scope_reason``, or an end Google resolved
 lies outside the Bay Area box; either way the reply is a hand-written variant
 from ``assistant.scope``, with no Routes call (box: no options shown) and no
-Gemini call 2.
+LLM call 2.
 
 Logging: one structured line per request with latencies and event counts and
 nothing the rider typed. CORS: the panel calls the service cross-origin from
@@ -55,7 +56,7 @@ log = logging.getLogger("assistant.service")
 
 TZ = DISPLAY_TZ
 ATTRIBUTION = "Routes by Google"
-# Start-up warm-up of the Gemini client: best effort, and readiness waits at most this long for it.
+# Start-up warm-up of the LLM client: best effort, and readiness waits at most this long for it.
 WARMUP_TIMEOUT_S = 3.0
 # plan_trips has its own 2.5 s HTTP timeout; this outer bound catches anything that hangs past it.
 ROUTING_DEADLINE_S = 3.0
@@ -84,17 +85,31 @@ GatherFn = Callable[[list[TripOption], TripQuery], Awaitable[Context]]
 class Services:
     """The three things the service calls out to. Tests and fake mode inject fakes."""
 
-    gemini: Any  # .extract(message, now) and .explain_stream(digest)
+    llm: Any  # .extract(message, now), .explain_stream(digest) and optionally .warm()
     plan: PlanFn
     gather: GatherFn
 
 
-def real_services(settings: Settings, http: httpx.AsyncClient, gemini: Any = None) -> Services:
-    """Google Routes and the context tools over ``http``; Gemini on Vertex AI unless given."""
-    if gemini is None:
+def make_llm(settings: Settings) -> Any:
+    """The client for ``settings.LLM_PROVIDER``: Claude on the Anthropic API, or Gemini on Vertex AI.
+
+    Imported lazily, so only the active provider's SDK is loaded.
+    """
+    if settings.LLM_PROVIDER == "anthropic":
+        from assistant.llm_claude import Claude
+
+        return Claude(settings)
+    if settings.LLM_PROVIDER == "gemini":
         from assistant.llm import Gemini
 
-        gemini = Gemini(settings)
+        return Gemini(settings)
+    raise ValueError(f"unknown LLM_PROVIDER {settings.LLM_PROVIDER!r}")
+
+
+def real_services(settings: Settings, http: httpx.AsyncClient, llm: Any = None) -> Services:
+    """Google Routes and the context tools over ``http``; the configured LLM unless given."""
+    if llm is None:
+        llm = make_llm(settings)
 
     async def plan(q: TripQuery) -> list[TripOption]:
         return await plan_trips(q, http, settings.ROUTES_API_KEY)
@@ -102,14 +117,14 @@ def real_services(settings: Settings, http: httpx.AsyncClient, gemini: Any = Non
     async def gather(options: list[TripOption], q: TripQuery) -> Context:
         return await gather_context(options, q, http, settings)
 
-    return Services(gemini=gemini, plan=plan, gather=gather)
+    return Services(llm=llm, plan=plan, gather=gather)
 
 
 def fake_services() -> Services:
     from assistant.fakes import FakeContext, FakeGemini, FakeRouting
 
     routing, context = FakeRouting(), FakeContext()
-    return Services(gemini=FakeGemini(), plan=routing.plan, gather=context.gather)
+    return Services(llm=FakeGemini(), plan=routing.plan, gather=context.gather)
 
 
 # --- request helpers --------------------------------------------------------------
@@ -251,7 +266,7 @@ def _encode(event: dict[str, Any]) -> bytes:
 
 
 class _Reject(Exception):
-    """Gemini's explanation cannot be shown."""
+    """The LLM's explanation cannot be shown."""
 
 
 # --- the explanation ----------------------------------------------------------------
@@ -262,8 +277,8 @@ async def _explain(
 ) -> AsyncIterator[dict[str, Any]]:
     """``text`` events for each sentence that passes ``explanation_ok``.
 
-    On the first failing sentence, an explanation timeout, an error from Gemini
-    or an empty answer: stop the Gemini stream and yield one ``replace`` with
+    On the first failing sentence, an explanation timeout, an error or refusal
+    from the LLM or an empty answer: stop the LLM stream and yield one ``replace`` with
     the template.
     """
     loop = asyncio.get_running_loop()
@@ -277,7 +292,7 @@ async def _explain(
             raise _Reject
 
     try:
-        stream = services.gemini.explain_stream(digest).__aiter__()
+        stream = services.llm.explain_stream(digest).__aiter__()
         while True:
             try:
                 async with asyncio.timeout_at(deadline):
@@ -334,10 +349,10 @@ async def stream_chat(rt: "_Runtime", message: str) -> AsyncIterator[bytes]:
     try:
         now = rt.now_fn()
 
-        # 1. Gemini call 1.
+        # 1. LLM call 1.
         t = time.perf_counter()
         try:
-            parsed = await asyncio.wait_for(services.gemini.extract(message, now), settings.EXTRACT_TIMEOUT_S)
+            parsed = await asyncio.wait_for(services.llm.extract(message, now), settings.EXTRACT_TIMEOUT_S)
         except Exception as exc:  # noqa: BLE001  raise or timeout: show the form
             log.warning("extract failed: %s", type(exc).__name__)
             parsed = None
@@ -418,7 +433,7 @@ async def stream_chat(rt: "_Runtime", message: str) -> AsyncIterator[bytes]:
             ctx = Context(alerts=(), weather=None, events=(), stations=(), missing=("context",))
         latency["context"] = _ms(t_ctx)
 
-        # 4. Gemini call 2, validated sentence by sentence.
+        # 4. LLM call 2, validated sentence by sentence.
         t_exp = time.perf_counter()
         digest = build_digest(options, ctx, TZ)
         explainer = _explain(services, settings, options, ctx, digest)
@@ -481,12 +496,12 @@ def _configure_logging() -> None:
 
 
 async def warm_up(services: Services) -> None:
-    """Warm Gemini once at start-up so a fresh instance's first extract is not cold.
+    """Warm the LLM client once at start-up so a fresh instance's first extract is not cold.
 
     Best effort: bounded by ``WARMUP_TIMEOUT_S`` and on any failure it only logs,
     so the service still becomes ready. Services without a ``warm`` are skipped.
     """
-    warm = getattr(services.gemini, "warm", None)
+    warm = getattr(services.llm, "warm", None)
     if warm is None:
         return
     t = time.perf_counter()
@@ -494,7 +509,7 @@ async def warm_up(services: Services) -> None:
         await asyncio.wait_for(warm(), WARMUP_TIMEOUT_S)
         log.info(json.dumps({"event": "warm", "ok": True, "ms": _ms(t)}, separators=(",", ":")))
     except Exception as exc:  # noqa: BLE001  includes the timeout; never stop the service starting
-        log.warning("gemini warm-up failed: %s", type(exc).__name__)
+        log.warning("llm warm-up failed: %s", type(exc).__name__)
 
 
 def create_app(
@@ -563,7 +578,7 @@ def create_app(
         rt: _Runtime | None = app.state.rt
         if rt is None:
             return JSONResponse({"status": "starting"}, status_code=503)
-        return {"status": "ok", "model": rt.settings.GEMINI_MODEL}
+        return {"status": "ok", "model": rt.settings.active_model}
 
     @app.post("/chat")
     async def chat(request: Request):
