@@ -353,7 +353,10 @@ def test_warm_makes_one_tiny_fixed_call():
     assert kw["max_tokens"] <= 8
     assert kw["messages"] == [{"role": "user", "content": llm.WARMUP_CONTENTS}]  # fixed text, never a rider's
     assert kw["thinking"] == {"type": "disabled"}
-    assert kw["output_config"] == {"effort": "low"}
+    # The extract schema rides along, so its one-time compile happens here, not on a rider's question.
+    assert kw["output_config"] == {"effort": "low",
+                                   "format": {"type": "json_schema", "schema": llm_claude.EXTRACT_JSON_SCHEMA}}
+    assert "system" not in kw  # the reply is thrown away; only the schema needs to be seen
     assert not NEVER_SENT & kw.keys()
 
 

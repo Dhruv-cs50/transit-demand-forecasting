@@ -96,6 +96,10 @@ def _thinking_off() -> dict[str, str]:
     return {"type": "disabled"}
 
 
+def _extract_format() -> dict[str, Any]:
+    return {"type": "json_schema", "schema": EXTRACT_JSON_SCHEMA}
+
+
 def _user(text: str) -> list[dict[str, str]]:
     return [{"role": "user", "content": text}]
 
@@ -126,14 +130,17 @@ class Claude:
     async def warm(self) -> None:
         """Open the connection before the first rider asks: a one-token call on a fixed text.
 
-        Raises on failure; the caller only logs.
+        It carries the extract schema, so the API's one-time compile of a new
+        schema (then cached) is paid here rather than inside the first rider's
+        4 s extract. The one-token reply is cut off and thrown away. Raises on
+        failure; the caller only logs.
         """
         await self._client.messages.create(
             model=self._model,
             max_tokens=WARMUP_MAX_TOKENS,
             messages=_user(WARMUP_CONTENTS),
             thinking=_thinking_off(),
-            output_config={"effort": EFFORT},
+            output_config={"effort": EFFORT, "format": _extract_format()},
         )
 
     async def extract(self, message: str, now: datetime) -> TripQuery | FollowUp | OutOfScope | None:
@@ -145,7 +152,7 @@ class Claude:
             system=EXTRACT_SYSTEM,
             messages=_user(contents),
             thinking=_thinking_off(),
-            output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": EXTRACT_JSON_SCHEMA}},
+            output_config={"effort": EFFORT, "format": _extract_format()},
         )
         return _to_query(_reply_text(response), now, tz)
 
