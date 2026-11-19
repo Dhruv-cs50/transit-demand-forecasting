@@ -15,8 +15,8 @@
 (function () {
   'use strict';
 
-  /* The one place the service URL lives. Empty until Task 8 deploys it. */
-  var ASSISTANT_URL = '';
+  /* The one place the service URL lives (Cloud Run transit-assistant). */
+  var ASSISTANT_URL = 'https://transit-assistant-308878596074.us-west2.run.app';
   var MAX_CHARS = 500;
   var WAKING_MS = 1500;
   var IDLE_MS = 20000;   /* abort when no data arrives for this long (reset on every chunk) */
