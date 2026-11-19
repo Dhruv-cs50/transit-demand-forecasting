@@ -1,0 +1,117 @@
+fiscal_year,station,avg_midweek_boardings,report_url
+2019,San Francisco,15027,https://www.caltrain.com/media/1359/download
+2019,Palo Alto,7384,https://www.caltrain.com/media/1359/download
+2019,San Jose Diridon,4795,https://www.caltrain.com/media/1359/download
+2019,Mountain View,4560,https://www.caltrain.com/media/1359/download
+2019,Redwood City,4220,https://www.caltrain.com/media/1359/download
+2019,Hillsdale,3217,https://www.caltrain.com/media/1359/download
+2019,Sunnyvale,3208,https://www.caltrain.com/media/1359/download
+2019,Millbrae,3194,https://www.caltrain.com/media/1359/download
+2019,San Mateo,2324,https://www.caltrain.com/media/1359/download
+2019,22nd Street,1872,https://www.caltrain.com/media/1359/download
+2019,Menlo Park,1639,https://www.caltrain.com/media/1359/download
+2019,California Ave,1634,https://www.caltrain.com/media/1359/download
+2019,Tamien,1422,https://www.caltrain.com/media/1359/download
+2019,San Carlos,1341,https://www.caltrain.com/media/1359/download
+2019,Burlingame,1131,https://www.caltrain.com/media/1359/download
+2019,Santa Clara,1074,https://www.caltrain.com/media/1359/download
+2019,San Antonio,1017,https://www.caltrain.com/media/1359/download
+2019,Lawrence,1004,https://www.caltrain.com/media/1359/download
+2019,San Bruno,751,https://www.caltrain.com/media/1359/download
+2019,Belmont,718,https://www.caltrain.com/media/1359/download
+2019,Hayward Park,506,https://www.caltrain.com/media/1359/download
+2019,South San Francisco,453,https://www.caltrain.com/media/1359/download
+2019,Bayshore,260,https://www.caltrain.com/media/1359/download
+2019,Morgan Hill,251,https://www.caltrain.com/media/1359/download
+2019,Gilroy,187,https://www.caltrain.com/media/1359/download
+2019,Blossom Hill,159,https://www.caltrain.com/media/1359/download
+2019,College Park,103,https://www.caltrain.com/media/1359/download
+2019,San Martin,84,https://www.caltrain.com/media/1359/download
+2019,Capitol,71,https://www.caltrain.com/media/1359/download
+2024,San Francisco,4803,https://www.caltrain.com/media/34265/download
+2024,Palo Alto,2889,https://www.caltrain.com/media/34265/download
+2024,Mountain View,1703,https://www.caltrain.com/media/34265/download
+2024,Redwood City,1624,https://www.caltrain.com/media/34265/download
+2024,San Jose Diridon,1547,https://www.caltrain.com/media/34265/download
+2024,Millbrae,1222,https://www.caltrain.com/media/34265/download
+2024,Hillsdale,1212,https://www.caltrain.com/media/34265/download
+2024,Sunnyvale,1140,https://www.caltrain.com/media/34265/download
+2024,San Mateo,914,https://www.caltrain.com/media/34265/download
+2024,22nd Street,854,https://www.caltrain.com/media/34265/download
+2024,Menlo Park,646,https://www.caltrain.com/media/34265/download
+2024,Santa Clara,595,https://www.caltrain.com/media/34265/download
+2024,Lawrence,513,https://www.caltrain.com/media/34265/download
+2024,Burlingame,474,https://www.caltrain.com/media/34265/download
+2024,San Carlos,471,https://www.caltrain.com/media/34265/download
+2024,California Ave,458,https://www.caltrain.com/media/34265/download
+2024,Belmont,454,https://www.caltrain.com/media/34265/download
+2024,South San Francisco,418,https://www.caltrain.com/media/34265/download
+2024,San Antonio,414,https://www.caltrain.com/media/34265/download
+2024,San Bruno,233,https://www.caltrain.com/media/34265/download
+2024,Hayward Park,225,https://www.caltrain.com/media/34265/download
+2024,Tamien,211,https://www.caltrain.com/media/34265/download
+2024,Morgan Hill,100,https://www.caltrain.com/media/34265/download
+2024,Bayshore,95,https://www.caltrain.com/media/34265/download
+2024,Gilroy,95,https://www.caltrain.com/media/34265/download
+2024,Blossom Hill,57,https://www.caltrain.com/media/34265/download
+2024,College Park,43,https://www.caltrain.com/media/34265/download
+2024,Capitol,38,https://www.caltrain.com/media/34265/download
+2024,San Martin,29,https://www.caltrain.com/media/34265/download
+2025,San Francisco,6874,https://www.caltrain.com/media/35885/download
+2025,Palo Alto,3603,https://www.caltrain.com/media/35885/download
+2025,Mountain View,2288,https://www.caltrain.com/media/35885/download
+2025,San Jose Diridon,2136,https://www.caltrain.com/media/35885/download
+2025,Redwood City,2111,https://www.caltrain.com/media/35885/download
+2025,Sunnyvale,1770,https://www.caltrain.com/media/35885/download
+2025,Hillsdale,1596,https://www.caltrain.com/media/35885/download
+2025,Millbrae,1489,https://www.caltrain.com/media/35885/download
+2025,San Mateo,1270,https://www.caltrain.com/media/35885/download
+2025,22nd Street,1261,https://www.caltrain.com/media/35885/download
+2025,Menlo Park,863,https://www.caltrain.com/media/35885/download
+2025,Santa Clara,839,https://www.caltrain.com/media/35885/download
+2025,California Ave,817,https://www.caltrain.com/media/35885/download
+2025,South San Francisco,692,https://www.caltrain.com/media/35885/download
+2025,Lawrence,686,https://www.caltrain.com/media/35885/download
+2025,San Antonio,655,https://www.caltrain.com/media/35885/download
+2025,Belmont,654,https://www.caltrain.com/media/35885/download
+2025,San Carlos,644,https://www.caltrain.com/media/35885/download
+2025,Burlingame,620,https://www.caltrain.com/media/35885/download
+2025,San Bruno,377,https://www.caltrain.com/media/35885/download
+2025,Hayward Park,366,https://www.caltrain.com/media/35885/download
+2025,Tamien,243,https://www.caltrain.com/media/35885/download
+2025,Bayshore,168,https://www.caltrain.com/media/35885/download
+2025,Morgan Hill,130,https://www.caltrain.com/media/35885/download
+2025,Gilroy,110,https://www.caltrain.com/media/35885/download
+2025,Blossom Hill,71,https://www.caltrain.com/media/35885/download
+2025,Capitol,49,https://www.caltrain.com/media/35885/download
+2025,College Park,41,https://www.caltrain.com/media/35885/download
+2025,San Martin,25,https://www.caltrain.com/media/35885/download
+2026,San Francisco,9714,https://www.caltrain.com/media/37931/download
+2026,Palo Alto,4486,https://www.caltrain.com/media/37931/download
+2026,Mountain View,3048,https://www.caltrain.com/media/37931/download
+2026,San Jose Diridon,2936,https://www.caltrain.com/media/37931/download
+2026,Redwood City,2732,https://www.caltrain.com/media/37931/download
+2026,Sunnyvale,2484,https://www.caltrain.com/media/37931/download
+2026,Hillsdale,2215,https://www.caltrain.com/media/37931/download
+2026,Millbrae,1921,https://www.caltrain.com/media/37931/download
+2026,22nd Street,1800,https://www.caltrain.com/media/37931/download
+2026,San Mateo,1720,https://www.caltrain.com/media/37931/download
+2026,Santa Clara,1215,https://www.caltrain.com/media/37931/download
+2026,California Ave,1201,https://www.caltrain.com/media/37931/download
+2026,Menlo Park,1116,https://www.caltrain.com/media/37931/download
+2026,South San Francisco,1050,https://www.caltrain.com/media/37931/download
+2026,Lawrence,1026,https://www.caltrain.com/media/37931/download
+2026,San Antonio,954,https://www.caltrain.com/media/37931/download
+2026,Burlingame,901,https://www.caltrain.com/media/37931/download
+2026,San Carlos,885,https://www.caltrain.com/media/37931/download
+2026,Belmont,883,https://www.caltrain.com/media/37931/download
+2026,Hayward Park,518,https://www.caltrain.com/media/37931/download
+2026,San Bruno,517,https://www.caltrain.com/media/37931/download
+2026,Bayshore,257,https://www.caltrain.com/media/37931/download
+2026,Morgan Hill,155,https://www.caltrain.com/media/37931/download
+2026,Tamien,153,https://www.caltrain.com/media/37931/download
+2026,Gilroy,139,https://www.caltrain.com/media/37931/download
+2026,Blossom Hill,94,https://www.caltrain.com/media/37931/download
+2026,Capitol,56,https://www.caltrain.com/media/37931/download
+2026,College Park,45,https://www.caltrain.com/media/37931/download
+2026,San Martin,41,https://www.caltrain.com/media/37931/download

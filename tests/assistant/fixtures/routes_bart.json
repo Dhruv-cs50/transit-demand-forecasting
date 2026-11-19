@@ -1,0 +1,436 @@
+{
+  "routes": [
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.7844762,
+              "longitude": -122.4085256
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.803168899999996,
+              "longitude": -122.27180170000001
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "8s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "92s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "840s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "12th St / Oakland"
+                  },
+                  "arrivalTime": "2026-10-30T15:20:00Z",
+                  "departureStop": {
+                    "name": "Powell St"
+                  },
+                  "departureTime": "2026-10-30T15:06:00Z"
+                },
+                "headsign": "Richmond",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Bay Area Rapid Transit"
+                    }
+                  ],
+                  "name": "Millbrae/SF Int'l Airport SFO to Richmond",
+                  "nameShort": "Red-N"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "79s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "12s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 13404,
+      "duration": "1034s",
+      "polyline": {
+        "encodedPolyline": "_xreFh|bjVZiBy@aC@CaMuPkMeQsRuWgFgHiAcBgAgBcAoBsBiF}E}Mwc@crA}AyFqAaGc@aC}@iG[eCaB{OyIm~@qReqBk@oGs@yK]qGi@gPS}KEsGH_LLsG^}K~B}i@lBka@TqGj@{Kn@{KRgCp@mGhEe\\|AmKd@aCzA{FvCoJbBwFrCqJn@{Bf@aC`AgGtCyS^cCd@aCj@}Br@yBdDeJpBmFxBeFv@wBb@aCLiCFiCKgCm@{BgAiBwAqAcBw@eBs@eEwBaB_A_BcAaB_AwAs@AHf@FVJ"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.7844762,
+              "longitude": -122.4085256
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.803168899999996,
+              "longitude": -122.27180170000001
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "8s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "92s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "900s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "12th St / Oakland"
+                  },
+                  "arrivalTime": "2026-10-30T15:24:00Z",
+                  "departureStop": {
+                    "name": "Powell St"
+                  },
+                  "departureTime": "2026-10-30T15:09:00Z"
+                },
+                "headsign": "Pittsburg / Bay Point",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Bay Area Rapid Transit"
+                    }
+                  ],
+                  "name": "Millbrae/SF Int'l SFO to Antioch",
+                  "nameShort": "Yellow-N"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "82s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "12s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 13410,
+      "duration": "1094s",
+      "polyline": {
+        "encodedPolyline": "_xreFh|bjVZiBy@aCsC_EiFcHaKkN{ToZsHiKkAeBgAgB_AoBuBiF{E}MyYm{@sEcNiBsF}AyFoAaGc@aC}@iGkAsKuBcT}Fqm@qReqBm@mGw@yKm@yK_@}KU}KIuGAiCH}K`@gPlCin@lBia@TsGj@{Kp@yKh@oGXeCjEe\\|AmKf@aCj@}B`BwFdBuFvFiRl@{Bf@aC`AgGtCyS^cCd@aCl@}Br@yBxGqQxBeFr@yB`@cCLgCDiCOgCq@yBiAeByAoAcBw@eBs@cBy@cE}B_BcAaB_AmAm@CRj@?VJ"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.7844762,
+              "longitude": -122.4085256
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.803168899999996,
+              "longitude": -122.27180170000001
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "8s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "92s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "900s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "12th St / Oakland"
+                  },
+                  "arrivalTime": "2026-10-30T15:32:00Z",
+                  "departureStop": {
+                    "name": "Powell St"
+                  },
+                  "departureTime": "2026-10-30T15:17:00Z"
+                },
+                "headsign": "Antioch",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Bay Area Rapid Transit"
+                    }
+                  ],
+                  "name": "Millbrae/SF Int'l SFO to Antioch",
+                  "nameShort": "Yellow-N"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "82s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "12s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 13410,
+      "duration": "1094s",
+      "polyline": {
+        "encodedPolyline": "_xreFh|bjVZiBy@aCsC_EiFcHaKkN{ToZsHiKkAeBgAgB_AoBuBiF{E}MyYm{@sEcNiBsF}AyFoAaGc@aC}@iGkAsKuBcT}Fqm@qReqBm@mGw@yKm@yK_@}KU}KIuGAiCH}K`@gPlCin@lBia@TsGj@{Kp@yKh@oGXeCjEe\\|AmKf@aCj@}B`BwFdBuFvFiRl@{Bf@aC`AgGtCyS^cCd@aCl@}Br@yBxGqQxBeFr@yB`@cCLgCDiCOgCq@yBiAeByAoAcBw@eBs@cBy@cE}B_BcAaB_AmAm@CRj@?VJ"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.7844762,
+              "longitude": -122.4085256
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.803168899999996,
+              "longitude": -122.27180170000001
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "8s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "92s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "900s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "Lake Merritt"
+                  },
+                  "arrivalTime": "2026-10-30T15:18:00Z",
+                  "departureStop": {
+                    "name": "Powell St"
+                  },
+                  "departureTime": "2026-10-30T15:03:00Z"
+                },
+                "headsign": "Dublin/Pleasanton",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Bay Area Rapid Transit"
+                    }
+                  ],
+                  "name": "Daly City to Dublin/Pleasanton",
+                  "nameShort": "Blue-N"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "78s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "120s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "12th St / Oakland"
+                  },
+                  "arrivalTime": "2026-10-30T15:31:00Z",
+                  "departureStop": {
+                    "name": "Lake Merritt"
+                  },
+                  "departureTime": "2026-10-30T15:29:00Z"
+                },
+                "headsign": "Richmond",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Bay Area Rapid Transit"
+                    }
+                  ],
+                  "name": "Berryessa/North San Jose to Richmond",
+                  "nameShort": "Orange-N"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "79s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "12s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 14896,
+      "duration": "1874s",
+      "polyline": {
+        "encodedPolyline": "_xreFh|bjVZiBy@aC@C{LmPyN_ScQyUsHkKgAgBaAmB}@sBuGsQwEaNa]acA}AyFqA_GeAeG]eCkAsKmCkXcAuKkX_sCk@oGu@yKg@{KUsGU}KKsGAiCBuGR}KPsG~B_j@pAwXJgC\\sGFiCfAmTr@yKn@mGlDaXxAmKdAgGj@}B`BwFz@mC`HqUl@{Bh@_Cb@cCzAmKvAoK^cCd@cCj@}Bp@yBdDgJlD_J|@qBv@wBd@_CPiCFiCGiCk@}BeAiBiAgB}@qBa@aCEiCLiCVeCd@aCl@}BdBsFt@wBz@uB|DwIJH?]XZmG~KgH`VaCvFmAdAmA^UCcBgA_HkDEPf@FVJ"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.7844762,
+              "longitude": -122.4085256
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.803168899999996,
+              "longitude": -122.27180170000001
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "8s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "92s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "840s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "12th St / Oakland"
+                  },
+                  "arrivalTime": "2026-10-30T15:40:00Z",
+                  "departureStop": {
+                    "name": "Powell St"
+                  },
+                  "departureTime": "2026-10-30T15:26:00Z"
+                },
+                "headsign": "Richmond",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Bay Area Rapid Transit"
+                    }
+                  ],
+                  "name": "Millbrae/SF Int'l Airport SFO to Richmond",
+                  "nameShort": "Red-N"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "79s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "12s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 13404,
+      "duration": "1034s",
+      "polyline": {
+        "encodedPolyline": "_xreFh|bjVZiBy@aC@CaMuPkMeQsRuWgFgHiAcBgAgBcAoBsBiF}E}Mwc@crA}AyFqAaGc@aC}@iG[eCaB{OyIm~@qReqBk@oGs@yK]qGi@gPS}KEsGH_LLsG^}K~B}i@lBka@TqGj@{Kn@{KRgCp@mGhEe\\|AmKd@aCzA{FvCoJbBwFrCqJn@{Bf@aC`AgGtCyS^cCd@aCj@}Br@yBdDeJpBmFxBeFv@wBb@aCLiCFiCKgCm@{BgAiBwAqAcBw@eBs@eEwBaB_A_BcAaB_AwAs@AHf@FVJ"
+      }
+    },
+    {
+      "legs": [
+        {
+          "startLocation": {
+            "latLng": {
+              "latitude": 37.7844762,
+              "longitude": -122.4085256
+            }
+          },
+          "endLocation": {
+            "latLng": {
+              "latitude": 37.803168899999996,
+              "longitude": -122.27180170000001
+            }
+          },
+          "steps": [
+            {
+              "staticDuration": "8s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "92s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "900s",
+              "transitDetails": {
+                "stopDetails": {
+                  "arrivalStop": {
+                    "name": "12th St / Oakland"
+                  },
+                  "arrivalTime": "2026-10-30T15:44:00Z",
+                  "departureStop": {
+                    "name": "Powell St"
+                  },
+                  "departureTime": "2026-10-30T15:29:00Z"
+                },
+                "headsign": "Pittsburg / Bay Point",
+                "transitLine": {
+                  "agencies": [
+                    {
+                      "name": "Bay Area Rapid Transit"
+                    }
+                  ],
+                  "name": "Millbrae/SF Int'l SFO to Antioch",
+                  "nameShort": "Yellow-N"
+                }
+              },
+              "travelMode": "TRANSIT"
+            },
+            {
+              "staticDuration": "82s",
+              "travelMode": "WALK"
+            },
+            {
+              "staticDuration": "12s",
+              "travelMode": "WALK"
+            }
+          ]
+        }
+      ],
+      "distanceMeters": 13410,
+      "duration": "1094s",
+      "polyline": {
+        "encodedPolyline": "_xreFh|bjVZiBy@aCsC_EiFcHaKkN{ToZsHiKkAeBgAgB_AoBuBiF{E}MyYm{@sEcNiBsF}AyFoAaGc@aC}@iGkAsKuBcT}Fqm@qReqBm@mGw@yKm@yK_@}KU}KIuGAiCH}K`@gPlCin@lBia@TsGj@{Kp@yKh@oGXeCjEe\\|AmKf@aCj@}B`BwFdBuFvFiRl@{Bf@aC`AgGtCyS^cCd@aCl@}Br@yBxGqQxBeFr@yB`@cCLgCDiCOgCq@yBiAeByAoAcBw@eBs@cBy@cE}B_BcAaB_AmAm@CRj@?VJ"
+      }
+    }
+  ]
+}

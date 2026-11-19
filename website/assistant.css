@@ -1,0 +1,80 @@
+/* Route assistant panel. Reads the host page's theme tokens (styles.css on the
+   main page, the inline tokens on transit-demo.html), so light and dark follow
+   html.dark on both. */
+.ta {
+  --ta-surface: var(--bg-elev, var(--surface, #fff));
+  --ta-muted: var(--bg-muted, var(--muted, #efece4));
+  --ta-sub: var(--ink-muted, var(--sub, #5a5d68));
+  --ta-r: var(--radius-sm, var(--r, 10px));
+  display: grid; gap: 12px; min-width: 0; color: var(--ink);
+  font-family: var(--body, var(--sans, system-ui, sans-serif));
+}
+.ta *, .ta *::before, .ta *::after { box-sizing: border-box; }
+.ta-ask { display: grid; gap: 6px; min-width: 0; }
+.ta-label { font-weight: 600; font-size: .95em; }
+.ta-row { display: flex; gap: 8px; min-width: 0; }
+.ta input {
+  flex: 1; min-width: 0; width: 100%; font: inherit; font-size: 16px; /* 16px: no iOS zoom on focus */
+  padding: 10px 12px; min-height: 44px; border-radius: var(--ta-r);
+  border: 1.5px solid var(--line-strong, var(--line)); background: var(--ta-surface); color: var(--ink);
+}
+.ta input::placeholder { color: var(--ink-soft, var(--faint)); }
+.ta input:focus-visible, .ta button:focus-visible, .ta a:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 2px;
+}
+.ta-send {
+  font: inherit; font-weight: 600; min-height: 44px; padding: 0 18px; border: 0; border-radius: var(--ta-r);
+  background: var(--primary); color: #fff; cursor: pointer; flex: none;
+}
+html.dark .ta-send { color: #0c0d12; }
+.ta-send:disabled { opacity: .6; cursor: progress; }
+.ta-hint { font-size: .8em; color: var(--ta-sub); }
+.ta-out { display: grid; gap: 10px; min-width: 0; }
+.ta-status:empty { display: none; }
+.ta-status { font-size: .92em; color: var(--ta-sub); }
+.ta-status.ta-warn, .ta-status.ta-ask { color: var(--ink); padding: 8px 12px; border-radius: var(--ta-r); background: var(--ta-muted); }
+.ta-status.ta-err { color: var(--ink); padding: 8px 12px; border-radius: var(--ta-r);
+  background: var(--accent-soft, var(--ta-muted)); border-left: 3px solid var(--accent); }
+.ta-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ta-cards:empty { display: none; }
+.ta-card {
+  width: 100%; text-align: left; font: inherit; color: var(--ink); cursor: pointer;
+  display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 4px 10px;
+  padding: 10px 12px; border-radius: var(--ta-r); border: 1.5px solid var(--line); background: var(--ta-surface);
+  transition: border-color .15s, box-shadow .15s;
+}
+.ta-card:hover { border-color: var(--line-strong, var(--primary)); }
+.ta-card[aria-pressed="true"] { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+.ta-rank { font-family: var(--mono); font-size: .8em; color: var(--ta-sub); }
+.ta-mins { font-family: var(--display); font-size: 1.05em; white-space: nowrap; }
+.ta-mins b { font-size: 1.3em; }
+.ta-times { font-family: var(--mono); font-size: .85em; color: var(--ta-sub); text-align: right; overflow-wrap: anywhere; }
+.ta-chips, .ta-meta { grid-column: 1 / -1; }
+.ta-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ta-chip { font-size: .75em; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--ta-muted); color: var(--ink); }
+.ta-ag-bart { background: #dbeafe; color: #0b3a75; }
+.ta-ag-vta { background: #e0f2e9; color: #14532d; }
+.ta-ag-caltrain { background: #fde4dc; color: #7a1f0c; }
+html.dark .ta-ag-bart { background: #172554; color: #bfdbfe; }
+html.dark .ta-ag-vta { background: #14321f; color: #bbf7d0; }
+html.dark .ta-ag-caltrain { background: #3b1a13; color: #fecaca; }
+.ta-meta { font-size: .82em; color: var(--ta-sub); }
+.ta-text { line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+.ta-text:empty { display: none; }
+.ta-extra { display: grid; gap: 8px; }
+.ta-extra:empty { display: none; }
+.ta-caveats { margin: 0; padding-left: 18px; font-size: .85em; color: var(--ta-sub); }
+.ta-attr { margin: 0; font-size: .75em; color: var(--ink-soft, var(--faint)); }
+.ta-link { margin: 0; }
+.ta-link a { color: var(--primary); font-weight: 600; }
+.ta-form { display: grid; gap: 8px; padding: 10px; border: 1px dashed var(--line-strong, var(--line)); border-radius: var(--ta-r); }
+.ta-field { display: grid; gap: 4px; font-size: .85em; }
+.ta-form .ta-send { justify-self: start; }
+@media (prefers-reduced-motion: reduce) { .ta-card { transition: none; } }
+
+/* Main-page section wrapper */
+.ta-section-card {
+  max-width: 760px; padding: 20px; border-radius: var(--radius, 14px);
+  border: 1px solid var(--line); background: var(--bg-elev); box-shadow: var(--shadow-sm);
+}
+@media (max-width: 480px) { .ta-section-card { padding: 14px; } }

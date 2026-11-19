@@ -1,0 +1,262 @@
+{
+  "windows": [
+    {
+      "window": "2023-H1",
+      "start": "2023-01",
+      "end": "2023-06",
+      "cutoff": "2022-12",
+      "role": "rejected",
+      "admitted": false,
+      "reason": "insufficient history (12 < 24 usable months before the cutoff)",
+      "insufficient_history": true,
+      "usable_months": 12
+    },
+    {
+      "window": "2023-H2",
+      "start": "2023-07",
+      "end": "2023-12",
+      "cutoff": "2023-06",
+      "role": "rejected",
+      "admitted": false,
+      "reason": "insufficient history (18 < 24 usable months before the cutoff); method_2023_11 is 1 in 2 window month(s) but has 0 < 6 months at 1 before the cutoff",
+      "insufficient_history": true,
+      "usable_months": 18
+    },
+    {
+      "window": "2024-H1",
+      "start": "2024-01",
+      "end": "2024-06",
+      "cutoff": "2023-12",
+      "role": "rejected",
+      "admitted": false,
+      "reason": "method_2023_11 is 1 in 6 window month(s) but has 2 < 6 months at 1 before the cutoff",
+      "insufficient_history": false,
+      "usable_months": 24
+    },
+    {
+      "window": "2024-H2",
+      "start": "2024-07",
+      "end": "2024-12",
+      "cutoff": "2024-06",
+      "role": "rejected",
+      "admitted": false,
+      "reason": "electrified is 1 in 4 window month(s) but has 0 < 6 months at 1 before the cutoff",
+      "insufficient_history": false,
+      "usable_months": 30
+    },
+    {
+      "window": "2025-H1",
+      "start": "2025-01",
+      "end": "2025-06",
+      "cutoff": "2024-12",
+      "role": "rejected",
+      "admitted": false,
+      "reason": "electrified is 1 in 6 window month(s) but has 4 < 6 months at 1 before the cutoff; method_2025_01 is 1 in 6 window month(s) but has 0 < 6 months at 1 before the cutoff",
+      "insufficient_history": false,
+      "usable_months": 36
+    },
+    {
+      "window": "2025-H2",
+      "start": "2025-07",
+      "end": "2025-12",
+      "cutoff": "2025-06",
+      "role": "development",
+      "admitted": true,
+      "reason": null,
+      "insufficient_history": false,
+      "usable_months": 42
+    },
+    {
+      "window": "2026-H1",
+      "start": "2026-01",
+      "end": "2026-06",
+      "cutoff": "2025-12",
+      "role": "test",
+      "admitted": true,
+      "reason": null,
+      "insufficient_history": false,
+      "usable_months": 48
+    }
+  ],
+  "rows": [
+    {
+      "window": "2023-H1",
+      "model": "SeasonalNaive",
+      "wape": null,
+      "mae": null,
+      "n": 0,
+      "coverage_own_band": null,
+      "status": "insufficient history",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "rejected"
+    },
+    {
+      "window": "2023-H1",
+      "model": "SARIMA",
+      "wape": null,
+      "mae": null,
+      "n": 0,
+      "coverage_own_band": null,
+      "status": "insufficient history",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "rejected"
+    },
+    {
+      "window": "2023-H1",
+      "model": "Prophet",
+      "wape": null,
+      "mae": null,
+      "n": 0,
+      "coverage_own_band": null,
+      "status": "insufficient history",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "rejected"
+    },
+    {
+      "window": "2023-H1",
+      "model": "Chronos1_ZeroShot (chronos-t5-small)",
+      "wape": null,
+      "mae": null,
+      "n": 0,
+      "coverage_own_band": null,
+      "status": "insufficient history",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "rejected"
+    },
+    {
+      "window": "2023-H2",
+      "model": "SeasonalNaive",
+      "wape": null,
+      "mae": null,
+      "n": 0,
+      "coverage_own_band": null,
+      "status": "insufficient history",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "rejected"
+    },
+    {
+      "window": "2023-H2",
+      "model": "SARIMA",
+      "wape": null,
+      "mae": null,
+      "n": 0,
+      "coverage_own_band": null,
+      "status": "insufficient history",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "rejected"
+    },
+    {
+      "window": "2023-H2",
+      "model": "Prophet",
+      "wape": null,
+      "mae": null,
+      "n": 0,
+      "coverage_own_band": null,
+      "status": "insufficient history",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "rejected"
+    },
+    {
+      "window": "2023-H2",
+      "model": "Chronos1_ZeroShot (chronos-t5-small)",
+      "wape": null,
+      "mae": null,
+      "n": 0,
+      "coverage_own_band": null,
+      "status": "insufficient history",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "rejected"
+    },
+    {
+      "window": "2025-H2",
+      "model": "SeasonalNaive",
+      "wape": 34.54,
+      "mae": 13372.5,
+      "n": 6,
+      "coverage_own_band": 0.0,
+      "status": "ok",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "development"
+    },
+    {
+      "window": "2025-H2",
+      "model": "SARIMA",
+      "wape": 2.39,
+      "mae": 926.2,
+      "n": 6,
+      "coverage_own_band": 100.0,
+      "status": "ok",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "development"
+    },
+    {
+      "window": "2025-H2",
+      "model": "Prophet",
+      "wape": 5.72,
+      "mae": 2212.69,
+      "n": 6,
+      "coverage_own_band": 16.67,
+      "status": "ok",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "development"
+    },
+    {
+      "window": "2025-H2",
+      "model": "Chronos1_ZeroShot (chronos-t5-small)",
+      "wape": 5.84,
+      "mae": 2260.04,
+      "n": 6,
+      "coverage_own_band": 100.0,
+      "status": "ok",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "development"
+    },
+    {
+      "window": "2026-H1",
+      "model": "SeasonalNaive",
+      "wape": 20.16,
+      "mae": 8596.17,
+      "n": 6,
+      "coverage_own_band": 0.0,
+      "status": "ok",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "test"
+    },
+    {
+      "window": "2026-H1",
+      "model": "SARIMA",
+      "wape": 5.54,
+      "mae": 2364.57,
+      "n": 6,
+      "coverage_own_band": 50.0,
+      "status": "ok",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "test"
+    },
+    {
+      "window": "2026-H1",
+      "model": "Prophet",
+      "wape": 6.49,
+      "mae": 2768.48,
+      "n": 6,
+      "coverage_own_band": 16.67,
+      "status": "ok",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "test"
+    },
+    {
+      "window": "2026-H1",
+      "model": "Chronos1_ZeroShot (chronos-t5-small)",
+      "wape": 38.33,
+      "mae": 16345.9,
+      "n": 6,
+      "coverage_own_band": 0.0,
+      "status": "ok",
+      "source": "evaluation/outputs/caltrain/leaderboard.csv",
+      "scored_split": "test"
+    }
+  ],
+  "test_window": "2026-H1",
+  "source": "evaluation/outputs/caltrain/leaderboard.csv",
+  "generated_by": "models/caltrain/benchmark.py"
+}

@@ -1,0 +1,410 @@
+[
+  {
+    "month": "2019-01",
+    "awr": 63044,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-02",
+    "awr": 64041,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-03",
+    "awr": 65057,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-04",
+    "awr": 67728,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-05",
+    "awr": 68326,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-06",
+    "awr": 72370,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-07",
+    "awr": 70493,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-08",
+    "awr": 71557,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-09",
+    "awr": 72387,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-10",
+    "awr": 70360,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-11",
+    "awr": 69607,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2019-12",
+    "awr": 62480,
+    "method_period": "2019-02",
+    "electrified": 0
+  },
+  {
+    "month": "2022-01",
+    "awr": 9044,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-02",
+    "awr": 10956,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-03",
+    "awr": 12539,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-04",
+    "awr": 15451,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-05",
+    "awr": 15757,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-06",
+    "awr": 18187,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-07",
+    "awr": 16932,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-08",
+    "awr": 18609,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-09",
+    "awr": 18709,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-10",
+    "awr": 18583,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-11",
+    "awr": 16857,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2022-12",
+    "awr": 12513,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-01",
+    "awr": 14655,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-02",
+    "awr": 16489,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-03",
+    "awr": 16628,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-04",
+    "awr": 18621,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-05",
+    "awr": 18678,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-06",
+    "awr": 20452,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-07",
+    "awr": 20334,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-08",
+    "awr": 20284,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-09",
+    "awr": 21366,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-10",
+    "awr": 19939,
+    "method_period": "2020-04",
+    "electrified": 0
+  },
+  {
+    "month": "2023-11",
+    "awr": 20877,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2023-12",
+    "awr": 17383,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2024-01",
+    "awr": 19790,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2024-02",
+    "awr": 21193,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2024-03",
+    "awr": 21773,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2024-04",
+    "awr": 23122,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2024-05",
+    "awr": 24457,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2024-06",
+    "awr": 24583,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2024-07",
+    "awr": 23286,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2024-08",
+    "awr": 24741,
+    "method_period": "2023-11",
+    "electrified": 0
+  },
+  {
+    "month": "2024-09",
+    "awr": 26541,
+    "method_period": "2023-11",
+    "electrified": 1
+  },
+  {
+    "month": "2024-10",
+    "awr": 27583,
+    "method_period": "2023-11",
+    "electrified": 1
+  },
+  {
+    "month": "2024-11",
+    "awr": 25868,
+    "method_period": "2023-11",
+    "electrified": 1
+  },
+  {
+    "month": "2024-12",
+    "awr": 24037,
+    "method_period": "2023-11",
+    "electrified": 1
+  },
+  {
+    "month": "2025-01",
+    "awr": 29052,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-02",
+    "awr": 30077,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-03",
+    "awr": 32418,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-04",
+    "awr": 35374,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-05",
+    "awr": 37495,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-06",
+    "awr": 39902,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-07",
+    "awr": 40015,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-08",
+    "awr": 39986,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-09",
+    "awr": 41065,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-10",
+    "awr": 39900,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-11",
+    "awr": 37779,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2025-12",
+    "awr": 33546,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2026-01",
+    "awr": 37827,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2026-02",
+    "awr": 38585,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2026-03",
+    "awr": 42003,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2026-04",
+    "awr": 43410,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2026-05",
+    "awr": 45268,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2026-06",
+    "awr": 48802,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2026-07",
+    "awr": 47459,
+    "method_period": "2025-01",
+    "electrified": 1
+  },
+  {
+    "month": "2026-08",
+    "awr": 49685,
+    "method_period": "2025-01",
+    "electrified": 1
+  }
+]

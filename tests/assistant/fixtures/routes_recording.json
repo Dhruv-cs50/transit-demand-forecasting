@@ -1,0 +1,11 @@
+{
+  "note": "Real Google Routes computeRoutes (v2) responses, recorded 2026-10-29/30 with the server key restricted to routes.googleapis.com. The key is not stored anywhere in this repo. Request bodies below; the field mask is assistant.routing.FIELD_MASK.",
+  "endpoint": "https://routes.googleapis.com/directions/v2:computeRoutes",
+  "fixtures": {
+    "routes_bart.json": {"origin": "Powell Street BART Station, San Francisco, CA", "destination": "Oakland City Center/12th St BART Station, Oakland, CA", "departureTime": "2026-10-30T15:00:00Z", "routes_returned": 6},
+    "routes_mv_to_sap.json": {"origin": "Mountain View Caltrain Station, Mountain View, CA", "destination": "SAP Center, San Jose, CA", "departureTime": "2026-10-30T15:00:00Z", "routes_returned": 6},
+    "routes_vta.json": {"origin": "Winchester Station, San Jose, CA", "destination": "Santa Teresa Station, San Jose, CA", "departureTime": "2026-10-30T15:00:00Z", "routes_returned": 6},
+    "routes_same_place.json": {"origin": "Civic Center, San Francisco Bay Area, CA", "destination": "Civic Center, San Francisco Bay Area, CA", "departureTime": "2026-10-30T15:00:00Z", "routes_returned": 0, "note": "identical origin and destination: Google returns an empty object, indistinguishable from a no-route answer"},
+    "routes_empty.json": {"note": "same real response as routes_same_place.json: the API's zero-route answer is the empty object {}"}
+  }
+}

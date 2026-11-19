@@ -7,6 +7,10 @@ __pycache__/
 *.zip
 node_modules/
 website/
+# The route assistant image reads these three files (Dockerfile.assistant).
+!website/data/stations_meta.json
+!website/data/stations_ridership.json
+!website/data/forecasts_sarima.json
 Final_eda/
 transit_eda/notebooks/__pycache__/
 .firebase/

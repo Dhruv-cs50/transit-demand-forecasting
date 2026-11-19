@@ -49,6 +49,7 @@ COPY machine_learning_files/ingest_fetch.py          ./machine_learning_files/in
 COPY machine_learning_files/ingest_gate.py           ./machine_learning_files/ingest_gate.py
 COPY machine_learning_files/bart_od_from_xlsx.py     ./machine_learning_files/bart_od_from_xlsx.py
 COPY machine_learning_files/bart_stations.py         ./machine_learning_files/bart_stations.py
+COPY machine_learning_files/caltrain_store.py        ./machine_learning_files/caltrain_store.py
 COPY machine_learning_files/merge_pipeline.py        ./machine_learning_files/merge_pipeline.py
 COPY machine_learning_files/fetch_weather_openmeteo.py ./machine_learning_files/fetch_weather_openmeteo.py
 COPY machine_learning_files/fetch_events.py          ./machine_learning_files/fetch_events.py
@@ -63,6 +64,10 @@ COPY configs/ ./configs/
 
 # The tracked store: the gate's reference. The job reads it, never writes it.
 COPY data/processed/feature_store.parquet ./data/processed/feature_store.parquet
+
+# The committed Caltrain series: the reference the uploaded raw/caltrain CSV is
+# checked against (the job reads it, never writes it).
+COPY data/caltrain/awr_monthly.csv ./data/caltrain/awr_monthly.csv
 
 # Which commit built this image; the job records it in manifest.json.
 ARG GIT_SHA=unknown

@@ -91,6 +91,18 @@ the store's `station_name` column.
       The benchmark leaderboard (evaluation/outputs/benchmark_leaderboard.csv).
       Read by website/sections.jsx and website/charts.jsx.
 
+  caltrain_series.json, caltrain_forecast.json, caltrain_leaderboard.json,
+  caltrain_station_annual.json
+      Only with --caltrain (see export_caltrain()): the Caltrain monthly series
+      from data/processed/caltrain_store.parquet, the test-window forecast of
+      the best model, the window x model table with every window's admission
+      verdict, and the per-station annual table, from
+      models/caltrain/benchmark.py's outputs under evaluation/outputs/caltrain/.
+      Staged in the same all-or-nothing publish: with the flag, a missing or
+      inconsistent Caltrain output publishes nothing. Without it, nothing
+      Caltrain is read and committed caltrain_*.json files are left as they are,
+      so the default export never depends on the gitignored Caltrain outputs.
+
 If the leaderboard does not exist (and --allow-val-fallback is not given),
 the script exits 1 before writing any file.
 
@@ -107,6 +119,7 @@ run this from the repo root after benchmarks.py.
 Usage:
     python scripts/export_website_data.py
     python scripts/export_website_data.py --feature-store data/processed/feature_store_enriched.parquet
+    python scripts/export_website_data.py --caltrain   # after python -m models.caltrain.benchmark
 """
 
 import argparse
@@ -167,6 +180,32 @@ BACKTEST_PUBLISHED_WINDOW = "2025-H2"
 # The config benchmarks.py ran with: which band each model gets, and the
 # Chronos checkpoint the calibrator must have been fitted for.
 CONFIG_PATH = Path("configs/model.yaml")
+
+# ── Caltrain (opt-in, --caltrain) ─────────────────────────────────────────────
+# models/caltrain/benchmark.py's outputs (gitignored) and the tracked inputs.
+CALTRAIN_DIR = Path("evaluation/outputs/caltrain")
+CALTRAIN_STORE_PATH = Path("data/processed/caltrain_store.parquet")
+CALTRAIN_STATIONS_PATH = Path("data/caltrain/station_annual.csv")
+CALTRAIN_CONFIG_PATH = Path("configs/caltrain.yaml")
+CALTRAIN_STATION_ID = "CALTRAIN_SYSTEM"
+# Leaderboard model label prefix (before "_" or " ") -> forecasts_<slug>.parquet,
+# as models/caltrain/benchmark.py names them.
+CALTRAIN_SLUGS = {"SeasonalNaive": "seasonal_naive", "SARIMA": "sarima", "Prophet": "prophet",
+                  "Chronos1": "chronos1"}
+CALTRAIN_FILES = ("caltrain_series.json", "caltrain_forecast.json", "caltrain_leaderboard.json",
+                  "caltrain_station_annual.json")
+# The months each fiscal year's station figure covers, and what it is. Source:
+# data/caltrain/MANIFEST.md, "Basis of each year". 2019 is the 2019 Annual
+# Passenger Count, an onboard census in February 2019 (media 1359); FY2024 is
+# Nov 2023 - Jun 2024 only (the Fare Media Model started in Nov 2023; FY2024
+# report p14, FY2025 report p13); FY2025 and FY2026 are full July-June years of
+# that model. A fiscal year not listed here refuses the export.
+CALTRAIN_STATION_YEARS = {
+    2019: ("2019-02", "2019-02", "count"),
+    2024: ("2023-11", "2024-06", "estimate"),
+    2025: ("2024-07", "2025-06", "estimate"),
+    2026: ("2025-07", "2026-06", "estimate"),
+}
 
 
 def require_leaderboard() -> None:
@@ -1062,6 +1101,172 @@ def export_model_comparison(out_dir: Path) -> None:
     log.info(f"model_comparison.json → {out_dir / 'model_comparison.json'}  ({len(comparison)} models)")
 
 
+def _caltrain_slug(model: str) -> str | None:
+    return CALTRAIN_SLUGS.get(str(model).split(" ")[0].split("_")[0])
+
+
+def export_caltrain(out_dir: Path) -> str | None:
+    """The four caltrain_*.json files (run only with --caltrain).
+
+    Returns the refusal reason (and writes nothing) when any Caltrain output of
+    models/caltrain/benchmark.py or tracked input is missing or inconsistent;
+    main() then publishes nothing. Files:
+
+      caltrain_series.json    [{month, awr, method_period, electrified}], every store row
+      caltrain_forecast.json  {model, window, fit_through, rows: [{month, p10, p50, p90}],
+                              source}: the lowest-WAPE `ok` model on the test window,
+                              refused unless its parquet reproduces that leaderboard row
+      caltrain_leaderboard.json
+                              {windows: [{window, start, end, cutoff, role, admitted,
+                              reason, insufficient_history, usable_months}], rows: [the
+                              leaderboard rows + source + scored_split (the window's
+                              role)], test_window, source, generated_by}. The windows
+                              carry the rejection reasons; rejected windows other than
+                              "insufficient history" have no leaderboard rows.
+      caltrain_station_annual.json
+                              [{fiscal_year, station, avg_midweek_boardings, report_url,
+                              first_month, last_month, basis}]; the period and basis
+                              come from CALTRAIN_STATION_YEARS.
+    Missing values are written as null; the files are strict JSON (allow_nan=False).
+    """
+    def _refuse(reason: str) -> str:
+        log.error(f"Caltrain files NOT written: {reason}")
+        return reason
+
+    leaderboard_path = CALTRAIN_DIR / "leaderboard.csv"
+    windows_path = CALTRAIN_DIR / "windows.csv"
+    needed = [leaderboard_path, windows_path, CALTRAIN_STORE_PATH, CALTRAIN_STATIONS_PATH, CALTRAIN_CONFIG_PATH]
+    needed += [CALTRAIN_DIR / f"forecasts_{slug}.parquet" for slug in CALTRAIN_SLUGS.values()]
+    missing = [str(p) for p in needed if not p.exists()]
+    if missing:
+        return _refuse(f"missing {', '.join(missing)} (run python -m models.caltrain.benchmark)")
+
+    def _num(v, as_int=False):
+        if v is None or pd.isna(v):
+            return None
+        return int(v) if as_int else float(v)
+
+    def _str(v):
+        return None if v is None or pd.isna(v) or v == "" else str(v)
+
+    # ── series ──
+    store = pd.read_parquet(CALTRAIN_STORE_PATH)
+    need = {"timestamp", "station_id", "ridership", "method_period", "electrified"}
+    if not need <= set(store.columns):
+        return _refuse(f"{CALTRAIN_STORE_PATH} lacks columns {sorted(need - set(store.columns))}")
+    store = store[store["station_id"] == CALTRAIN_STATION_ID].copy()
+    store["month"] = pd.to_datetime(store["timestamp"]).dt.strftime("%Y-%m")
+    store = store.sort_values("month")
+    if store.empty or store["month"].duplicated().any():
+        return _refuse(f"{CALTRAIN_STORE_PATH} has no {CALTRAIN_STATION_ID} rows or a month twice")
+    awr = store["ridership"].astype(float)
+    if not (np.isfinite(awr) & (awr == np.round(awr)) & (awr > 0)).all():
+        return _refuse(f"{CALTRAIN_STORE_PATH}: ridership must be a positive whole number in every row")
+    if store["method_period"].isna().any() or not store["electrified"].isin([0, 1]).all():
+        return _refuse(f"{CALTRAIN_STORE_PATH}: method_period missing or electrified not 0/1")
+    series = [{"month": r.month, "awr": int(r.ridership), "method_period": str(r.method_period),
+               "electrified": int(r.electrified)} for r in store.itertuples(index=False)]
+    actual = dict(zip(store["month"], awr))
+
+    # ── windows and leaderboard ──
+    windows = pd.read_csv(windows_path, keep_default_na=True)
+    wneed = ["window", "start", "end", "cutoff", "role", "admitted", "reason", "insufficient_history", "usable_months"]
+    if not set(wneed) <= set(windows.columns):
+        return _refuse(f"{windows_path} lacks columns {sorted(set(wneed) - set(windows.columns))}")
+    test_window = str((yaml.safe_load(CALTRAIN_CONFIG_PATH.read_text()) or {}).get("benchmark", {}).get("test_window"))
+    tests = windows.loc[windows["role"] == "test", "window"].astype(str).tolist()
+    if tests != [test_window]:
+        return _refuse(f"{windows_path} marks {tests} as the test window; {CALTRAIN_CONFIG_PATH} says {test_window}")
+    role = dict(zip(windows["window"].astype(str), windows["role"].astype(str)))
+
+    board = pd.read_csv(leaderboard_path)
+    lneed = ["window", "model", "wape", "mae", "n", "coverage_own_band", "status"]
+    if not set(lneed) <= set(board.columns):
+        return _refuse(f"{leaderboard_path} lacks columns {sorted(set(lneed) - set(board.columns))}")
+    unknown = sorted(set(board["window"].astype(str)) - set(role))
+    if unknown:
+        return _refuse(f"{leaderboard_path} has windows {unknown} that {windows_path} does not list")
+    if any(_caltrain_slug(m) is None for m in board["model"]):
+        return _refuse(f"{leaderboard_path} has a model with no forecasts parquet: {sorted(board['model'].unique())}")
+    source = str(leaderboard_path)
+    rows = [{
+        "window": str(r.window), "model": str(r.model), "wape": _num(r.wape), "mae": _num(r.mae),
+        "n": _num(r.n, True), "coverage_own_band": _num(r.coverage_own_band), "status": str(r.status),
+        "source": source, "scored_split": role[str(r.window)],
+    } for r in board.itertuples(index=False)]
+    window_rows = [{
+        "window": str(w.window), "start": str(w.start), "end": str(w.end), "cutoff": str(w.cutoff),
+        "role": str(w.role), "admitted": bool(w.admitted), "reason": _str(w.reason),
+        "insufficient_history": bool(w.insufficient_history), "usable_months": _num(w.usable_months, True),
+    } for w in windows.itertuples(index=False)]
+
+    # ── forecast: best `ok` model on the test window, checked against its row ──
+    scored = board[(board["window"].astype(str) == test_window) & (board["status"] == "ok") & board["wape"].notna()]
+    if scored.empty:
+        return _refuse(f"{leaderboard_path} has no scored row for the test window {test_window}")
+    best = scored.loc[scored["wape"].idxmin()]
+    win = windows[windows["window"].astype(str) == test_window].iloc[0]
+    months = pd.date_range(f"{win['start']}-01", f"{win['end']}-01", freq="MS").strftime("%Y-%m").tolist()
+    preds = pd.read_parquet(CALTRAIN_DIR / f"forecasts_{_caltrain_slug(best['model'])}.parquet")
+    preds = preds[(preds["window"].astype(str) == test_window) & (preds["model"].astype(str) == str(best["model"]))].copy()
+    preds["month"] = pd.to_datetime(preds["timestamp"]).dt.strftime("%Y-%m")
+    preds = preds.sort_values("month")
+    if preds["month"].tolist() != months:
+        return _refuse(f"{best['model']} {test_window} forecasts cover {preds['month'].tolist()}, the window is {months}")
+    q = preds[["p10", "p50", "p90"]].to_numpy(dtype=float)
+    if not np.isfinite(q).all() or (q[:, 0] > q[:, 1]).any() or (q[:, 1] > q[:, 2]).any():
+        return _refuse(f"{best['model']} {test_window}: p10 <= p50 <= p90 must hold and be finite")
+    if any(m not in actual for m in months):
+        return _refuse(f"{CALTRAIN_STORE_PATH} lacks actuals for {test_window}")
+    y = np.array([actual[m] for m in months])
+    p50 = np.maximum(q[:, 1], 0)
+    for ours, theirs, col in ((round(metric_wape(y, p50), 2), best["wape"], "wape"),
+                              (round(metric_mae(y, p50), 2), best["mae"], "mae"),
+                              (round(coverage(y, q[:, 0], q[:, 2]), 2), best["coverage_own_band"], "coverage_own_band"),
+                              (len(months), best["n"], "n")):
+        if pd.isna(theirs) or float(ours) != float(theirs):
+            return _refuse(f"{best['model']} {test_window}: {col} is {ours} from the forecasts parquet "
+                           f"but {theirs} on {leaderboard_path}")
+    forecast = {
+        "model": str(best["model"]), "window": test_window, "fit_through": str(win["cutoff"]),
+        "rows": [{"month": m, "p10": float(a), "p50": float(b), "p90": float(c)}
+                 for m, (a, b, c) in zip(months, q)],
+        "source": str(CALTRAIN_DIR / f"forecasts_{_caltrain_slug(best['model'])}.parquet"),
+    }
+
+    # ── station table ──
+    st = pd.read_csv(CALTRAIN_STATIONS_PATH)
+    sneed = ["fiscal_year", "station", "avg_midweek_boardings", "report_url"]
+    if not set(sneed) <= set(st.columns) or st[sneed].isna().any().any():
+        return _refuse(f"{CALTRAIN_STATIONS_PATH} lacks columns or has missing values")
+    unknown_fy = sorted(set(int(v) for v in st["fiscal_year"]) - set(CALTRAIN_STATION_YEARS))
+    if unknown_fy:
+        return _refuse(f"{CALTRAIN_STATIONS_PATH}: fiscal years {unknown_fy} have no period in CALTRAIN_STATION_YEARS")
+    stations = []
+    for r in st.itertuples(index=False):
+        first, last, basis = CALTRAIN_STATION_YEARS[int(r.fiscal_year)]
+        stations.append({"fiscal_year": int(r.fiscal_year), "station": str(r.station),
+                         "avg_midweek_boardings": int(r.avg_midweek_boardings), "report_url": str(r.report_url),
+                         "first_month": first, "last_month": last, "basis": basis})
+
+    payloads = {
+        "caltrain_series.json": series,
+        "caltrain_forecast.json": forecast,
+        "caltrain_leaderboard.json": {
+            "windows": window_rows, "rows": rows, "test_window": test_window,
+            "source": source, "generated_by": "models/caltrain/benchmark.py",
+        },
+        "caltrain_station_annual.json": stations,
+    }
+    for name, payload in payloads.items():
+        with open(out_dir / name, "w") as f:
+            json.dump(payload, f, indent=2, allow_nan=False)
+    log.info(f"Caltrain files staged: {len(series)} months; forecast {best['model']} on {test_window} "
+             f"(WAPE {best['wape']}); {len(rows)} leaderboard rows over {len(window_rows)} windows; "
+             f"{len(stations)} station rows")
+    return None
+
+
 def publish_outputs(staging: Path, out_dir: Path) -> list[str]:
     """Move every file in `staging` into `out_dir`, all or none.
 
@@ -1112,6 +1317,14 @@ def main():
              "to a benchmarks.py run; off by default so a missing leaderboard "
              "fails instead of publishing silently.",
     )
+    parser.add_argument(
+        "--caltrain",
+        action="store_true",
+        help="Also export the four caltrain_*.json files from "
+             "models/caltrain/benchmark.py's outputs, in the same all-or-nothing "
+             "publish; a missing Caltrain output then publishes nothing. Off by "
+             "default: without it nothing Caltrain is read or written.",
+    )
     args = parser.parse_args()
 
     global ALLOW_FALLBACK
@@ -1155,6 +1368,7 @@ def main():
             export_prophet_forecasts(staging, df),
             export_seasonal_naive_forecasts(staging, df),
             export_backtest_windows(staging),
+            export_caltrain(staging) if args.caltrain else None,
         ) if r]
         forecasts_refused = "; ".join(refusals) if refusals else None
         export_model_comparison(staging)
@@ -1164,7 +1378,7 @@ def main():
             # prints the deploy command. Nothing is published, so the old
             # forecasts.json is not left beside fresh data.
             log.error(
-                f"A forecasts or backtest file was refused. Reason: {forecasts_refused}. "
+                f"A forecasts, backtest or Caltrain file was refused. Reason: {forecasts_refused}. "
                 f"Nothing was published; {out_dir} is unchanged. Exiting 1."
             )
             raise SystemExit(1)

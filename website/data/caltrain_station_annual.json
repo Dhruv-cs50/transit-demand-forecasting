@@ -1,0 +1,1046 @@
+[
+  {
+    "fiscal_year": 2019,
+    "station": "San Francisco",
+    "avg_midweek_boardings": 15027,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Palo Alto",
+    "avg_midweek_boardings": 7384,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "San Jose Diridon",
+    "avg_midweek_boardings": 4795,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Mountain View",
+    "avg_midweek_boardings": 4560,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Redwood City",
+    "avg_midweek_boardings": 4220,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Hillsdale",
+    "avg_midweek_boardings": 3217,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Sunnyvale",
+    "avg_midweek_boardings": 3208,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Millbrae",
+    "avg_midweek_boardings": 3194,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "San Mateo",
+    "avg_midweek_boardings": 2324,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "22nd Street",
+    "avg_midweek_boardings": 1872,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Menlo Park",
+    "avg_midweek_boardings": 1639,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "California Ave",
+    "avg_midweek_boardings": 1634,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Tamien",
+    "avg_midweek_boardings": 1422,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "San Carlos",
+    "avg_midweek_boardings": 1341,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Burlingame",
+    "avg_midweek_boardings": 1131,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Santa Clara",
+    "avg_midweek_boardings": 1074,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "San Antonio",
+    "avg_midweek_boardings": 1017,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Lawrence",
+    "avg_midweek_boardings": 1004,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "San Bruno",
+    "avg_midweek_boardings": 751,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Belmont",
+    "avg_midweek_boardings": 718,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Hayward Park",
+    "avg_midweek_boardings": 506,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "South San Francisco",
+    "avg_midweek_boardings": 453,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Bayshore",
+    "avg_midweek_boardings": 260,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Morgan Hill",
+    "avg_midweek_boardings": 251,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Gilroy",
+    "avg_midweek_boardings": 187,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Blossom Hill",
+    "avg_midweek_boardings": 159,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "College Park",
+    "avg_midweek_boardings": 103,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "San Martin",
+    "avg_midweek_boardings": 84,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2019,
+    "station": "Capitol",
+    "avg_midweek_boardings": 71,
+    "report_url": "https://www.caltrain.com/media/1359/download",
+    "first_month": "2019-02",
+    "last_month": "2019-02",
+    "basis": "count"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "San Francisco",
+    "avg_midweek_boardings": 4803,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Palo Alto",
+    "avg_midweek_boardings": 2889,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Mountain View",
+    "avg_midweek_boardings": 1703,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Redwood City",
+    "avg_midweek_boardings": 1624,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "San Jose Diridon",
+    "avg_midweek_boardings": 1547,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Millbrae",
+    "avg_midweek_boardings": 1222,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Hillsdale",
+    "avg_midweek_boardings": 1212,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Sunnyvale",
+    "avg_midweek_boardings": 1140,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "San Mateo",
+    "avg_midweek_boardings": 914,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "22nd Street",
+    "avg_midweek_boardings": 854,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Menlo Park",
+    "avg_midweek_boardings": 646,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Santa Clara",
+    "avg_midweek_boardings": 595,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Lawrence",
+    "avg_midweek_boardings": 513,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Burlingame",
+    "avg_midweek_boardings": 474,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "San Carlos",
+    "avg_midweek_boardings": 471,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "California Ave",
+    "avg_midweek_boardings": 458,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Belmont",
+    "avg_midweek_boardings": 454,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "South San Francisco",
+    "avg_midweek_boardings": 418,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "San Antonio",
+    "avg_midweek_boardings": 414,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "San Bruno",
+    "avg_midweek_boardings": 233,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Hayward Park",
+    "avg_midweek_boardings": 225,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Tamien",
+    "avg_midweek_boardings": 211,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Morgan Hill",
+    "avg_midweek_boardings": 100,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Bayshore",
+    "avg_midweek_boardings": 95,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Gilroy",
+    "avg_midweek_boardings": 95,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Blossom Hill",
+    "avg_midweek_boardings": 57,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "College Park",
+    "avg_midweek_boardings": 43,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "Capitol",
+    "avg_midweek_boardings": 38,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2024,
+    "station": "San Martin",
+    "avg_midweek_boardings": 29,
+    "report_url": "https://www.caltrain.com/media/34265/download",
+    "first_month": "2023-11",
+    "last_month": "2024-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "San Francisco",
+    "avg_midweek_boardings": 6874,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Palo Alto",
+    "avg_midweek_boardings": 3603,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Mountain View",
+    "avg_midweek_boardings": 2288,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "San Jose Diridon",
+    "avg_midweek_boardings": 2136,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Redwood City",
+    "avg_midweek_boardings": 2111,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Sunnyvale",
+    "avg_midweek_boardings": 1770,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Hillsdale",
+    "avg_midweek_boardings": 1596,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Millbrae",
+    "avg_midweek_boardings": 1489,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "San Mateo",
+    "avg_midweek_boardings": 1270,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "22nd Street",
+    "avg_midweek_boardings": 1261,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Menlo Park",
+    "avg_midweek_boardings": 863,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Santa Clara",
+    "avg_midweek_boardings": 839,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "California Ave",
+    "avg_midweek_boardings": 817,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "South San Francisco",
+    "avg_midweek_boardings": 692,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Lawrence",
+    "avg_midweek_boardings": 686,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "San Antonio",
+    "avg_midweek_boardings": 655,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Belmont",
+    "avg_midweek_boardings": 654,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "San Carlos",
+    "avg_midweek_boardings": 644,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Burlingame",
+    "avg_midweek_boardings": 620,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "San Bruno",
+    "avg_midweek_boardings": 377,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Hayward Park",
+    "avg_midweek_boardings": 366,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Tamien",
+    "avg_midweek_boardings": 243,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Bayshore",
+    "avg_midweek_boardings": 168,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Morgan Hill",
+    "avg_midweek_boardings": 130,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Gilroy",
+    "avg_midweek_boardings": 110,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Blossom Hill",
+    "avg_midweek_boardings": 71,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "Capitol",
+    "avg_midweek_boardings": 49,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "College Park",
+    "avg_midweek_boardings": 41,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2025,
+    "station": "San Martin",
+    "avg_midweek_boardings": 25,
+    "report_url": "https://www.caltrain.com/media/35885/download",
+    "first_month": "2024-07",
+    "last_month": "2025-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "San Francisco",
+    "avg_midweek_boardings": 9714,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Palo Alto",
+    "avg_midweek_boardings": 4486,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Mountain View",
+    "avg_midweek_boardings": 3048,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "San Jose Diridon",
+    "avg_midweek_boardings": 2936,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Redwood City",
+    "avg_midweek_boardings": 2732,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Sunnyvale",
+    "avg_midweek_boardings": 2484,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Hillsdale",
+    "avg_midweek_boardings": 2215,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Millbrae",
+    "avg_midweek_boardings": 1921,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "22nd Street",
+    "avg_midweek_boardings": 1800,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "San Mateo",
+    "avg_midweek_boardings": 1720,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Santa Clara",
+    "avg_midweek_boardings": 1215,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "California Ave",
+    "avg_midweek_boardings": 1201,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Menlo Park",
+    "avg_midweek_boardings": 1116,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "South San Francisco",
+    "avg_midweek_boardings": 1050,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Lawrence",
+    "avg_midweek_boardings": 1026,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "San Antonio",
+    "avg_midweek_boardings": 954,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Burlingame",
+    "avg_midweek_boardings": 901,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "San Carlos",
+    "avg_midweek_boardings": 885,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Belmont",
+    "avg_midweek_boardings": 883,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Hayward Park",
+    "avg_midweek_boardings": 518,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "San Bruno",
+    "avg_midweek_boardings": 517,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Bayshore",
+    "avg_midweek_boardings": 257,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Morgan Hill",
+    "avg_midweek_boardings": 155,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Tamien",
+    "avg_midweek_boardings": 153,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Gilroy",
+    "avg_midweek_boardings": 139,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Blossom Hill",
+    "avg_midweek_boardings": 94,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "Capitol",
+    "avg_midweek_boardings": 56,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "College Park",
+    "avg_midweek_boardings": 45,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  },
+  {
+    "fiscal_year": 2026,
+    "station": "San Martin",
+    "avg_midweek_boardings": 41,
+    "report_url": "https://www.caltrain.com/media/37931/download",
+    "first_month": "2025-07",
+    "last_month": "2026-06",
+    "basis": "estimate"
+  }
+]

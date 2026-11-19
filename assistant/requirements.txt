@@ -1,0 +1,9 @@
+# Runtime pins for the route assistant (Python 3.11). Kept separate from the
+# API's pins (Dockerfile.api / requirements-lock.txt), which this does not touch.
+# Test-only tools are in requirements-dev.txt.
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+google-genai==2.34.0
+gtfs-realtime-bindings==3.0.0
+pydantic==2.14.1

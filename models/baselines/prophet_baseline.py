@@ -60,9 +60,15 @@ def fit_station(
     station_df: pd.DataFrame,
     station_id: str,
     cfg: dict,
+    regressors: list[str] | None = None,
 ) -> tuple:
     """
     Fit a Prophet model for a single station.
+
+    regressors: optional columns of `station_df`, added as Prophet regressors
+    (the Caltrain benchmark passes its 0/1 step columns). None, the default, is
+    the regressor-free fit above, unchanged. The caller must pass the same
+    columns to predict_station(future_regressors=...).
 
     No external regressors: on the month-start BART target they cost 23 WAPE
     points (15.9% -> 39.1% on the test window), measured against the rebuilt
@@ -129,7 +135,11 @@ def fit_station(
     if seed is not None:
         np.random.seed(int(seed))
 
-    model.fit(train[["ds", "y"]])
+    regressors = list(regressors) if regressors else []
+    for col in regressors:
+        model.add_regressor(col)
+
+    model.fit(train[["ds", "y"] + regressors])
     return model, train
 
 
@@ -138,16 +148,31 @@ def predict_station(
     horizon_steps: int,
     last_ds: pd.Timestamp,
     freq: str,
+    future_regressors: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Run Prophet prediction for `horizon_steps` steps beyond `last_ds`.
+
+    future_regressors: required when the model was fitted with regressors:
+    exactly `horizon_steps` rows indexed by the forecast months, one column per
+    regressor.
     """
     future_dates = pd.date_range(
         start=last_ds + pd.tseries.frequencies.to_offset(freq),
         periods=horizon_steps,
         freq=freq,
     )
-    forecast = model.predict(pd.DataFrame({"ds": future_dates}))
+    future = pd.DataFrame({"ds": future_dates})
+    if future_regressors is not None:
+        reg = pd.DataFrame(future_regressors)
+        if len(reg) != horizon_steps or not reg.index.equals(future_dates):
+            raise ValueError(
+                f"future regressors are indexed by {list(reg.index)}; expected the "
+                f"forecast months {list(future_dates)}"
+            )
+        for col in reg.columns:
+            future[col] = reg[col].to_numpy(dtype=float)
+    forecast = model.predict(future)
 
     # Build output with P10/P50/P90
     result = pd.DataFrame({
